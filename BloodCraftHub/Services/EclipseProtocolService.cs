@@ -138,33 +138,135 @@ public static class EclipseProtocolService
 
     private static void HandleProgressMessage(string csv)
     {
-        // Field layout per Eclipse-main DataService.ParsePlayerData (v1.3.13):
-        //   [0..3]   Experience: progressPercent, level, prestige, classId
-        //   [4..8]   Legacy:     progressPercent, level, prestige, legacyType, bonusStats
-        //   [9..13]  Expertise:  progressPercent, level, prestige, expertiseType, bonusStats
-        //   [14..18] Familiar:   progressPercent, level, prestige, familiarName, familiarStats
-        //   [19..34] Profession: 8 professions x (progressPercent, level) pairs
-        //   [35..39] Daily quest: type, progress, goal, target, isVBlood
-        //   [40..44] Weekly quest: type, progress, goal, target, isVBlood
-        //   [45]     Shift spell index
+        // Field layout per Eclipse-main DataService.ParsePlayerData (Bloodcraft v1.3.x):
+        //   [0..3]   Experience: progressPercent, level, prestige, classId          (4)
+        //   [4..8]   Legacy:     progressPercent, level, prestige, type, bonusStats  (5)
+        //   [9..13]  Expertise:  progressPercent, level, prestige, type, bonusStats  (5)
+        //   [14..18] Familiar:   progressPercent, level, prestige, name, packedStats (5)
+        //   [19..34] Profession: 8 professions x (progressPercent, level)           (16)
+        //   [35..39] Daily quest: type, progress, goal, target, isVBlood             (5)
+        //   [40..44] Weekly quest: type, progress, goal, target, isVBlood            (5)
+        //   [45]     Shift spell PrefabGUID                                          (1)
+        //   Total: 46 fields.
         //
-        // We only consume the experience fields right now; the rest is captured in
-        // PlayerStateService as we wire more overlays/tabs in later phases.
-        var parts = csv.Split(',');
-        if (parts.Length < 4)
+        // Defensive parsing: each subsection only fires if its fields are present.
+        // Bloodcraft may add fields in future versions - we won't crash on a longer
+        // payload, just on a shorter one.
+        var p = csv.Split(',');
+        int n = p.Length;
+
+        if (n < 4)
         {
-            LogUtils.LogWarning($"Eclipse: ProgressToClient payload too short ({parts.Length} fields).");
+            LogUtils.LogWarning($"Eclipse: ProgressToClient payload too short ({n} fields).");
             return;
         }
 
-        var exp = new PlayerStateService.ExperienceState
+        // [0..3] Experience
+        PlayerStateService.UpdateExperience(new PlayerStateService.ExperienceState
         {
-            Progress = PlayerStateService.ParseProgress(parts[0]),
-            Level    = PlayerStateService.ParseInt(parts[1]),
-            Prestige = PlayerStateService.ParseInt(parts[2]),
-            Class    = (PlayerStateService.PlayerClass)PlayerStateService.ParseInt(parts[3]),
-        };
-        PlayerStateService.UpdateExperience(exp);
+            Progress = PlayerStateService.ParseProgress(p[0]),
+            Level    = PlayerStateService.ParseInt(p[1]),
+            Prestige = PlayerStateService.ParseInt(p[2]),
+            Class    = (PlayerStateService.PlayerClass)PlayerStateService.ParseInt(p[3]),
+        });
+
+        // [4..8] Legacy
+        if (n >= 9)
+        {
+            PlayerStateService.UpdateLegacy(new PlayerStateService.LegacyState
+            {
+                Progress      = PlayerStateService.ParseProgress(p[4]),
+                Level         = PlayerStateService.ParseInt(p[5]),
+                Prestige      = PlayerStateService.ParseInt(p[6]),
+                Type          = (PlayerStateService.BloodType)PlayerStateService.ParseInt(p[7]),
+                BonusStatsRaw = p[8],
+            });
+        }
+
+        // [9..13] Expertise
+        if (n >= 14)
+        {
+            PlayerStateService.UpdateExpertise(new PlayerStateService.ExpertiseState
+            {
+                Progress      = PlayerStateService.ParseProgress(p[9]),
+                Level         = PlayerStateService.ParseInt(p[10]),
+                Prestige      = PlayerStateService.ParseInt(p[11]),
+                Type          = (PlayerStateService.WeaponType)PlayerStateService.ParseInt(p[12]),
+                BonusStatsRaw = p[13],
+            });
+        }
+
+        // [14..18] Familiar
+        if (n >= 19)
+        {
+            PlayerStateService.UpdateFamiliar(new PlayerStateService.FamiliarState
+            {
+                Progress = PlayerStateService.ParseProgress(p[14]),
+                Level    = Math.Max(1, PlayerStateService.ParseInt(p[15])),
+                Prestige = PlayerStateService.ParseInt(p[16]),
+                Name     = string.IsNullOrEmpty(p[17]) ? "Familiar" : p[17],
+                RawStats = p[18] ?? string.Empty,
+            });
+        }
+
+        // [19..34] Profession (8 x 2)
+        if (n >= 35)
+        {
+            PlayerStateService.UpdateProfession(new PlayerStateService.ProfessionState
+            {
+                EnchantingProgress    = PlayerStateService.ParseProgress(p[19]),
+                EnchantingLevel       = PlayerStateService.ParseInt(p[20]),
+                AlchemyProgress       = PlayerStateService.ParseProgress(p[21]),
+                AlchemyLevel          = PlayerStateService.ParseInt(p[22]),
+                HarvestingProgress    = PlayerStateService.ParseProgress(p[23]),
+                HarvestingLevel       = PlayerStateService.ParseInt(p[24]),
+                BlacksmithingProgress = PlayerStateService.ParseProgress(p[25]),
+                BlacksmithingLevel    = PlayerStateService.ParseInt(p[26]),
+                TailoringProgress     = PlayerStateService.ParseProgress(p[27]),
+                TailoringLevel        = PlayerStateService.ParseInt(p[28]),
+                WoodcuttingProgress   = PlayerStateService.ParseProgress(p[29]),
+                WoodcuttingLevel      = PlayerStateService.ParseInt(p[30]),
+                MiningProgress        = PlayerStateService.ParseProgress(p[31]),
+                MiningLevel           = PlayerStateService.ParseInt(p[32]),
+                FishingProgress       = PlayerStateService.ParseProgress(p[33]),
+                FishingLevel          = PlayerStateService.ParseInt(p[34]),
+            });
+        }
+
+        // [35..39] Daily quest
+        if (n >= 40)
+        {
+            PlayerStateService.UpdateDailyQuest(new PlayerStateService.QuestState
+            {
+                Target     = (PlayerStateService.TargetType)PlayerStateService.ParseInt(p[35]),
+                Progress   = PlayerStateService.ParseInt(p[36]),
+                Goal       = PlayerStateService.ParseInt(p[37]),
+                TargetName = p[38] ?? string.Empty,
+                IsVBlood   = PlayerStateService.ParseBool(p[39]),
+            });
+        }
+
+        // [40..44] Weekly quest
+        if (n >= 45)
+        {
+            PlayerStateService.UpdateWeeklyQuest(new PlayerStateService.QuestState
+            {
+                Target     = (PlayerStateService.TargetType)PlayerStateService.ParseInt(p[40]),
+                Progress   = PlayerStateService.ParseInt(p[41]),
+                Goal       = PlayerStateService.ParseInt(p[42]),
+                TargetName = p[43] ?? string.Empty,
+                IsVBlood   = PlayerStateService.ParseBool(p[44]),
+            });
+        }
+
+        // [45] Shift spell PrefabGUID
+        if (n >= 46)
+        {
+            PlayerStateService.UpdateShiftSpell(new PlayerStateService.ShiftSpellState
+            {
+                SpellIndex = PlayerStateService.ParseInt(p[45]),
+            });
+        }
     }
 
     private static void HandleConfigMessage(string csv)

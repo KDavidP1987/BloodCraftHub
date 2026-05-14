@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using BloodCraftHub.Config;
 using BloodCraftHub.Services;
@@ -14,24 +15,10 @@ using UIBase = BloodCraftHub.UI.Framework.UniverseLib.UI.UIBase;
 
 namespace BloodCraftHub.UI.ModContent;
 
-// The primary tabbed UI. Layout:
-//
-//   +-------------------------------------+
-//   | Title bar / close                   |
-//   +----------+--------------------------+
-//   | Familiars|                          |
-//   | Boxes    |   <active tab content>   |
-//   | Class    |                          |
-//   | Expertise|                          |
-//   | Unarmed  |                          |
-//   | Admin    |                          |
-//   +----------+--------------------------+
-//   | [ ] XP overlay   [ ] Familiar overl.|
-//   +-------------------------------------+
-//
-// Tabs are GameObjects under the content area. Switching tabs just SetActive's
-// the right one. Real per-tab content gets filled in during Phase 4; for now
-// each tab is just a label so the routing is visible.
+// The primary tabbed UI. See the matching ASCII diagram in docs/MOD_DESIGN.md
+// for the layout. Each tab's body is built by a dedicated BuildXxxTab method
+// dispatched in BuildContentArea; tabs that need live data subscribe to
+// PlayerStateService events and unsubscribe in Reset.
 public class MainPanel : ResizeablePanelBase
 {
     public override string PanelId => "MainPanel";
@@ -48,7 +35,7 @@ public class MainPanel : ResizeablePanelBase
     public override bool CanDrag => true;
     public override PanelDragger.ResizeTypes CanResize => PanelDragger.ResizeTypes.All;
     public override float Opacity => Settings.UITransparency;
-    public override bool ResizeWholePanel => false; // we want a real title bar to drag from
+    public override bool ResizeWholePanel => false;
 
     public PanelType ActiveTab { get; private set; } = PanelType.FamiliarsTab;
 
@@ -56,6 +43,12 @@ public class MainPanel : ResizeablePanelBase
     private readonly Dictionary<PanelType, ButtonRef> _tabButtons = new();
     private Toggle _xpOverlayToggle;
     private Toggle _famOverlayToggle;
+
+    // Familiars-tab live labels
+    private TextMeshProUGUI _famNameLabel;
+    private TextMeshProUGUI _famProgressLabel;
+    private TextMeshProUGUI _famStatsLabel;
+    private bool _famSubscribed;
 
     private static readonly (PanelType Tab, string Label)[] Tabs =
     {
@@ -71,7 +64,6 @@ public class MainPanel : ResizeablePanelBase
 
     protected override void ConstructPanelContent()
     {
-        // ----- Top-level vertical split: body row + footer toggle row -----
         var body = UIFactory.CreateHorizontalGroup(ContentRoot, "Body",
             forceExpandWidth: true, forceExpandHeight: true,
             childControlWidth: true, childControlHeight: true,
@@ -82,9 +74,12 @@ public class MainPanel : ResizeablePanelBase
         BuildContentArea(body);
         BuildOverlayFooter(ContentRoot);
 
-        // Default visible tab.
         ShowTab(ActiveTab);
     }
+
+    // -----------------------------------------------------------------------
+    // Tab strip (left rail)
+    // -----------------------------------------------------------------------
 
     private void BuildTabStrip(GameObject parent)
     {
@@ -104,69 +99,206 @@ public class MainPanel : ResizeablePanelBase
         }
     }
 
+    // -----------------------------------------------------------------------
+    // Tab content area (right side) - dispatches per-tab builders
+    // -----------------------------------------------------------------------
+
     private void BuildContentArea(GameObject parent)
     {
         var content = UIFactory.CreateVerticalGroup(parent, "TabContent",
             forceWidth: true, forceHeight: true,
             childControlWidth: true, childControlHeight: true,
             spacing: 4, padding: new Vector4(6, 6, 6, 6));
-        UIFactory.SetLayoutElement(content, flexibleWidth: 1, flexibleHeight: 1);
+        UIFactory.SetLayoutElement(content,
+            minWidth: 380, preferredWidth: 420, flexibleWidth: 1,
+            minHeight: 280, preferredHeight: 320, flexibleHeight: 1);
 
         foreach (var (tab, label) in Tabs)
         {
-            var page = UIFactory.CreateVerticalGroup(content, $"Tab_{tab}",
-                forceWidth: true, forceHeight: true,
-                childControlWidth: true, childControlHeight: true,
-                spacing: 6, padding: new Vector4(8, 8, 8, 8));
-            UIFactory.SetLayoutElement(page,
-                minWidth: 380, preferredWidth: 420, flexibleWidth: 1,
-                minHeight: 280, preferredHeight: 320, flexibleHeight: 1);
+            var page = CreateTabPage(content);
+            AddTabHeading(page, label);
 
-            var heading = UIFactory.CreateLabel(page, "TabHeading", label,
-                TextAlignmentOptions.TopLeft, color: null, fontSize: 20);
-            UIFactory.SetLayoutElement(heading.GameObject,
-                minWidth: 360, preferredWidth: 400, flexibleWidth: 1,
-                minHeight: 28, preferredHeight: 30, flexibleHeight: 0);
-            heading.TextMesh.fontStyle = FontStyles.Bold;
-            heading.TextMesh.enableWordWrapping = false;
-            heading.TextMesh.overflowMode = TextOverflowModes.Overflow;
-
-            var placeholder = UIFactory.CreateLabel(page, "Placeholder",
-                "Coming soon — this tab will surface the matching Bloodcraft commands.",
-                TextAlignmentOptions.TopLeft, color: null, fontSize: 14);
-            UIFactory.SetLayoutElement(placeholder.GameObject,
-                minWidth: 360, preferredWidth: 400, flexibleWidth: 1,
-                minHeight: 40, preferredHeight: 80, flexibleHeight: 0);
-            placeholder.TextMesh.enableWordWrapping = true;
-            placeholder.TextMesh.overflowMode = TextOverflowModes.Overflow;
-
-            // Phase 3a smoke-test: a single button that exercises the outbound queue.
-            // Will be replaced by real per-tab UI in Phase 4.
-            if (tab == PanelType.FamiliarsTab)
-                AddOutboundTestButton(page);
+            switch (tab)
+            {
+                case PanelType.FamiliarsTab:
+                    BuildFamiliarsTab(page);
+                    break;
+                default:
+                    AddComingSoonBody(page, label);
+                    break;
+            }
 
             page.SetActive(false);
             _tabContent[tab] = page;
         }
     }
 
-    private static void AddOutboundTestButton(GameObject parent)
+    private GameObject CreateTabPage(GameObject parent)
     {
-        var b = UIFactory.CreateButton(parent, "TestSendFamBoxes", "Send: " + MessageService.BCCOM_FAM_BOXES);
-        UIFactory.SetLayoutElement(b.GameObject,
+        var page = UIFactory.CreateVerticalGroup(parent, "TabPage",
+            forceWidth: true, forceHeight: true,
+            childControlWidth: true, childControlHeight: true,
+            spacing: 6, padding: new Vector4(8, 8, 8, 8));
+        UIFactory.SetLayoutElement(page,
+            minWidth: 380, preferredWidth: 420, flexibleWidth: 1,
+            minHeight: 280, preferredHeight: 320, flexibleHeight: 1);
+        return page;
+    }
+
+    private static void AddTabHeading(GameObject page, string text)
+    {
+        var heading = UIFactory.CreateLabel(page, "TabHeading", text,
+            TextAlignmentOptions.TopLeft, color: null, fontSize: 20);
+        UIFactory.SetLayoutElement(heading.GameObject,
+            minWidth: 360, preferredWidth: 400, flexibleWidth: 1,
+            minHeight: 28, preferredHeight: 30, flexibleHeight: 0);
+        heading.TextMesh.fontStyle = FontStyles.Bold;
+        heading.TextMesh.enableWordWrapping = false;
+        heading.TextMesh.overflowMode = TextOverflowModes.Overflow;
+    }
+
+    private static void AddComingSoonBody(GameObject page, string label)
+    {
+        var placeholder = UIFactory.CreateLabel(page, "Placeholder",
+            "Coming soon — this tab will surface the matching Bloodcraft commands.",
+            TextAlignmentOptions.TopLeft, color: null, fontSize: 14);
+        UIFactory.SetLayoutElement(placeholder.GameObject,
+            minWidth: 360, preferredWidth: 400, flexibleWidth: 1,
+            minHeight: 40, preferredHeight: 80, flexibleHeight: 0);
+        placeholder.TextMesh.enableWordWrapping = true;
+        placeholder.TextMesh.overflowMode = TextOverflowModes.Overflow;
+    }
+
+    // -----------------------------------------------------------------------
+    // Familiars tab
+    // -----------------------------------------------------------------------
+
+    private void BuildFamiliarsTab(GameObject page)
+    {
+        AddSectionHeading(page, "Active Familiar");
+
+        _famNameLabel     = AddInfoLabel(page, "FamName",     "—", FontStyles.Bold,   fontSize: 18);
+        _famProgressLabel = AddInfoLabel(page, "FamProgress", "Level — ", FontStyles.Normal, fontSize: 14);
+        _famStatsLabel    = AddInfoLabel(page, "FamStats",    "HP —  PP —  SP —", FontStyles.Normal, fontSize: 14);
+
+        AddSpacer(page, 4);
+        AddSectionHeading(page, "Actions");
+
+        var actions = UIFactory.CreateHorizontalGroup(page, "FamActions",
+            forceExpandWidth: true, forceExpandHeight: false,
+            childControlWidth: false, childControlHeight: true,
+            spacing: 6, padding: new Vector4(0, 0, 0, 0));
+        UIFactory.SetLayoutElement(actions,
+            minWidth: 360, preferredWidth: 400, flexibleWidth: 1,
+            minHeight: 32, preferredHeight: 32, flexibleHeight: 0);
+        AddCommandButton(actions, "Unbind",   MessageService.BCCOM_FAM_UNBIND);
+        AddCommandButton(actions, "Toggle",   MessageService.BCCOM_FAM_TOGGLE);
+        AddCommandButton(actions, "Combat",   MessageService.BCCOM_FAM_COMBAT);
+        AddCommandButton(actions, "Prestige", MessageService.BCCOM_FAM_PRESTIGE);
+
+        AddSpacer(page, 4);
+        AddSectionHeading(page, "Box browsing");
+
+        var note = UIFactory.CreateLabel(page, "BoxNote",
+            "Full box browser arrives in the next phase. For now, use the button below to request the list — the response lands in your chat window.",
+            TextAlignmentOptions.TopLeft, color: null, fontSize: 12);
+        UIFactory.SetLayoutElement(note.GameObject,
+            minWidth: 360, preferredWidth: 400, flexibleWidth: 1,
+            minHeight: 40, preferredHeight: 50, flexibleHeight: 0);
+        note.TextMesh.enableWordWrapping = true;
+        note.TextMesh.overflowMode = TextOverflowModes.Overflow;
+
+        var boxesBtn = UIFactory.CreateButton(page, "GetBoxesBtn",
+            $"Request: {MessageService.BCCOM_FAM_BOXES}");
+        UIFactory.SetLayoutElement(boxesBtn.GameObject,
             minWidth: 240, preferredWidth: 260, flexibleWidth: 0,
             minHeight: 28, preferredHeight: 30, flexibleHeight: 0);
-        b.OnClick = () =>
+        boxesBtn.OnClick = () => EnqueueOrWarn(MessageService.BCCOM_FAM_BOXES);
+
+        RenderFamiliar(PlayerStateService.Familiar);
+        if (!_famSubscribed)
         {
-            if (!MessageService.IsInitialized)
-            {
-                LogUtils.LogWarning("MessageService not yet initialized — try again once your character is in-world.");
-                return;
-            }
-            MessageService.EnqueueMessage(MessageService.BCCOM_FAM_BOXES);
-            LogUtils.LogInfo($"Enqueued outbound: {MessageService.BCCOM_FAM_BOXES}");
-        };
+            PlayerStateService.FamiliarChanged += OnFamiliarChanged;
+            _famSubscribed = true;
+        }
     }
+
+    private void OnFamiliarChanged() => RenderFamiliar(PlayerStateService.Familiar);
+
+    private void RenderFamiliar(PlayerStateService.FamiliarState s)
+    {
+        if (_famNameLabel == null) return;
+        _famNameLabel.text = string.IsNullOrEmpty(s.Name) ? "(no familiar bound)" : s.Name;
+
+        bool active = s.Level > 0 || !string.IsNullOrEmpty(s.Name);
+        _famProgressLabel.text = active
+            ? (s.Prestige > 0
+                ? $"Level {s.Level}   ({s.Progress * 100f:0.#}%)   Prestige {s.Prestige}"
+                : $"Level {s.Level}   ({s.Progress * 100f:0.#}%)")
+            : "—";
+
+        _famStatsLabel.text = active
+            ? $"HP {s.MaxHealth}   PP {s.PhysicalPower}   SP {s.SpellPower}"
+            : "HP —   PP —   SP —";
+    }
+
+    // -----------------------------------------------------------------------
+    // Small UI helpers (label rows, command buttons, section headings)
+    // -----------------------------------------------------------------------
+
+    private static TextMeshProUGUI AddInfoLabel(GameObject parent, string name, string initialText, FontStyles style, int fontSize)
+    {
+        var lbl = UIFactory.CreateLabel(parent, name, initialText,
+            TextAlignmentOptions.MidlineLeft, color: null, fontSize: fontSize);
+        UIFactory.SetLayoutElement(lbl.GameObject,
+            minWidth: 360, preferredWidth: 400, flexibleWidth: 1,
+            minHeight: 24, preferredHeight: 26, flexibleHeight: 0);
+        lbl.TextMesh.fontStyle = style;
+        lbl.TextMesh.enableWordWrapping = false;
+        lbl.TextMesh.overflowMode = TextOverflowModes.Overflow;
+        return lbl.TextMesh;
+    }
+
+    private static void AddSectionHeading(GameObject parent, string text)
+    {
+        var lbl = UIFactory.CreateLabel(parent, $"Section_{text}", text,
+            TextAlignmentOptions.MidlineLeft, color: null, fontSize: 14);
+        UIFactory.SetLayoutElement(lbl.GameObject,
+            minWidth: 360, preferredWidth: 400, flexibleWidth: 1,
+            minHeight: 20, preferredHeight: 22, flexibleHeight: 0);
+        lbl.TextMesh.fontStyle = FontStyles.Bold | FontStyles.Italic;
+        lbl.TextMesh.enableWordWrapping = false;
+    }
+
+    private static void AddSpacer(GameObject parent, int height)
+    {
+        var spacer = UIFactory.CreateUIObject("Spacer", parent);
+        UIFactory.SetLayoutElement(spacer, minHeight: height, preferredHeight: height, flexibleHeight: 0, flexibleWidth: 1);
+    }
+
+    private static void AddCommandButton(GameObject parent, string label, string command)
+    {
+        var b = UIFactory.CreateButton(parent, $"Cmd_{label}", label);
+        UIFactory.SetLayoutElement(b.GameObject,
+            minWidth: 80, preferredWidth: 90, flexibleWidth: 0,
+            minHeight: 28, preferredHeight: 30, flexibleHeight: 0);
+        b.OnClick = () => EnqueueOrWarn(command);
+    }
+
+    private static void EnqueueOrWarn(string command)
+    {
+        if (!MessageService.IsInitialized)
+        {
+            LogUtils.LogWarning($"Cannot send '{command}' — MessageService not yet bound to character/user.");
+            return;
+        }
+        MessageService.EnqueueMessage(command);
+        LogUtils.LogInfo($"Enqueued outbound: {command}");
+    }
+
+    // -----------------------------------------------------------------------
+    // Overlay-toggle footer
+    // -----------------------------------------------------------------------
 
     private void BuildOverlayFooter(GameObject parent)
     {
@@ -176,7 +308,7 @@ public class MainPanel : ResizeablePanelBase
             spacing: 12, padding: new Vector4(8, 8, 4, 4));
         UIFactory.SetLayoutElement(footer, minHeight: 32, flexibleHeight: 0, flexibleWidth: 1);
 
-        _xpOverlayToggle = AddOverlayToggle(footer, "XP overlay", PanelType.ExperienceOverlay);
+        _xpOverlayToggle  = AddOverlayToggle(footer, "XP overlay",       PanelType.ExperienceOverlay);
         _famOverlayToggle = AddOverlayToggle(footer, "Familiar overlay", PanelType.FamiliarOverlay);
     }
 
@@ -189,9 +321,6 @@ public class MainPanel : ResizeablePanelBase
 
         t.Text.text = label;
         t.Text.fontSize = 14;
-        // CreateToggle gives the inner label minWidth:0/flexibleWidth:0, which collapses
-        // TMP to a 1-char column and word-wraps every glyph. Force a real width and
-        // disable wrap so "XP overlay" renders left-to-right on one line.
         t.Text.enableWordWrapping = false;
         t.Text.overflowMode = TextOverflowModes.Overflow;
         t.Text.alignment = TextAlignmentOptions.MidlineLeft;
@@ -204,6 +333,10 @@ public class MainPanel : ResizeablePanelBase
         return t.Toggle;
     }
 
+    // -----------------------------------------------------------------------
+    // Tab switching
+    // -----------------------------------------------------------------------
+
     public void ShowTab(PanelType tab)
     {
         if (!_tabContent.ContainsKey(tab)) return;
@@ -211,5 +344,12 @@ public class MainPanel : ResizeablePanelBase
         ActiveTab = tab;
     }
 
-    internal override void Reset() { /* nothing for now */ }
+    internal override void Reset()
+    {
+        if (_famSubscribed)
+        {
+            PlayerStateService.FamiliarChanged -= OnFamiliarChanged;
+            _famSubscribed = false;
+        }
+    }
 }
