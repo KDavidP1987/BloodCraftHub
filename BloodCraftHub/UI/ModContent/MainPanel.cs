@@ -69,8 +69,12 @@ public class MainPanel : ResizeablePanelBase
 
     // Boxes-tab live state
     private TextMeshProUGUI _boxesActiveBoxLabel;
-    private GameObject _boxesListContainer;
-    private GameObject _boxesContentContainer;
+    private TextMeshProUGUI _boxesContentHeading;
+    private GameObject _boxesPickerSection;       // parent wrapping picker heading + list
+    private GameObject _boxesContentSection;      // parent wrapping content heading + list
+    private GameObject _boxesListContainer;       // box-name buttons go here
+    private GameObject _boxesContentContainer;    // familiar-name buttons go here
+    private bool _boxesShowingContents;
     private bool _boxesSubscribed;
 
     private static readonly (PanelType Tab, string Label)[] Tabs =
@@ -224,7 +228,7 @@ public class MainPanel : ResizeablePanelBase
 
         var actions = UIFactory.CreateHorizontalGroup(page, "FamActions",
             forceExpandWidth: true, forceExpandHeight: false,
-            childControlWidth: false, childControlHeight: true,
+            childControlWidth: true, childControlHeight: true,
             spacing: 6, padding: new Vector4(0, 0, 0, 0));
         UIFactory.SetLayoutElement(actions,
             minWidth: 360, preferredWidth: 400, flexibleWidth: 1,
@@ -235,23 +239,14 @@ public class MainPanel : ResizeablePanelBase
         AddCommandButton(actions, "Prestige", MessageService.BCCOM_FAM_PRESTIGE);
 
         AddSpacer(page, 4);
-        AddSectionHeading(page, "Box browsing");
-
-        var note = UIFactory.CreateLabel(page, "BoxNote",
-            "Full box browser arrives in the next phase. For now, use the button below to request the list — the response lands in your chat window.",
+        var note = UIFactory.CreateLabel(page, "FamNote",
+            "Switch to the Boxes tab to browse your familiar boxes and click-to-bind.",
             TextAlignmentOptions.TopLeft, color: null, fontSize: 12);
         UIFactory.SetLayoutElement(note.GameObject,
             minWidth: 360, preferredWidth: 400, flexibleWidth: 1,
-            minHeight: 40, preferredHeight: 50, flexibleHeight: 0);
+            minHeight: 24, preferredHeight: 28, flexibleHeight: 0);
         note.TextMesh.enableWordWrapping = true;
         note.TextMesh.overflowMode = TextOverflowModes.Overflow;
-
-        var boxesBtn = UIFactory.CreateButton(page, "GetBoxesBtn",
-            $"Request: {MessageService.BCCOM_FAM_BOXES}");
-        UIFactory.SetLayoutElement(boxesBtn.GameObject,
-            minWidth: 240, preferredWidth: 260, flexibleWidth: 0,
-            minHeight: 28, preferredHeight: 30, flexibleHeight: 0);
-        boxesBtn.OnClick = () => EnqueueOrWarn(MessageService.BCCOM_FAM_BOXES);
 
         RenderFamiliar(PlayerStateService.Familiar);
         if (!_famSubscribed)
@@ -269,53 +264,96 @@ public class MainPanel : ResizeablePanelBase
 
     private void BuildBoxesTab(GameObject page)
     {
-        AddSectionHeading(page, "Active Box");
+        // Compact active-box label always shown at the top.
         _boxesActiveBoxLabel = AddInfoLabel(page, "ActiveBox",
-            string.IsNullOrEmpty(PlayerStateService.ActiveBox)
-                ? "(none selected)"
-                : PlayerStateService.ActiveBox,
+            "Active Box: (none selected)",
             FontStyles.Bold, fontSize: 14);
 
-        var topActions = UIFactory.CreateHorizontalGroup(page, "BoxTopActions",
+        AddSpacer(page, 4);
+
+        // ---------------- Picker section (visible when no box selected) ----------------
+        _boxesPickerSection = UIFactory.CreateVerticalGroup(page, "BoxPickerSection",
+            forceWidth: true, forceHeight: false,
+            childControlWidth: true, childControlHeight: false,
+            spacing: 4, padding: new Vector4(0, 0, 0, 0));
+        UIFactory.SetLayoutElement(_boxesPickerSection,
+            minWidth: 360, preferredWidth: 400, flexibleWidth: 1,
+            minHeight: 80, preferredHeight: 200, flexibleHeight: 1);
+
+        var pickerActions = UIFactory.CreateHorizontalGroup(_boxesPickerSection, "PickerActions",
             forceExpandWidth: true, forceExpandHeight: false,
-            childControlWidth: false, childControlHeight: true,
+            childControlWidth: true, childControlHeight: true,
             spacing: 6, padding: new Vector4(0, 0, 0, 0));
-        UIFactory.SetLayoutElement(topActions,
+        UIFactory.SetLayoutElement(pickerActions,
             minWidth: 360, preferredWidth: 400, flexibleWidth: 1,
             minHeight: 32, preferredHeight: 32, flexibleHeight: 0);
-        AddCommandButton(topActions, "Refresh Boxes", MessageService.BCCOM_FAM_BOXES);
-        AddCommandButton(topActions, "Refresh Contents", MessageService.BCCOM_FAM_LIST_CURRENT_BOX);
+        AddCommandButton(pickerActions, "Refresh", MessageService.BCCOM_FAM_BOXES);
 
-        AddSpacer(page, 4);
-        AddSectionHeading(page, "Available Boxes");
-        _boxesListContainer = UIFactory.CreateVerticalGroup(page, "BoxListContainer",
+        AddSectionHeading(_boxesPickerSection, "Available Boxes");
+        _boxesListContainer = UIFactory.CreateVerticalGroup(_boxesPickerSection, "BoxListContainer",
             forceWidth: true, forceHeight: false,
             childControlWidth: true, childControlHeight: false,
             spacing: 2, padding: new Vector4(2, 2, 2, 2));
         UIFactory.SetLayoutElement(_boxesListContainer,
             minWidth: 360, preferredWidth: 400, flexibleWidth: 1,
-            minHeight: 60, preferredHeight: 80, flexibleHeight: 0);
+            minHeight: 60, preferredHeight: 200, flexibleHeight: 1);
 
-        AddSpacer(page, 4);
-        AddSectionHeading(page, "Familiars in selected box");
-        _boxesContentContainer = UIFactory.CreateVerticalGroup(page, "BoxContentContainer",
+        // ---------------- Content section (visible when a box is selected) ----------------
+        _boxesContentSection = UIFactory.CreateVerticalGroup(page, "BoxContentSection",
+            forceWidth: true, forceHeight: false,
+            childControlWidth: true, childControlHeight: false,
+            spacing: 4, padding: new Vector4(0, 0, 0, 0));
+        UIFactory.SetLayoutElement(_boxesContentSection,
+            minWidth: 360, preferredWidth: 400, flexibleWidth: 1,
+            minHeight: 80, preferredHeight: 200, flexibleHeight: 1);
+
+        var contentActions = UIFactory.CreateHorizontalGroup(_boxesContentSection, "ContentActions",
+            forceExpandWidth: true, forceExpandHeight: false,
+            childControlWidth: true, childControlHeight: true,
+            spacing: 6, padding: new Vector4(0, 0, 0, 0));
+        UIFactory.SetLayoutElement(contentActions,
+            minWidth: 360, preferredWidth: 400, flexibleWidth: 1,
+            minHeight: 32, preferredHeight: 32, flexibleHeight: 0);
+
+        // "Back" doesn't send a command — wire manually instead of via AddCommandButton.
+        var backBtn = UIFactory.CreateButton(contentActions, "BackToBoxes", "← Back");
+        UIFactory.SetLayoutElement(backBtn.GameObject,
+            minWidth: 70, preferredWidth: 110, flexibleWidth: 1,
+            minHeight: 28, preferredHeight: 30, flexibleHeight: 0);
+        var backText = backBtn.Component.GetComponentInChildren<TextMeshProUGUI>();
+        if (backText != null)
+        {
+            backText.enableWordWrapping = false;
+            backText.overflowMode = TextOverflowModes.Overflow;
+            backText.alignment = TextAlignmentOptions.Center;
+            backText.fontSize = 13;
+        }
+        backBtn.OnClick = OnBackToBoxesClicked;
+
+        AddCommandButton(contentActions, "Reload", MessageService.BCCOM_FAM_LIST_CURRENT_BOX);
+
+        _boxesContentHeading = AddInfoLabel(_boxesContentSection, "ContentHeading",
+            "Familiars in (none)", FontStyles.Italic, fontSize: 13);
+
+        _boxesContentContainer = UIFactory.CreateVerticalGroup(_boxesContentSection, "BoxContentContainer",
             forceWidth: true, forceHeight: false,
             childControlWidth: true, childControlHeight: false,
             spacing: 2, padding: new Vector4(2, 2, 2, 2));
         UIFactory.SetLayoutElement(_boxesContentContainer,
             minWidth: 360, preferredWidth: 400, flexibleWidth: 1,
-            minHeight: 60, preferredHeight: 100, flexibleHeight: 1);
+            minHeight: 60, preferredHeight: 200, flexibleHeight: 1);
 
         AddSpacer(page, 4);
         var note = UIFactory.CreateLabel(page, "BoxesNote",
-            "Click \"Refresh Boxes\" to pull your box list. Click a box to load its familiars; click a familiar to bind it. Resize this panel taller if your lists are long.",
+            "Click Refresh to pull your box list. Click a box to see its familiars; click a familiar to bind it. Use ← Back to return to the box list.",
             TextAlignmentOptions.TopLeft, color: null, fontSize: 11);
         UIFactory.SetLayoutElement(note.GameObject,
             minWidth: 360, preferredWidth: 400, flexibleWidth: 1,
-            minHeight: 30, preferredHeight: 40, flexibleHeight: 0);
+            minHeight: 22, preferredHeight: 32, flexibleHeight: 0);
         note.TextMesh.enableWordWrapping = true;
         note.TextMesh.overflowMode = TextOverflowModes.Overflow;
 
+        UpdateBoxesSectionVisibility();
         RenderBoxList();
         RenderBoxContents();
 
@@ -328,13 +366,29 @@ public class MainPanel : ResizeablePanelBase
         }
     }
 
+    private void UpdateBoxesSectionVisibility()
+    {
+        if (_boxesPickerSection != null)  _boxesPickerSection.SetActive(!_boxesShowingContents);
+        if (_boxesContentSection != null) _boxesContentSection.SetActive(_boxesShowingContents);
+    }
+
+    private void OnBackToBoxesClicked()
+    {
+        _boxesShowingContents = false;
+        PlayerStateService.SetActiveBox(null);
+        UpdateBoxesSectionVisibility();
+    }
+
     private void OnBoxListChanged()     => RenderBoxList();
     private void OnBoxContentsChanged() => RenderBoxContents();
     private void OnActiveBoxChanged()
     {
+        var name = PlayerStateService.ActiveBox;
         if (_boxesActiveBoxLabel != null)
-            _boxesActiveBoxLabel.text = string.IsNullOrEmpty(PlayerStateService.ActiveBox)
-                ? "(none selected)" : PlayerStateService.ActiveBox;
+            _boxesActiveBoxLabel.text = string.IsNullOrEmpty(name)
+                ? "Active Box: (none selected)" : $"Active Box: {name}";
+        if (_boxesContentHeading != null)
+            _boxesContentHeading.text = $"Familiars in {(string.IsNullOrEmpty(name) ? "(none)" : name)}";
         RenderBoxContents();
     }
 
@@ -409,14 +463,17 @@ public class MainPanel : ResizeablePanelBase
         }
     }
 
-    private static void OnBoxClicked(string boxName)
+    private void OnBoxClicked(string boxName)
     {
         PlayerStateService.SetActiveBox(boxName);
-        // .fam cb selects the box server-side, then .fam l lists its contents.
-        // Both go through the throttled queue (2s between sends) so the server
-        // sees them in order even under load.
+        // .fam cb selects the box server-side, .fam l lists its contents.
+        // Both fire immediately (no queue throttle) so the user sees the
+        // contents view populate within ~1s of the click.
         EnqueueOrWarn(string.Format(MessageService.BCCOM_FAM_SWITCH_BOX_FORMAT, boxName));
         EnqueueOrWarn(MessageService.BCCOM_FAM_LIST_CURRENT_BOX);
+
+        _boxesShowingContents = true;
+        UpdateBoxesSectionVisibility();
     }
 
     private static void OnFamiliarClicked(int index)
@@ -450,7 +507,7 @@ public class MainPanel : ResizeablePanelBase
 
         var actions = UIFactory.CreateHorizontalGroup(page, "ClassActions",
             forceExpandWidth: true, forceExpandHeight: false,
-            childControlWidth: false, childControlHeight: true,
+            childControlWidth: true, childControlHeight: true,
             spacing: 6, padding: new Vector4(0, 0, 0, 0));
         UIFactory.SetLayoutElement(actions,
             minWidth: 360, preferredWidth: 400, flexibleWidth: 1,
@@ -508,7 +565,7 @@ public class MainPanel : ResizeablePanelBase
 
         var actions = UIFactory.CreateHorizontalGroup(page, "WepActions",
             forceExpandWidth: true, forceExpandHeight: false,
-            childControlWidth: false, childControlHeight: true,
+            childControlWidth: true, childControlHeight: true,
             spacing: 6, padding: new Vector4(0, 0, 0, 0));
         UIFactory.SetLayoutElement(actions,
             minWidth: 360, preferredWidth: 400, flexibleWidth: 1,
@@ -564,7 +621,7 @@ public class MainPanel : ResizeablePanelBase
 
         var actions = UIFactory.CreateHorizontalGroup(page, "UnarmedShiftActions",
             forceExpandWidth: true, forceExpandHeight: false,
-            childControlWidth: false, childControlHeight: true,
+            childControlWidth: true, childControlHeight: true,
             spacing: 6, padding: new Vector4(0, 0, 0, 0));
         UIFactory.SetLayoutElement(actions,
             minWidth: 360, preferredWidth: 400, flexibleWidth: 1,
@@ -641,16 +698,12 @@ public class MainPanel : ResizeablePanelBase
 
         var diagRow = UIFactory.CreateHorizontalGroup(page, "AdminDiag",
             forceExpandWidth: true, forceExpandHeight: false,
-            childControlWidth: false, childControlHeight: true,
+            childControlWidth: true, childControlHeight: true,
             spacing: 6, padding: new Vector4(0, 0, 0, 0));
         UIFactory.SetLayoutElement(diagRow,
             minWidth: 360, preferredWidth: 400, flexibleWidth: 1,
             minHeight: 32, preferredHeight: 32, flexibleHeight: 0);
-        var healthBtn = UIFactory.CreateButton(diagRow, "AdminHealthBtn", "Health (.misc health)");
-        UIFactory.SetLayoutElement(healthBtn.GameObject,
-            minWidth: 180, preferredWidth: 200, flexibleWidth: 0,
-            minHeight: 28, preferredHeight: 30, flexibleHeight: 0);
-        healthBtn.OnClick = () => EnqueueOrWarn(MessageService.BCCOM_MISC_HEALTH);
+        AddCommandButton(diagRow, "Server Health", MessageService.BCCOM_MISC_HEALTH);
 
         AddSpacer(page, 6);
         AddSectionHeading(page, "Admin commands (use chat — args required)");
@@ -690,7 +743,7 @@ public class MainPanel : ResizeablePanelBase
     {
         var row = UIFactory.CreateHorizontalGroup(parent, $"AdminRef_{command}",
             forceExpandWidth: true, forceExpandHeight: false,
-            childControlWidth: false, childControlHeight: true,
+            childControlWidth: true, childControlHeight: true,
             spacing: 8, padding: new Vector4(2, 2, 0, 0));
         UIFactory.SetLayoutElement(row,
             minWidth: 360, preferredWidth: 400, flexibleWidth: 1,
@@ -794,8 +847,20 @@ public class MainPanel : ResizeablePanelBase
     {
         var b = UIFactory.CreateButton(parent, $"Cmd_{label}", label);
         UIFactory.SetLayoutElement(b.GameObject,
-            minWidth: 80, preferredWidth: 90, flexibleWidth: 0,
+            minWidth: 70, preferredWidth: 110, flexibleWidth: 1,
             minHeight: 28, preferredHeight: 30, flexibleHeight: 0);
+        // Action rows use childForceExpandWidth so buttons share the row; tell
+        // their inner TMP text not to wrap, so labels render on one line and
+        // overflow visually (which is fine - shorter than wrap) instead of
+        // stacking one character per line.
+        var t = b.Component.GetComponentInChildren<TextMeshProUGUI>();
+        if (t != null)
+        {
+            t.enableWordWrapping = false;
+            t.overflowMode = TextOverflowModes.Overflow;
+            t.alignment = TextAlignmentOptions.Center;
+            t.fontSize = 13;
+        }
         b.OnClick = () => EnqueueOrWarn(command);
     }
 

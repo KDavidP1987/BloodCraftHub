@@ -63,14 +63,26 @@ public static partial class MessageService
     /// <summary>Local character entity once <see cref="SetCharacter"/> has been called; <see cref="Entity.Null"/> otherwise.</summary>
     public static Entity LocalCharacter => _localCharacter;
 
+    /// <summary>
+    /// Send a player-initiated chat command. Bypasses the 2-second throttle
+    /// queue so a button click reaches the server on the next frame instead of
+    /// up to 2s later (live feedback during Phase 4 testing surfaced the delay
+    /// as a real UX problem; rate-limiting human button-mashing is not worth
+    /// the perceived input lag).
+    ///
+    /// Arms the regex intercept flag (NoteOutboundForIntercept) so the reply
+    /// gets routed to the right state slot.
+    /// </summary>
     public static void EnqueueMessage(string text)
     {
         if (string.IsNullOrEmpty(text)) return;
-        OutputMessages.Enqueue(text);
-        // Let the regex pipeline arm its intercept flag for tracked commands
-        // BEFORE the response can arrive (queue tick is at least one frame
-        // later, but the server response can come earlier on retries / batches).
+        if (!_isInitialized)
+        {
+            LogUtils.LogWarning($"EnqueueMessage('{text}') ignored — character/user not bound yet.");
+            return;
+        }
         NoteOutboundForIntercept(text);
+        SendMessage(text);
     }
 
     public static void SetCharacter(Entity entity)
@@ -104,23 +116,18 @@ public static partial class MessageService
     }
 
     /// <summary>
-    /// Per-frame tick called by CoreUpdateBehavior. Sends at most one queued message
-    /// every <see cref="Settings.GlobalQueryIntervalInSeconds"/> seconds to avoid
-    /// flooding the server's chat parser.
+    /// Per-frame tick still registered with CoreUpdateBehavior. Currently a no-op
+    /// because EnqueueMessage was switched to immediate send (Phase 5a). Kept as
+    /// a hook so we can re-introduce defensive batched throttling later if some
+    /// future code path enqueues many messages programmatically.
     /// </summary>
     public static void ProcessAllMessages()
     {
         if (!_isInitialized) return;
+        if (OutputMessages.Count == 0) return;
 
-        if (_timeoutSeconds == 0)
-            _timeoutSeconds = Settings.GlobalQueryIntervalInSeconds;
-
-        if ((DateTime.Now - _lastAction).TotalSeconds < _timeoutSeconds)
-            return;
-
-        _lastAction = DateTime.Now;
-
-        if (OutputMessages.Any())
+        // Drain anything that snuck in via the legacy queue path. Cheap; no throttle.
+        while (OutputMessages.Count > 0)
             SendMessage(OutputMessages.Dequeue());
     }
 
