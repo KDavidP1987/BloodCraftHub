@@ -38,59 +38,64 @@ We generate `manifest.json` automatically via MSBuild — `BloodCraftHub/Manifes
 
 To add or pin a new Thunderstore dependency, edit the `"dependencies"` array inside `Manifest.props` (it's the only thing in there that isn't auto-derived).
 
-## Two ways to publish
+## Publishing flow (v0.8.1+)
 
-### Option A — web upload (simplest, good for the first release)
-
-1. `dotnet build BloodCraftHub\BloodCraftHub.csproj -c Release`
-2. Locate the build outputs in `BloodCraftHub\bin\Release\net6.0\`:
-   - `BloodCraftHub.dll` (and any other DLLs you ship)
-   - `manifest.json` (auto-generated; pulled in from `obj\Release\net6.0\manifest.json` — copy it to the package root)
-3. Copy `README.md` and `icon.png` (see below for the icon) into a temp folder alongside the DLL and manifest.
-4. Zip the **contents** of that folder (Ctrl+A inside, right-click → compress) — confirm the zip's root is files, not a folder.
-5. Run the zip through the manifest validator to be safe.
-6. Sign in at https://thunderstore.io → V Rising community → Upload Package. Pick your team namespace, drop the zip, publish.
-
-### Option B — `tcli` (Thunderstore CLI) — automates A end to end
-
-`tcli` reads `thunderstore.toml` (already present in `BloodCraftHub/thunderstore.toml`) and handles zip assembly + upload.
+The whole "build + stage + zip + verify" sequence is automated by `tools/package-release.ps1`. Upload is the only manual step (Thunderstore requires a logged-in browser session for the publish form).
 
 ```powershell
-# Install once:
-dotnet tool install --global tcli
+# From the BloodCraftHub repo root:
+.\tools\bump-version.ps1 -To 0.9.0     # edits csproj + thunderstore.toml + CHANGELOG stub
+# (manually edit CHANGELOG.md to replace the TODO with real notes)
 
-# Build the .dll first
-dotnet build BloodCraftHub\BloodCraftHub.csproj -c Release
+.\tools\package-release.ps1            # runs preflight Release-mode, builds, stages, zips
+# → produces dist/BloodCraftHub-<version>.zip with files-at-root layout
 
-# Stage the build output into the package directory.
-# tcli expects: package/icon.png, package/README.md, package/<dll-and-assets>
-# A small staging script can be added under tools/ later.
-
-# Then from BloodCraftHub/ (where thunderstore.toml lives):
-tcli build
-tcli publish --token <your-service-account-token>
+# Switches:
+#   -SkipPreflight   bypass the preflight (use only if you've already reviewed the failures)
+#   -SkipBuild       reuse existing bin/Release/net6.0/ output
+#   -Force           overwrite an existing dist zip
 ```
 
-Service-account tokens are created at https://thunderstore.io/settings/teams/ once you have a team. Treat them like an API key — never commit, store in env (`TCLI_AUTH_TOKEN` is the convention).
+Then upload at https://thunderstore.io/c/v-rising/create/ — drag the zip on the page, the form auto-fills from `manifest.json`, click publish.
 
-### Option C — programmatic upload via REST API
+For replicating the icon (vampire+UI theme, generated programmatically):
 
-The full Swagger spec is at https://thunderstore.io/api/docs/ (login required for the protected upload endpoints). Useful when wiring CI/CD; for our scope (a hobby mod), `tcli` is the right call.
+```powershell
+.\tools\generate-icon.ps1   # writes BloodCraftHub/icon.png — re-run after any design change
+```
 
-## What we still need before first publish
+### Manual fallback (if package-release.ps1 fails)
 
-- [ ] `icon.png` (256×256 PNG) — put it at `BloodCraftHub/icon.png` and also copy into the package zip. Neither upstream mod's icon is reusable as-is.
-- [ ] `<PackageProjectUrl>` in `BloodCraftHub.csproj` — set to the GitHub repo URL once we publish one. Until then leave empty (the manifest emits `""`, which is valid).
-- [ ] Decide on a Thunderstore team name. The current `thunderstore.toml` uses `kdpen` — claim it at https://thunderstore.io/settings/teams/ if it's not taken, otherwise pick another and update both `thunderstore.toml` and any docs that reference it.
-- [ ] Pick a license (see `LICENSE.txt`) — required by some package guidelines and good practice.
-- [ ] Manual sanity pass through the manifest validator after the first build.
+1. `dotnet build BloodCraftHub\BloodCraftHub.csproj -c Release`
+2. Stage these files into a single folder, FILES AT ROOT (no enclosing folder):
+   - `BloodCraftHub\bin\Release\net6.0\BloodCraftHub.dll`
+   - `BloodCraftHub\obj\Release\net6.0\manifest.json` (auto-generated)
+   - `BloodCraftHub\icon.png`
+   - `README.md`, `LICENSE.txt`, `CHANGELOG.md`
+3. Zip the **contents** of that folder (Ctrl+A inside the folder, right-click → compress) — NOT the folder itself.
+4. Optional: validate at https://thunderstore.io/tools/manifest-v1-validator/
+5. Upload.
+
+### `tcli` (Thunderstore CLI) — alternative for CI/CD
+
+`tcli` reads `thunderstore.toml` and handles zip assembly + token-authenticated upload — useful if we ever wire CI publishing. Service-account tokens at https://thunderstore.io/settings/teams/. We're not using it today; `package-release.ps1` covers the local workflow.
+
+## Pre-publish prereqs (all done as of v0.8.1)
+
+- [x] `icon.png` at `BloodCraftHub/icon.png`, 256×256 — generated by `tools/generate-icon.ps1`. Vampire fangs flanking a UI panel, blood drips at the tips.
+- [x] `<PackageProjectUrl>` in `BloodCraftHub.csproj` set to https://github.com/KDavidP1987/BloodCraftHub — populates `manifest.json`'s `website_url`.
+- [x] Thunderstore team `kdpen` claimed.
+- [x] License: MIT (`LICENSE.txt`) with third-party attribution.
+- [x] First public release shipped — see https://thunderstore.io/c/v-rising/p/kdpen/BloodCraftHub/ and https://github.com/KDavidP1987/BloodCraftHub/releases/tag/v0.8.1.
 
 ## Version-bump checklist (every release)
 
-1. Bump `<Version>` in `BloodCraftHub/BloodCraftHub.csproj`.
-2. Bump `versionNumber` in `BloodCraftHub/thunderstore.toml` to match.
-3. Update `CHANGELOG.md`.
-4. Rebuild Release → re-validate manifest → upload.
+1. `.\tools\bump-version.ps1 -To X.Y.Z` (edits csproj + thunderstore.toml + adds a CHANGELOG stub)
+2. Edit `CHANGELOG.md` — replace the `TODO` line with real notes
+3. `.\tools\preflight.ps1 -Mode Release` and address failures (uncommitted version-bearing files is the usual one — commit the bump first)
+4. `.\tools\package-release.ps1` (uses preflight by default; skip with `-SkipPreflight` if you've already reviewed)
+5. Commit, tag (`git tag -a vX.Y.Z`), push, then `gh release create vX.Y.Z dist/BloodCraftHub-X.Y.Z.zip --title "..." --notes "..."`
+6. Upload the zip at https://thunderstore.io/c/v-rising/create/
 
 Thunderstore does **not** allow re-uploading the same version number; each upload is immutable. If the upload fails for any reason, bump the patch and try again.
 

@@ -3,7 +3,7 @@
 Unified client-side V Rising UI mod that combines [BloodCraftUI](https://thunderstore.io/c/v-rising/p/panthernet/BloodCraftUI_OnlyFams/) and [Eclipse](https://thunderstore.io/c/v-rising/p/zfolmt/Eclipse/) into a single management UI for the [Bloodcraft](https://thunderstore.io/c/v-rising/p/zfolmt/Bloodcraft/) server mod — with first-class support for [KindredCommands](https://thunderstore.io/c/v-rising/p/odjit/KindredCommands/) and [KindredLogistics](https://thunderstore.io/c/v-rising/p/odjit/KindredLogistics/) on the same server.
 
 **Repo:** https://github.com/KDavidP1987/BloodCraftHub
-**Status:** v0.1.0 — first public release. 13 tabs, ~190 chat commands surfaced as forms + buttons.
+**Status:** v0.8.1 — public on Thunderstore. 16 tabs across BLOODCRAFT / KINDRED / HELP, 4 secondary overlays, every chat command from the 3 backing server mods surfaced as forms + buttons (~250+ commands).
 
 ## Screenshots
 
@@ -18,10 +18,10 @@ Unified client-side V Rising UI mod that combines [BloodCraftUI](https://thunder
 
 - **Single floating "BCH" button** top-right of the screen → opens the main panel.
 - **Tabbed primary UI** with 3 collapsible groups in the left rail:
-  - **BLOODCRAFT** (8 tabs): Familiars, Boxes, Class, Weapon Expertise, Unarmed + Shift, Prestige, Levels, Admin
-  - **KINDRED** (5 tabs): Logistics, Commands, Admin: Players, Admin: Server, Admin: World
-  - **HELP**: Quick Start guide
-- **Two secondary overlays** (toggle from footer): XP tracker + Familiar quick-glance. Each is an independent draggable + resizable panel.
+  - **BLOODCRAFT** (10 tabs): Familiars, Boxes, Class, Weapon Expertise, Blood Legacy, Unarmed + Shift, Prestige, Levels, Daily Quests, Admin
+  - **KINDRED** (6 tabs): Logistics, Logistics: Admin, Commands, Admin: Players, Admin: Server, Admin: World
+  - **HELP** (3 tabs): Quick Start, Vanilla Admin reference, About
+- **Four secondary overlays** (toggle from footer): XP tracker, Familiar quick-glance (active stats), Familiar Browser (box switcher + bind/unbind), Daily Quest tracker. Each is independent draggable + resizable, and visibility persists across sessions.
 - **Forms-driven commands** — every chat command with arguments has a real form (player picker + enum dropdowns + numeric inputs + Submit). No more typing `.lvl set <Player> <Level>` in chat.
 - **Live data** via Bloodcraft's structured MAC-signed protocol (the same channel Eclipse uses). Falls back to regex parsing for `.fam boxes`/`.fam l` replies.
 - **Hover tooltips** for every control, surfaced in a single footer line.
