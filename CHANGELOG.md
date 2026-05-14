@@ -133,9 +133,19 @@ First KINDRED-group tab lands. Surveyed the KindredLogistics server mod (`Learni
   - "Admin Globals (.lg)" — wrapped in a single `CollapsibleSection` (collapsed by default) so non-admins can hide it. Contains 3 rows × 4 buttons covering all 11 admin toggles + Empty Trash, plus a nested collapsible `.adminstash` spawn form. Tooltips on every control.
 - KindredLogistics returns no structured data, so this tab is fire-and-forget: server echoes confirmation/state into chat and the player can read it with `.l s` / `.lg s` Show Settings buttons. No `PlayerStateService` extension or regex pipeline work needed.
 
+### Phase 5h — KindredCommands Player tab
+
+Second KINDRED tab. Surveyed `LearningMods/KindredCommands-main/` for non-admin commands; KindredCommands' surface area is dominated by admin tools, so the player view is a tight 13-command list.
+
+- `Services/MessageService_Processing.cs` — new BCCOM_KC_* region (10 zero-arg constants + 2 `_FORMAT` templates).
+- `UI/ModContent/Data/PanelType.cs` — `KindredCommandsPlayerTab` enum value.
+- `UI/ModContent/MainPanel.cs` — KINDRED group now lists `("Logistics", "Commands")`; `BuildKindredCommandsPlayerTab` lives in MainPanel and reuses `AddKLRow` for action rows.
+- Layout: "Self" section (AFK, Ping, Pace), "Server info" section in two rows (Server Time, Online Staff, Open Plots, Soulshards / Boss List, Region List, Clan List), "Lookups" section with two collapsible forms (`.checklevel` with PlayerNameField, `.clan members` with TextField).
+- `.clan list` is wired as a zero-arg button (server defaults to page 1). Deeper pages still require typing in chat — pagination UI is Phase 5j polish.
+- KindredCommands player replies are plain chat strings; no structured-protocol parsing needed.
+
 ## Phases remaining
 
-- **5h** — KindredCommands Player tab under KINDRED. ~12 commands.
 - **5i** — KindredCommands Admin sub-tabs (Players / Server / World). ~120 admin commands.
 - **5j** — Polish: prefab name lookup for shift spell, optional ScrollRect, name-cache autocomplete wired to chat-reply parsing.
 - **6** — Release: license, README + screenshots, real icon, Thunderstore upload via `tcli`.

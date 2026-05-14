@@ -135,7 +135,8 @@ public class MainPanel : ResizeablePanelBase
             StartExpanded = false,
             Tabs = new[]
             {
-                (PanelType.KindredLogisticsTab, "Logistics"),
+                (PanelType.KindredLogisticsTab,      "Logistics"),
+                (PanelType.KindredCommandsPlayerTab, "Commands"),
             },
         },
         new TabGroupDef
@@ -372,6 +373,9 @@ public class MainPanel : ResizeablePanelBase
                     break;
                 case PanelType.KindredLogisticsTab:
                     BuildKindredLogisticsTab(page);
+                    break;
+                case PanelType.KindredCommandsPlayerTab:
+                    BuildKindredCommandsPlayerTab(page);
                     break;
                 case PanelType.QuickStartTab:
                     BuildQuickStartTab(page);
@@ -1452,6 +1456,84 @@ public class MainPanel : ResizeablePanelBase
             minWidth: 360, preferredWidth: 400, flexibleWidth: 1,
             minHeight: 32, preferredHeight: 32, flexibleHeight: 0);
         return row;
+    }
+
+    // -----------------------------------------------------------------------
+    // KindredCommands - Player tab (Kindred group)
+    //
+    // Surfaces the 13 player-facing (non-admin) KindredCommands. The much
+    // larger admin surface (~120 commands) lands in Phase 5i as its own
+    // sub-tabs - keeping the player view minimal here.
+    // -----------------------------------------------------------------------
+
+    private void BuildKindredCommandsPlayerTab(GameObject page)
+    {
+        var intro = UIFactory.CreateLabel(page, "KCPlayerIntro",
+            "Requires the KindredCommands server mod. Player-facing commands only - admin commands land in their own tab.",
+            TextAlignmentOptions.TopLeft, color: null, fontSize: 12);
+        UIFactory.SetLayoutElement(intro.GameObject,
+            minWidth: 360, preferredWidth: 400, flexibleWidth: 1,
+            minHeight: 28, preferredHeight: 32, flexibleHeight: 0);
+        intro.TextMesh.enableWordWrapping = true;
+        intro.TextMesh.overflowMode = TextOverflowModes.Overflow;
+
+        // ---- Self ---------------------------------------------------------
+        AddSpacer(page, 4);
+        AddSectionHeading(page, "Self");
+
+        var selfRow = AddKLRow(page, "KCSelf");
+        AddCommandButton(selfRow, "AFK",   MessageService.BCCOM_KC_AFK,
+            "Toggle AFK animation - locks WASD movement until you run .afk again (.afk).");
+        AddCommandButton(selfRow, "Ping",  MessageService.BCCOM_KC_PING,
+            "Show your latency in chat (.ping).");
+        AddCommandButton(selfRow, "Pace",  MessageService.BCCOM_KC_PACE,
+            "Pace at the closest NPC near you - a cosmetic walk loop (.pace).");
+
+        // ---- Server info --------------------------------------------------
+        AddSpacer(page, 6);
+        AddSectionHeading(page, "Server info");
+
+        var infoRow1 = AddKLRow(page, "KCInfo1");
+        AddCommandButton(infoRow1, "Server Time", MessageService.BCCOM_KC_TIME,
+            "Print the current server time into chat (.time).");
+        AddCommandButton(infoRow1, "Online Staff", MessageService.BCCOM_KC_STAFF,
+            "List staff members currently online (.staff).");
+        AddCommandButton(infoRow1, "Open Plots",   MessageService.BCCOM_KC_CASTLE_OPEN_PLOTS,
+            "Report territories with open or decaying castle plots (.castle openplots).");
+        AddCommandButton(infoRow1, "Soulshards",   MessageService.BCCOM_KC_GEAR_SOULSHARD_STATUS,
+            "Print the status of soulshards on the server (.gear soulshardstatus).");
+
+        var infoRow2 = AddKLRow(page, "KCInfo2");
+        AddCommandButton(infoRow2, "Boss List",   MessageService.BCCOM_KC_BOSS_LIST,
+            "List all locked bosses on the server (.boss list).");
+        AddCommandButton(infoRow2, "Region List", MessageService.BCCOM_KC_REGION_LIST,
+            "List all locked and gated regions on the server (.region list).");
+        AddCommandButton(infoRow2, "Clan List",   MessageService.BCCOM_KC_CLAN_LIST,
+            "List clans on the server, page 1 (.clan list). For deeper pages, type the command in chat with a page number.");
+
+        // ---- Lookups (forms) ---------------------------------------------
+        AddSpacer(page, 6);
+        AddSectionHeading(page, "Lookups");
+
+        CollapsibleSection.Build(page,
+            title: "Check player level (.checklevel)",
+            startExpanded: false,
+            tooltip: "Print a player's current level into chat.",
+            buildContent: c => FormBuilder.Build(c,
+                title: "Check player level",
+                commandTemplate: ".checklevel {player}",
+                new PlayerNameField("player", "Player",
+                    tooltip: "Player whose level you want to look up. Exact character-name match.")));
+
+        CollapsibleSection.Build(page,
+            title: "List clan members (.clan members)",
+            startExpanded: false,
+            tooltip: "List the members of a specific clan.",
+            buildContent: c => FormBuilder.Build(c,
+                title: "List clan members",
+                commandTemplate: ".clan members {clan}",
+                new TextField("clan", "Clan name",
+                    tooltip: "Exact clan name. Use the Clan List button above to find it.")));
     }
 
     // -----------------------------------------------------------------------

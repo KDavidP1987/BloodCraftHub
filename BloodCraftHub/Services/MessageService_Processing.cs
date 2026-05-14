@@ -111,6 +111,32 @@ public static partial class MessageService
     public const string BCCOM_KL_ADMIN_STASH_SPAWN_FORMAT = ".adminstash {0} {1}";
 
     // =========================================================================
+    // KindredCommands - player-facing commands (Phase 5h)
+    //
+    // The admin command surface is huge (~120 commands) and lands in Phase 5i
+    // under separate sub-tabs (Players / Server / World). This block covers
+    // only the 13 commands a non-admin player will actually use.
+    // =========================================================================
+
+    // ---------- Self (no group) ----------
+    public const string BCCOM_KC_AFK             = ".afk";
+    public const string BCCOM_KC_PING            = ".ping";
+    public const string BCCOM_KC_PACE            = ".pace";
+
+    // ---------- Server info (zero-arg listings) ----------
+    public const string BCCOM_KC_TIME            = ".time";
+    public const string BCCOM_KC_STAFF           = ".staff";
+    public const string BCCOM_KC_BOSS_LIST       = ".boss list";
+    public const string BCCOM_KC_REGION_LIST     = ".region list";
+    public const string BCCOM_KC_CASTLE_OPEN_PLOTS = ".castle openplots";
+    public const string BCCOM_KC_GEAR_SOULSHARD_STATUS = ".gear soulshardstatus";
+    public const string BCCOM_KC_CLAN_LIST       = ".clan list";
+
+    // ---------- Lookups (forms) ----------
+    public const string BCCOM_KC_CHECK_LEVEL_FORMAT   = ".checklevel {0}"; // {0} = player name
+    public const string BCCOM_KC_CLAN_MEMBERS_FORMAT  = ".clan members {0}"; // {0} = clan name
+
+    // =========================================================================
     // Inbound regex pipeline (Phase 3b)
     // =========================================================================
 
