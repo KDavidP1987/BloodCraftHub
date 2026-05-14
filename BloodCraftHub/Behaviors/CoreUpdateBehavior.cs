@@ -1,34 +1,47 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
+using Il2CppInterop.Runtime.Injection;
+using UnityEngine;
 
 namespace BloodCraftHub.Behaviors;
 
-// Per-frame update host. Services register Actions here instead of each
-// owning a MonoBehaviour (cheaper, simpler lifetime management).
+// IL2CPP-registered MonoBehaviour that hosts our per-frame work.
+// Ported from LearningMods/BloodCraftUI-master/BloodCraftUI/Behaviors/CoreUpdateBehavior.cs.
 //
-// PORT FROM: LearningMods/BloodCraftUI-master/BloodCraftUI/Behaviors/CoreUpdateBehavior.cs
-public class CoreUpdateBehavior
+// Anyone wanting per-frame work adds to the static Actions list:
+//
+//     CoreUpdateBehavior.Actions.Add(MyService.OnUpdate);
+//     CoreUpdateBehavior.Actions.Remove(MyService.OnUpdate);  // when unloading
+//
+// Setup() registers the type with IL2CPP and attaches it to a DontDestroyOnLoad
+// GameObject so it survives scene transitions.
+public class CoreUpdateBehavior : MonoBehaviour
 {
-    private readonly List<Action> _onUpdate = new();
+    public static List<Action> Actions = new();
+    private GameObject _obj;
 
     public void Setup()
     {
-        // TODO: hook into a Unity update source. BloodCraftUI uses a Harmony
-        // patch on a per-frame system + invokes registered actions there.
+        ClassInjector.RegisterTypeInIl2Cpp<CoreUpdateBehavior>();
+        _obj = new GameObject("BloodCraftHubCoreUpdateBehavior");
+        DontDestroyOnLoad(_obj);
+        _obj.hideFlags = HideFlags.HideAndDontSave;
+        _obj.AddComponent<CoreUpdateBehavior>();
     }
 
-    public void Register(Action action)
+    public void Dispose()
     {
-        if (action != null) _onUpdate.Add(action);
+        if (_obj) Destroy(_obj);
     }
 
-    public void Unregister(Action action) => _onUpdate.Remove(action);
-
-    public void Tick()
+    protected void Update()
     {
-        for (int i = 0; i < _onUpdate.Count; i++)
+        if (!Plugin.IsInitialized) return;
+
+        foreach (var action in Actions.ToList())
         {
-            try { _onUpdate[i](); }
+            try { action?.Invoke(); }
             catch (Exception ex) { Plugin.LogInstance?.LogError($"CoreUpdate handler threw: {ex}"); }
         }
     }

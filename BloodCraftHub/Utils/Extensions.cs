@@ -1,20 +1,18 @@
+using UnityEngine;
+
 namespace BloodCraftHub.Utils;
 
-// IL2CPP / Unity.Entities helpers used across services.
+// Small extension helpers used across the UI framework.
 //
-// PORT FROM: LearningMods/BloodCraftUI-master/BloodCraftUI/Utils/Extensions.cs
-//
-// Expected helpers (signatures, not bodies, listed here for reference):
-//
-//   public static T    Read<T>(this Entity entity) where T : struct
-//   public static bool Has<T>(this Entity entity)  where T : struct
-//   public static void Write<T>(this Entity entity, T component) where T : struct
-//   public static bool Exists(this Entity entity)
-//   public static bool TryGetBuffer<T>(this Entity entity, out DynamicBuffer<T> buffer)
-//
-// These wrap EntityManager calls with the static Core.EntityManager handle.
+// The full BloodCraftUI Extensions.cs is much larger and depends on ProjectM /
+// Stunlock types (Entity.Read<T>/Has<T>/Write<T>, prefab lookups, team helpers,
+// etc.). Port those over when we wire up real ECS reads. For now we only need
+// what the copied UI framework references.
 public static class Extensions
 {
-    // TODO: port from BloodCraftUI/Utils/Extensions.cs once VampireReferenceAssemblies
-    // is restored and the Unity.Entities types resolve.
+    /// <summary>Return a copy of <paramref name="baseColor"/> with its alpha replaced.</summary>
+    public static Color GetTransparent(this Color baseColor, float alpha = 0.7f)
+    {
+        return new Color(baseColor.r, baseColor.g, baseColor.b, alpha);
+    }
 }

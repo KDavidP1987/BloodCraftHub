@@ -1,68 +1,105 @@
+using System.Collections.Generic;
+using System.IO;
+using BepInEx;
 using BepInEx.Configuration;
 
 namespace BloodCraftHub.Config;
 
-// BepInEx-bound runtime configuration.
+// Static settings registry. Modeled on BloodCraftUI's Config/Settings.cs.
+// The copied UI framework references `Settings.UITransparency` (etc.) as
+// static, so this class is static-by-design.
 //
-// PORT FROM:
-//   LearningMods/BloodCraftUI-master/BloodCraftUI/Config/Settings.cs  (panel/feature gating flags)
-//   LearningMods/Eclipse-main/Plugin.cs::InitConfig                   (HUD/feature toggles)
-//
-// Merge strategy: union of both, deduplicated. Eclipse uses one section
-// ("UIOptions"); BloodCraftUI uses one section ("General"). Group related
-// toggles into their own sections for clarity ("UI", "HUD", "Familiars", etc.).
+// To add a setting:
+//   1. Pick a section constant below (or add one).
+//   2. Add a public-static getter that reads from ConfigEntries via nameof().
+//   3. Add a matching InitConfigEntry(...) call in InitConfig().
 public class Settings
 {
-    private ConfigEntry<float> _uiTransparency;
-    private ConfigEntry<bool>  _showExperienceBar;
-    private ConfigEntry<bool>  _showPrestige;
-    private ConfigEntry<bool>  _showLegacyBar;
-    private ConfigEntry<bool>  _showExpertiseBar;
-    private ConfigEntry<bool>  _showFamiliarDetails;
-    private ConfigEntry<bool>  _showProfessions;
-    private ConfigEntry<bool>  _showQuestTracker;
-    private ConfigEntry<bool>  _showShiftSlot;
-    private ConfigEntry<bool>  _isFamStatsPanelEnabled;
-    private ConfigEntry<bool>  _isBindButtonEnabled;
-    private ConfigEntry<bool>  _autoEnableFamiliarEquipment;
-    private ConfigEntry<bool>  _eclipsed;
+    private static string CONFIG_PATH = Path.Combine(Paths.ConfigPath, MyPluginInfo.PLUGIN_NAME);
+    private static readonly Dictionary<string, ConfigEntryBase> ConfigEntries = new();
 
-    public float UITransparency             => _uiTransparency.Value;
-    public bool  ShowExperienceBar          => _showExperienceBar.Value;
-    public bool  ShowPrestige               => _showPrestige.Value;
-    public bool  ShowLegacyBar              => _showLegacyBar.Value;
-    public bool  ShowExpertiseBar           => _showExpertiseBar.Value;
-    public bool  ShowFamiliarDetails        => _showFamiliarDetails.Value;
-    public bool  ShowProfessions            => _showProfessions.Value;
-    public bool  ShowQuestTracker           => _showQuestTracker.Value;
-    public bool  ShowShiftSlot              => _showShiftSlot.Value;
-    public bool  IsFamStatsPanelEnabled     => _isFamStatsPanelEnabled.Value;
-    public bool  IsBindButtonEnabled        => _isBindButtonEnabled.Value;
-    public bool  AutoEnableFamiliarEquipment => _autoEnableFamiliarEquipment.Value;
-    public bool  Eclipsed                   => _eclipsed.Value;
+    public const string UI_SETTINGS_GROUP       = "UISettings";
+    public const string FAM_SETTINGS_GROUP      = "FamiliarSettings";
+    public const string GENERAL_SETTINGS_GROUP  = "GeneralOptions";
+    public const string OVERLAY_SETTINGS_GROUP  = "Overlays";
+
+    // ---- UI / general ----
+    public static float UITransparency =>
+        (ConfigEntries[nameof(UITransparency)] as ConfigEntry<float>)?.Value ?? 0.6f;
+    public static bool UseHorizontalContentLayout =>
+        (ConfigEntries[nameof(UseHorizontalContentLayout)] as ConfigEntry<bool>)?.Value ?? true;
+    public static bool ClearServerMessages =>
+        (ConfigEntries[nameof(ClearServerMessages)] as ConfigEntry<bool>)?.Value ?? false;
+    public static int GlobalQueryIntervalInSeconds { get; } = 2;
+    public static int FamStatsQueryIntervalInSeconds
+    {
+        get
+        {
+            var value = (ConfigEntries[nameof(FamStatsQueryIntervalInSeconds)] as ConfigEntry<int>)?.Value ?? 10;
+            if (value < 5) value = 5;
+            return value;
+        }
+    }
+
+    // ---- Familiar UI flags ----
+    public static bool IsFamStatsPanelEnabled  => (ConfigEntries[nameof(IsFamStatsPanelEnabled)]  as ConfigEntry<bool>)?.Value ?? true;
+    public static bool IsBoxPanelEnabled       => (ConfigEntries[nameof(IsBoxPanelEnabled)]       as ConfigEntry<bool>)?.Value ?? true;
+    public static bool IsBindButtonEnabled     => (ConfigEntries[nameof(IsBindButtonEnabled)]     as ConfigEntry<bool>)?.Value ?? true;
+    public static bool IsCombatButtonEnabled   => (ConfigEntries[nameof(IsCombatButtonEnabled)]   as ConfigEntry<bool>)?.Value ?? true;
+    public static bool IsPrestigeButtonEnabled => (ConfigEntries[nameof(IsPrestigeButtonEnabled)] as ConfigEntry<bool>)?.Value ?? true;
+    public static bool IsToggleButtonEnabled   => (ConfigEntries[nameof(IsToggleButtonEnabled)]   as ConfigEntry<bool>)?.Value ?? true;
+    public static bool AutoEnableFamiliarEquipment =>
+        (ConfigEntries[nameof(AutoEnableFamiliarEquipment)] as ConfigEntry<bool>)?.Value ?? true;
+
+    public static string LastBindCommand
+    {
+        get => (ConfigEntries[nameof(LastBindCommand)] as ConfigEntry<string>)?.Value ?? "";
+        set => ConfigEntries[nameof(LastBindCommand)].BoxedValue = value;
+    }
+
+    // ---- Secondary overlays (BloodCraftHub addition) ----
+    public static bool ShowExperienceOverlay => (ConfigEntries[nameof(ShowExperienceOverlay)] as ConfigEntry<bool>)?.Value ?? false;
+    public static bool ShowFamiliarOverlay   => (ConfigEntries[nameof(ShowFamiliarOverlay)]   as ConfigEntry<bool>)?.Value ?? false;
 
     public Settings InitConfig()
     {
-        var cfg = Plugin.Instance.Config;
+        if (!Directory.Exists(CONFIG_PATH)) Directory.CreateDirectory(CONFIG_PATH);
 
-        _uiTransparency             = cfg.Bind("UI",        nameof(UITransparency),             0.85f, "Background opacity of mod panels (0.0 transparent .. 1.0 opaque).");
+        InitConfigEntry(GENERAL_SETTINGS_GROUP, nameof(ClearServerMessages),         true,  "Clear server and command messages from chat.");
+        InitConfigEntry(GENERAL_SETTINGS_GROUP, nameof(FamStatsQueryIntervalInSeconds), 10,  "Query interval for familiar stats update (min 5s).");
 
-        _showExperienceBar          = cfg.Bind("HUD",       nameof(ShowExperienceBar),          true,  "Show the leveling experience bar (requires Bloodcraft LevelingSystem).");
-        _showPrestige               = cfg.Bind("HUD",       nameof(ShowPrestige),               true,  "Show prestige level next to the experience bar.");
-        _showLegacyBar              = cfg.Bind("HUD",       nameof(ShowLegacyBar),              true,  "Show the blood legacy bar (requires Bloodcraft LegacySystem).");
-        _showExpertiseBar           = cfg.Bind("HUD",       nameof(ShowExpertiseBar),           true,  "Show the weapon expertise bar (requires Bloodcraft ExpertiseSystem).");
-        _showFamiliarDetails        = cfg.Bind("HUD",       nameof(ShowFamiliarDetails),        true,  "Show summarized familiar details bar.");
-        _showProfessions            = cfg.Bind("HUD",       nameof(ShowProfessions),            true,  "Show the professions tab.");
-        _showQuestTracker           = cfg.Bind("HUD",       nameof(ShowQuestTracker),           true,  "Show the quest tracker overlay.");
-        _showShiftSlot              = cfg.Bind("HUD",       nameof(ShowShiftSlot),              true,  "Show the shift-slot indicator.");
+        InitConfigEntry(UI_SETTINGS_GROUP,      nameof(UseHorizontalContentLayout),  true,  "Horizontal vs vertical layout for the main content panel.");
+        InitConfigEntry(UI_SETTINGS_GROUP,      nameof(UITransparency),              0.6f,  "Background opacity for all panels (0=transparent .. 1=opaque).");
+        InitConfigEntry(UI_SETTINGS_GROUP,      nameof(IsFamStatsPanelEnabled),      true,  "Show the familiar stats panel.");
+        InitConfigEntry(UI_SETTINGS_GROUP,      nameof(IsBoxPanelEnabled),           true,  "Show the box panel.");
+        InitConfigEntry(UI_SETTINGS_GROUP,      nameof(IsBindButtonEnabled),         true,  "Show the bind button.");
+        InitConfigEntry(UI_SETTINGS_GROUP,      nameof(IsCombatButtonEnabled),       true,  "Show the combat button.");
+        InitConfigEntry(UI_SETTINGS_GROUP,      nameof(IsPrestigeButtonEnabled),     true,  "Show the prestige button.");
+        InitConfigEntry(UI_SETTINGS_GROUP,      nameof(IsToggleButtonEnabled),       true,  "Show the toggle button.");
 
-        _isFamStatsPanelEnabled     = cfg.Bind("Panels",    nameof(IsFamStatsPanelEnabled),     true,  "Enable the familiar stats panel.");
-        _isBindButtonEnabled        = cfg.Bind("Panels",    nameof(IsBindButtonEnabled),        true,  "Show the bind button in the familiar boxes panel.");
+        InitConfigEntry(FAM_SETTINGS_GROUP,     nameof(LastBindCommand),             "",    "Last bind command sent (used to restore selection).");
+        InitConfigEntry(FAM_SETTINGS_GROUP,     nameof(AutoEnableFamiliarEquipment), true,  "Automatically enable familiar equipment management on UI bring-up.");
 
-        _autoEnableFamiliarEquipment = cfg.Bind("Familiars", nameof(AutoEnableFamiliarEquipment), false, "Automatically issue the familiar-equipment enable command on UI bring-up.");
-
-        _eclipsed                   = cfg.Bind("Advanced",  nameof(Eclipsed),                   true,  "Use fast update interval (0.1s) for live data. Disable if performance suffers (drops to 1s).");
+        InitConfigEntry(OVERLAY_SETTINGS_GROUP, nameof(ShowExperienceOverlay),       false, "Show the experience tracker overlay by default.");
+        InitConfigEntry(OVERLAY_SETTINGS_GROUP, nameof(ShowFamiliarOverlay),         false, "Show the quick-familiar overlay by default.");
 
         return this;
+    }
+
+    private static ConfigEntry<T> InitConfigEntry<T>(string section, string key, T defaultValue, string description)
+    {
+        var entry = Plugin.Instance.Config.Bind(section, key, defaultValue, description);
+
+        // Honor any value the user already set in the .cfg on disk.
+        var cfgFile = Path.Combine(Paths.ConfigPath, $"{MyPluginInfo.PLUGIN_GUID}.cfg");
+        if (File.Exists(cfgFile))
+        {
+            var config = new ConfigFile(cfgFile, true);
+            if (config.TryGetEntry(section, key, out ConfigEntry<T> existing))
+                entry.Value = existing.Value;
+        }
+
+        ConfigEntries[key] = entry;
+        return entry;
     }
 }
