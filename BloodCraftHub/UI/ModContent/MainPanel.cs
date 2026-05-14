@@ -80,15 +80,60 @@ public class MainPanel : ResizeablePanelBase
     private bool _boxesShowingContents;
     private bool _boxesSubscribed;
 
-    private static readonly (PanelType Tab, string Label)[] Tabs =
+    // -------- Tab grouping (Phase 5c) ------------------------------------
+    // The left rail is split into 3 collapsible groups. Each group has a
+    // header button and a list of sub-tabs. KINDRED/HELP start empty (their
+    // tabs land in Phases 5d-5i).
+    private sealed class TabGroupDef
     {
-        (PanelType.FamiliarsTab,    "Familiars"),
-        (PanelType.BoxesTab,        "Boxes"),
-        (PanelType.ClassTab,        "Class"),
-        (PanelType.ExpertiseTab,    "Weapon Expertise"),
-        (PanelType.UnarmedShiftTab, "Unarmed + Shift"),
-        (PanelType.AdminTab,        "Admin"),
+        public string Title;
+        public bool   StartExpanded;
+        public (PanelType Tab, string Label)[] Tabs;
+    }
+
+    private static readonly TabGroupDef[] TabGroups = new[]
+    {
+        new TabGroupDef
+        {
+            Title = "Bloodcraft",
+            StartExpanded = true,
+            Tabs = new[]
+            {
+                (PanelType.FamiliarsTab,    "Familiars"),
+                (PanelType.BoxesTab,        "Boxes"),
+                (PanelType.ClassTab,        "Class"),
+                (PanelType.ExpertiseTab,    "Weapon Expertise"),
+                (PanelType.UnarmedShiftTab, "Unarmed + Shift"),
+                (PanelType.AdminTab,        "Admin"),
+            },
+        },
+        new TabGroupDef
+        {
+            Title = "Kindred",
+            StartExpanded = false,
+            Tabs = System.Array.Empty<(PanelType, string)>(),
+        },
+        new TabGroupDef
+        {
+            Title = "Help",
+            StartExpanded = false,
+            Tabs = System.Array.Empty<(PanelType, string)>(),
+        },
     };
+
+    // Flattened view: every (Tab, Label) across all groups. Useful when other
+    // code (BuildContentArea, etc.) needs to iterate all tabs without caring
+    // which group they belong to.
+    private static System.Collections.Generic.IEnumerable<(PanelType Tab, string Label)> AllTabs()
+    {
+        foreach (var g in TabGroups)
+            foreach (var t in g.Tabs)
+                yield return t;
+    }
+
+    private readonly System.Collections.Generic.Dictionary<string, bool>             _groupExpanded   = new();
+    private readonly System.Collections.Generic.Dictionary<string, GameObject>       _groupContent    = new();
+    private readonly System.Collections.Generic.Dictionary<string, TextMeshProUGUI>  _groupHeaderText = new();
 
     public MainPanel(UIBase owner) : base(owner) { }
 
@@ -142,17 +187,96 @@ public class MainPanel : ResizeablePanelBase
             forceWidth: false, forceHeight: false,
             childControlWidth: true, childControlHeight: false,
             spacing: 2, padding: new Vector4(2, 2, 2, 2));
-        UIFactory.SetLayoutElement(strip, minWidth: 140, flexibleWidth: 0, flexibleHeight: 1);
+        UIFactory.SetLayoutElement(strip, minWidth: 150, flexibleWidth: 0, flexibleHeight: 1);
 
-        foreach (var (tab, label) in Tabs)
-        {
-            var b = UIFactory.CreateButton(strip, $"TabBtn_{tab}", label);
-            UIFactory.SetLayoutElement(b.GameObject, minWidth: 130, minHeight: 28, flexibleWidth: 1, flexibleHeight: 0);
-            var captured = tab;
-            b.OnClick = () => ShowTab(captured);
-            _tabButtons[tab] = b;
-        }
+        foreach (var group in TabGroups)
+            BuildTabGroup(strip, group);
     }
+
+    private void BuildTabGroup(GameObject parent, TabGroupDef group)
+    {
+        _groupExpanded[group.Title] = group.StartExpanded;
+
+        // Header button - clicking toggles the group's content visibility.
+        var header = UIFactory.CreateButton(parent, $"GroupHeader_{group.Title}",
+            FormatGroupHeader(group.Title, group.StartExpanded));
+        UIFactory.SetLayoutElement(header.GameObject,
+            minWidth: 140, preferredWidth: 144, flexibleWidth: 1,
+            minHeight: 26, preferredHeight: 28, flexibleHeight: 0);
+        var headerText = header.Component.GetComponentInChildren<TextMeshProUGUI>();
+        if (headerText != null)
+        {
+            headerText.alignment = TextAlignmentOptions.MidlineLeft;
+            headerText.enableWordWrapping = false;
+            headerText.overflowMode = TextOverflowModes.Overflow;
+            headerText.fontStyle = FontStyles.Bold;
+            headerText.fontSize = 12;
+            _groupHeaderText[group.Title] = headerText;
+        }
+        TooltipHover.Attach(header.GameObject,
+            $"Show / hide the {group.Title} tab list.");
+
+        // Sub-tabs container (slight left indent so the group structure reads).
+        var content = UIFactory.CreateVerticalGroup(parent, $"GroupContent_{group.Title}",
+            forceWidth: true, forceHeight: false,
+            childControlWidth: true, childControlHeight: true,
+            spacing: 2, padding: new Vector4(6, 2, 2, 2));
+        UIFactory.SetLayoutElement(content,
+            minWidth: 140, preferredWidth: 144, flexibleWidth: 1,
+            minHeight: 0, preferredHeight: Mathf.Max(28, group.Tabs.Length * 30 + 4), flexibleHeight: 0);
+        _groupContent[group.Title] = content;
+
+        if (group.Tabs.Length == 0)
+        {
+            var placeholder = UIFactory.CreateLabel(content, "Empty",
+                "(coming soon)",
+                TextAlignmentOptions.MidlineLeft, color: null, fontSize: 11);
+            UIFactory.SetLayoutElement(placeholder.GameObject,
+                minWidth: 130, preferredWidth: 140, flexibleWidth: 1,
+                minHeight: 22, preferredHeight: 24, flexibleHeight: 0);
+            placeholder.TextMesh.fontStyle = FontStyles.Italic;
+            placeholder.TextMesh.enableWordWrapping = false;
+        }
+        else
+        {
+            foreach (var (tab, label) in group.Tabs)
+            {
+                var b = UIFactory.CreateButton(content, $"TabBtn_{tab}", label);
+                UIFactory.SetLayoutElement(b.GameObject,
+                    minWidth: 130, preferredWidth: 138, flexibleWidth: 1,
+                    minHeight: 26, preferredHeight: 28, flexibleHeight: 0);
+                var t = b.Component.GetComponentInChildren<TextMeshProUGUI>();
+                if (t != null)
+                {
+                    t.enableWordWrapping = false;
+                    t.overflowMode = TextOverflowModes.Overflow;
+                    t.alignment = TextAlignmentOptions.Center;
+                    t.fontSize = 13;
+                }
+                var captured = tab;
+                b.OnClick = () => ShowTab(captured);
+                _tabButtons[tab] = b;
+            }
+        }
+
+        content.SetActive(group.StartExpanded);
+        header.OnClick = () => ToggleGroup(group.Title);
+    }
+
+    private void ToggleGroup(string title)
+    {
+        if (!_groupExpanded.TryGetValue(title, out var current)) return;
+        var next = !current;
+        _groupExpanded[title] = next;
+        if (_groupContent.TryGetValue(title, out var go))
+            go.SetActive(next);
+        if (_groupHeaderText.TryGetValue(title, out var txt))
+            txt.text = FormatGroupHeader(title, next);
+        AutoResizeIfEnabled();
+    }
+
+    private static string FormatGroupHeader(string title, bool expanded) =>
+        expanded ? $"▼  {title.ToUpper()}" : $"▶  {title.ToUpper()}";
 
     // -----------------------------------------------------------------------
     // Tab content area (right side) - dispatches per-tab builders
@@ -168,7 +292,7 @@ public class MainPanel : ResizeablePanelBase
             minWidth: 380, preferredWidth: 420, flexibleWidth: 1,
             minHeight: 280, preferredHeight: 320, flexibleHeight: 1);
 
-        foreach (var (tab, label) in Tabs)
+        foreach (var (tab, label) in AllTabs())
         {
             var page = CreateTabPage(content);
             AddTabHeading(page, label);
