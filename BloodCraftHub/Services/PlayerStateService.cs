@@ -76,6 +76,42 @@ public static class PlayerStateService
         Fish,
     }
 
+    // Matches Bloodcraft/Eclipse's per-weapon stat bonus codes (1-based; 0 = None).
+    public enum WeaponStatType
+    {
+        None,
+        MaxHealth,
+        MovementSpeed,
+        PrimaryAttackSpeed,
+        PhysicalLifeLeech,
+        SpellLifeLeech,
+        PrimaryLifeLeech,
+        PhysicalPower,
+        SpellPower,
+        PhysicalCriticalStrikeChance,
+        PhysicalCriticalStrikeDamage,
+        SpellCriticalStrikeChance,
+        SpellCriticalStrikeDamage,
+    }
+
+    // Matches Bloodcraft/Eclipse's per-blood stat bonus codes (1-based; 0 = None).
+    public enum BloodStatType
+    {
+        None,
+        HealingReceived,
+        DamageReduction,
+        PhysicalResistance,
+        SpellResistance,
+        ResourceYield,
+        ReducedBloodDrain,
+        SpellCooldownRecoveryRate,
+        WeaponCooldownRecoveryRate,
+        UltimateCooldownRecoveryRate,
+        MinionDamage,
+        AbilityAttackSpeed,
+        CorruptionDamageReduction,
+    }
+
     // =========================================================================
     // STATE STRUCTS - one per major subsystem
     // =========================================================================
@@ -229,5 +265,31 @@ public static class PlayerStateService
         int realLen = Math.Min(length, raw.Length - start);
         if (realLen <= 0) return 0;
         return int.TryParse(raw.AsSpan(start, realLen), NumberStyles.Integer, CultureInfo.InvariantCulture, out var v) ? v : 0;
+    }
+
+    /// <summary>Split a packed bonus-stats string ("010305") into WeaponStatType values.</summary>
+    public static System.Collections.Generic.List<WeaponStatType> DecodeWeaponBonusStats(string raw)
+    {
+        var list = new System.Collections.Generic.List<WeaponStatType>();
+        if (string.IsNullOrEmpty(raw)) return list;
+        for (int i = 0; i + 2 <= raw.Length; i += 2)
+        {
+            if (int.TryParse(raw.AsSpan(i, 2), NumberStyles.Integer, CultureInfo.InvariantCulture, out var id))
+                list.Add((WeaponStatType)id);
+        }
+        return list;
+    }
+
+    /// <summary>Split a packed bonus-stats string ("010305") into BloodStatType values.</summary>
+    public static System.Collections.Generic.List<BloodStatType> DecodeBloodBonusStats(string raw)
+    {
+        var list = new System.Collections.Generic.List<BloodStatType>();
+        if (string.IsNullOrEmpty(raw)) return list;
+        for (int i = 0; i + 2 <= raw.Length; i += 2)
+        {
+            if (int.TryParse(raw.AsSpan(i, 2), NumberStyles.Integer, CultureInfo.InvariantCulture, out var id))
+                list.Add((BloodStatType)id);
+        }
+        return list;
     }
 }

@@ -50,6 +50,17 @@ public class MainPanel : ResizeablePanelBase
     private TextMeshProUGUI _famStatsLabel;
     private bool _famSubscribed;
 
+    // Class-tab live labels
+    private TextMeshProUGUI _classNameLabel;
+    private TextMeshProUGUI _classLevelLabel;
+    private bool _classSubscribed;
+
+    // Expertise-tab live labels
+    private TextMeshProUGUI _wepTypeLabel;
+    private TextMeshProUGUI _wepProgressLabel;
+    private TextMeshProUGUI _wepBonusLabel;
+    private bool _wepSubscribed;
+
     private static readonly (PanelType Tab, string Label)[] Tabs =
     {
         (PanelType.FamiliarsTab,    "Familiars"),
@@ -122,6 +133,12 @@ public class MainPanel : ResizeablePanelBase
             {
                 case PanelType.FamiliarsTab:
                     BuildFamiliarsTab(page);
+                    break;
+                case PanelType.ClassTab:
+                    BuildClassTab(page);
+                    break;
+                case PanelType.ExpertiseTab:
+                    BuildExpertiseTab(page);
                     break;
                 default:
                     AddComingSoonBody(page, label);
@@ -224,6 +241,136 @@ public class MainPanel : ResizeablePanelBase
     }
 
     private void OnFamiliarChanged() => RenderFamiliar(PlayerStateService.Familiar);
+
+    // -----------------------------------------------------------------------
+    // Class tab
+    // -----------------------------------------------------------------------
+
+    private void BuildClassTab(GameObject page)
+    {
+        AddSectionHeading(page, "Active Class");
+
+        _classNameLabel  = AddInfoLabel(page, "ClassName",  "—",       FontStyles.Bold,   fontSize: 18);
+        _classLevelLabel = AddInfoLabel(page, "ClassLevel", "Level —", FontStyles.Normal, fontSize: 14);
+
+        AddSpacer(page, 4);
+        AddSectionHeading(page, "Actions");
+
+        var actions = UIFactory.CreateHorizontalGroup(page, "ClassActions",
+            forceExpandWidth: true, forceExpandHeight: false,
+            childControlWidth: false, childControlHeight: true,
+            spacing: 6, padding: new Vector4(0, 0, 0, 0));
+        UIFactory.SetLayoutElement(actions,
+            minWidth: 360, preferredWidth: 400, flexibleWidth: 1,
+            minHeight: 32, preferredHeight: 32, flexibleHeight: 0);
+        AddCommandButton(actions, "List Classes",  MessageService.BCCOM_CLASS_LIST);
+        AddCommandButton(actions, "List Spells",   MessageService.BCCOM_CLASS_LIST_SPELLS);
+        AddCommandButton(actions, "List Stats",    MessageService.BCCOM_CLASS_LIST_STATS);
+        AddCommandButton(actions, "Toggle Shift",  MessageService.BCCOM_CLASS_TOGGLE_SHIFT);
+
+        AddSpacer(page, 4);
+        var note = UIFactory.CreateLabel(page, "ClassNote",
+            "Class info responses appear in chat. Selecting/changing classes by argument arrives later — use `.class s <Class>` or `.class c <Class>` in chat for now.",
+            TextAlignmentOptions.TopLeft, color: null, fontSize: 12);
+        UIFactory.SetLayoutElement(note.GameObject,
+            minWidth: 360, preferredWidth: 400, flexibleWidth: 1,
+            minHeight: 40, preferredHeight: 50, flexibleHeight: 0);
+        note.TextMesh.enableWordWrapping = true;
+        note.TextMesh.overflowMode = TextOverflowModes.Overflow;
+
+        RenderClass(PlayerStateService.Experience);
+        if (!_classSubscribed)
+        {
+            PlayerStateService.ExperienceChanged += OnExperienceChangedForClass;
+            _classSubscribed = true;
+        }
+    }
+
+    private void OnExperienceChangedForClass() => RenderClass(PlayerStateService.Experience);
+
+    private void RenderClass(PlayerStateService.ExperienceState s)
+    {
+        if (_classNameLabel == null) return;
+        _classNameLabel.text = s.Class == PlayerStateService.PlayerClass.None
+            ? "(no class selected)"
+            : s.Class.ToString();
+        _classLevelLabel.text = s.Class == PlayerStateService.PlayerClass.None
+            ? "Use .class s <Class> in chat to choose one."
+            : $"Player Level {s.Level}   Prestige {s.Prestige}";
+    }
+
+    // -----------------------------------------------------------------------
+    // Weapon Expertise tab
+    // -----------------------------------------------------------------------
+
+    private void BuildExpertiseTab(GameObject page)
+    {
+        AddSectionHeading(page, "Current Weapon Expertise");
+
+        _wepTypeLabel     = AddInfoLabel(page, "WepType",     "—",                  FontStyles.Bold,   fontSize: 18);
+        _wepProgressLabel = AddInfoLabel(page, "WepProgress", "Level —",            FontStyles.Normal, fontSize: 14);
+        _wepBonusLabel    = AddInfoLabel(page, "WepBonus",    "Bonus Stats: —",     FontStyles.Normal, fontSize: 13);
+
+        AddSpacer(page, 4);
+        AddSectionHeading(page, "Actions");
+
+        var actions = UIFactory.CreateHorizontalGroup(page, "WepActions",
+            forceExpandWidth: true, forceExpandHeight: false,
+            childControlWidth: false, childControlHeight: true,
+            spacing: 6, padding: new Vector4(0, 0, 0, 0));
+        UIFactory.SetLayoutElement(actions,
+            minWidth: 360, preferredWidth: 400, flexibleWidth: 1,
+            minHeight: 32, preferredHeight: 32, flexibleHeight: 0);
+        AddCommandButton(actions, "Refresh",     MessageService.BCCOM_WEP_GET);
+        AddCommandButton(actions, "List Weps",   MessageService.BCCOM_WEP_LIST);
+        AddCommandButton(actions, "List Stats",  MessageService.BCCOM_WEP_LIST_STATS);
+        AddCommandButton(actions, "Reset Stats", MessageService.BCCOM_WEP_RESET_STATS);
+        AddCommandButton(actions, "Lock Spells", MessageService.BCCOM_WEP_LOCK_SPELLS);
+
+        AddSpacer(page, 4);
+        var note = UIFactory.CreateLabel(page, "WepNote",
+            "Choosing a specific bonus stat (`.wep cst <Weapon> <Stat>`) takes arguments — for now use chat. A stat picker arrives in a later phase.",
+            TextAlignmentOptions.TopLeft, color: null, fontSize: 12);
+        UIFactory.SetLayoutElement(note.GameObject,
+            minWidth: 360, preferredWidth: 400, flexibleWidth: 1,
+            minHeight: 32, preferredHeight: 40, flexibleHeight: 0);
+        note.TextMesh.enableWordWrapping = true;
+        note.TextMesh.overflowMode = TextOverflowModes.Overflow;
+
+        RenderExpertise(PlayerStateService.Expertise);
+        if (!_wepSubscribed)
+        {
+            PlayerStateService.ExpertiseChanged += OnExpertiseChanged;
+            _wepSubscribed = true;
+        }
+    }
+
+    private void OnExpertiseChanged() => RenderExpertise(PlayerStateService.Expertise);
+
+    private void RenderExpertise(PlayerStateService.ExpertiseState s)
+    {
+        if (_wepTypeLabel == null) return;
+
+        _wepTypeLabel.text = s.Type.ToString();
+        _wepProgressLabel.text = s.Prestige > 0
+            ? $"Level {s.Level}   ({s.Progress * 100f:0.#}%)   Prestige {s.Prestige}"
+            : $"Level {s.Level}   ({s.Progress * 100f:0.#}%)";
+
+        var stats = PlayerStateService.DecodeWeaponBonusStats(s.BonusStatsRaw);
+        if (stats.Count == 0)
+        {
+            _wepBonusLabel.text = "Bonus Stats: (none yet — pick one via .wep cst)";
+        }
+        else
+        {
+            var named = new System.Collections.Generic.List<string>();
+            foreach (var st in stats)
+                if (st != PlayerStateService.WeaponStatType.None) named.Add(st.ToString());
+            _wepBonusLabel.text = named.Count > 0
+                ? $"Bonus Stats: {string.Join(", ", named)}"
+                : "Bonus Stats: (none yet)";
+        }
+    }
 
     private void RenderFamiliar(PlayerStateService.FamiliarState s)
     {
@@ -350,6 +497,16 @@ public class MainPanel : ResizeablePanelBase
         {
             PlayerStateService.FamiliarChanged -= OnFamiliarChanged;
             _famSubscribed = false;
+        }
+        if (_classSubscribed)
+        {
+            PlayerStateService.ExperienceChanged -= OnExperienceChangedForClass;
+            _classSubscribed = false;
+        }
+        if (_wepSubscribed)
+        {
+            PlayerStateService.ExpertiseChanged -= OnExpertiseChanged;
+            _wepSubscribed = false;
         }
     }
 }

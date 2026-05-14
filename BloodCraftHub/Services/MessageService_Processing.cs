@@ -35,8 +35,20 @@ public static partial class MessageService
     // ---------- Blood legacy (.bl) ----------
     public const string BCCOM_BL_GET             = ".bl get";
 
+    // ---------- Class (.class) ----------
+    public const string BCCOM_CLASS_LIST          = ".class l";
+    public const string BCCOM_CLASS_LIST_SPELLS   = ".class lsp";
+    public const string BCCOM_CLASS_LIST_STATS    = ".class lst";
+    public const string BCCOM_CLASS_TOGGLE_SHIFT  = ".class shift";
+    // .class s <Class>, .class c <Class>, .class csp <#> take args - constructed at call site.
+
     // ---------- Weapon expertise (.wep) ----------
     public const string BCCOM_WEP_GET            = ".wep get";
+    public const string BCCOM_WEP_LIST           = ".wep l";
+    public const string BCCOM_WEP_LIST_STATS     = ".wep lst";
+    public const string BCCOM_WEP_RESET_STATS    = ".wep rst";
+    public const string BCCOM_WEP_LOCK_SPELLS    = ".wep locksp";
+    // .wep cst <Weapon> <Stat> takes args - constructed at call site.
 
     // Phase 3b will add:
     //   public enum InterceptFlag { None, FamStats, FamBoxes, FamBoxContents, ... }
