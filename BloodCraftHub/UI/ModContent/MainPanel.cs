@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using BloodCraftHub.Config;
 using BloodCraftHub.Services;
+using BloodCraftHub.UI.Forms;
 using BloodCraftHub.UI.Framework.CustomLib.Panel;
 using BloodCraftHub.UI.Framework.UniverseLib.UI;
 using BloodCraftHub.UI.Framework.UniverseLib.UI.Models;
@@ -754,10 +755,21 @@ public class MainPanel : ResizeablePanelBase
             "Show the Bloodcraft server's startup readiness summary in chat (.misc health). Admin only.");
 
         AddSpacer(page, 6);
+        AddSectionHeading(page, "Admin forms (Phase 5b — demo)");
+
+        // First fully-form-driven admin command. The remaining commands in the
+        // reference section below get migrated to forms in Phase 5e.
+        FormBuilder.Build(page,
+            title: "Set player level (.lvl set)",
+            commandTemplate: ".lvl set {player} {level}",
+            new PlayerNameField("player", "Player",
+                tooltip: "Target player's character name (must match exactly)."),
+            new IntField("level", "Level", min: 1, max: 200,
+                tooltip: "Target character level. Bloodcraft default cap is 90."));
+
+        AddSpacer(page, 6);
         AddSectionHeading(page, "Admin commands (use chat — args required)");
 
-        AddAdminRefLine(page, ".lvl set [Player] [Level]",
-            "Set a player's character level.");
         AddAdminRefLine(page, ".prestige set [Player] [PrestigeType] [Level]",
             "Set a player's prestige in a system. PrestigeType is e.g. Experience / Expertise / Legacy.");
         AddAdminRefLine(page, ".prestige r [Player] [PrestigeType]",
@@ -777,8 +789,9 @@ public class MainPanel : ResizeablePanelBase
 
         AddSpacer(page, 6);
         var note = UIFactory.CreateLabel(page, "AdminNote",
-            "Form-based admin tools (player name picker + numeric inputs) arrive in a later phase. " +
-            "If you aren't an admin on this server, these commands will return a permission error.",
+            "Phase 5b: the first admin form (Set player level above) is live. " +
+            "Remaining commands move to forms in Phase 5e. " +
+            "If you aren't an admin on this server, commands will return a permission error.",
             TextAlignmentOptions.TopLeft, color: null, fontSize: 12);
         UIFactory.SetLayoutElement(note.GameObject,
             minWidth: 360, preferredWidth: 400, flexibleWidth: 1,
