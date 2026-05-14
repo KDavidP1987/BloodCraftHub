@@ -1,11 +1,43 @@
-Copyright (c) 2026 BloodCraftHub contributors
+MIT License
 
-TODO: pick a license before the first public release.
+Copyright (c) 2026 KDavidP1987
 
-Notes for the maintainer:
-- BloodCraftUI (LearningMods/BloodCraftUI-master) has no LICENSE in-repo —
-  contact the author (panthernet) before redistributing ported code.
-- Eclipse (LearningMods/Eclipse-main) ships LICENSE.md — read it and comply if
-  you fork code from there.
-- The Bloodcraft server mod has its own license too; you're not redistributing
-  it, but mention compatibility scope in your release notes.
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+---
+
+Third-party attribution
+
+BloodCraftHub is a derivative work that combines and adapts code from two
+upstream V Rising client mods:
+
+- BloodCraftUI (panthernet), unlicensed in-repo at the time of vendoring. The
+  UniverseLib + CustomLib + ModernLib UI framework under
+  BloodCraftHub/UI/Framework/ is ported from that project. Contact the
+  upstream author for redistribution permission beyond what this MIT license
+  grants in the BloodCraftHub repository.
+
+- Eclipse (zfolmt), shipped with its own LICENSE.md. The signed Eclipse
+  protocol implementation in Services/EclipseProtocolService.cs is adapted
+  from that project; comply with the Eclipse license for any further
+  derivative use of that portion.
+
+The Bloodcraft, KindredCommands, and KindredLogistics server mods are
+referenced as runtime peers - no code is bundled from them; the integration
+is over BepInEx + chat-command interop only.

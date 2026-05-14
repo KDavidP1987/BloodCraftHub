@@ -168,5 +168,17 @@ Four targeted polish items before release-prep starts.
 - **Shift-spell prefab name lookup.** New `Resources/PrefabNameResolver.cs` lazily builds a `Dictionary<int, string>` by inverting `PrefabCollectionSystem.SpawnableNameToPrefabGuidDictionary` on first call. `RenderUnarmedShift` now shows `Equipped: <name>` when the resolver knows the spell and falls back to `Equipped: PrefabGUID <hash>` when not yet built or unknown. Pattern ported from `LearningMods/Eclipse-main/Services/LocalizationService.cs`.
 - **`.clan list` pagination widget.** The static "Clan List" button on the Commands tab is replaced with a stateful pager: `[<]  Clan List p1  [>]`. Click Prev/Next to fire `.clan list <page>` with the new page number; the label tracks the page the next press will request. State (`_clanListPage`) lives on the panel instance.
 
+### Phase 6 — Release prep (v0.1.0)
+
+First public release prep — everything needed before the Thunderstore upload.
+
+- **LICENSE.txt** replaced with MIT (copyright 2026 KDavidP1987) plus a third-party attribution block noting the ported portions from BloodCraftUI (panthernet, unlicensed in-repo — author contact required for redistribution beyond MIT) and Eclipse (zfolmt, has LICENSE.md — comply for derivative use).
+- **Thunderstore metadata** filled in: `thunderstore.toml` and `BloodCraftHub.csproj` `<Description>` now mention KindredCommands + KindredLogistics. `<PackageProjectUrl>` set to the GitHub repo so the generated `manifest.json` populates `website_url`.
+- **README** restructured for end users: lead with status + screenshots placeholder, installation instructions (TMM / r2modman / manual), compatibility matrix (BepInEx 1.733.2, Bloodcraft v1.13.21, KindredCommands v2.5.8, KindredLogistics v1.6.0, optional Eclipse v1.3.13 + BloodCraftUI v1.1.0), known-issues section. Dev docs moved to a "For developers" section at the bottom.
+- **`docs/screenshots/` placeholder** with a README listing the suggested shots for the first release (floating button, main panel, admin tabs, overlays, Quick Start).
+- **Release ZIP** built at `dist/BloodCraftHub-0.1.0.zip` (130 KB) containing `BloodCraftHub.dll` + `manifest.json` + `icon.png` (256×256, verified) + `README.md` + `LICENSE.txt` + `CHANGELOG.md` at zip root. Ready for drag-and-drop to thunderstore.io/c/v-rising/create/.
+- **Publication is the user's manual step** — Thunderstore uploads are public + one-way, so the assistant stops at "ZIP is ready" rather than calling `tcli publish` autonomously.
+
 ## Phases remaining
-- **6** — Release: license, README + screenshots, real icon, Thunderstore upload via `tcli`.
+
+- Nothing scheduled. v0.1.0 ships once the user drops the ZIP into thunderstore.io.
