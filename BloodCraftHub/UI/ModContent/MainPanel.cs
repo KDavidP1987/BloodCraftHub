@@ -100,8 +100,33 @@ public class MainPanel : ResizeablePanelBase
         BuildTabStrip(body);
         BuildContentArea(body);
         BuildOverlayFooter(ContentRoot);
+        BuildTooltipFooter(ContentRoot);
 
         ShowTab(ActiveTab);
+    }
+
+    private void BuildTooltipFooter(GameObject parent)
+    {
+        var footer = UIFactory.CreateHorizontalGroup(parent, "TooltipFooter",
+            forceExpandWidth: true, forceExpandHeight: false,
+            childControlWidth: true, childControlHeight: true,
+            spacing: 4, padding: new Vector4(8, 8, 2, 2));
+        UIFactory.SetLayoutElement(footer, minHeight: 22, preferredHeight: 22, flexibleHeight: 0, flexibleWidth: 1);
+
+        var lbl = UIFactory.CreateLabel(footer, "TooltipText",
+            TooltipHover.IdlePlaceholder,
+            TextAlignmentOptions.MidlineLeft, color: null, fontSize: 12);
+        UIFactory.SetLayoutElement(lbl.GameObject,
+            minWidth: 400, preferredWidth: 600, flexibleWidth: 1,
+            minHeight: 20, preferredHeight: 22, flexibleHeight: 0);
+        lbl.TextMesh.fontStyle = FontStyles.Italic;
+        lbl.TextMesh.enableWordWrapping = false;
+        lbl.TextMesh.overflowMode = TextOverflowModes.Overflow;
+
+        // Wire the static Sink so the per-frame TooltipHover.TickAll updates this label,
+        // and register the tick with CoreUpdateBehavior (idempotent).
+        TooltipHover.Sink = lbl.TextMesh;
+        TooltipHover.EnsureTicking();
     }
 
     // -----------------------------------------------------------------------
@@ -233,10 +258,14 @@ public class MainPanel : ResizeablePanelBase
         UIFactory.SetLayoutElement(actions,
             minWidth: 360, preferredWidth: 400, flexibleWidth: 1,
             minHeight: 32, preferredHeight: 32, flexibleHeight: 0);
-        AddCommandButton(actions, "Unbind",   MessageService.BCCOM_FAM_UNBIND);
-        AddCommandButton(actions, "Toggle",   MessageService.BCCOM_FAM_TOGGLE);
-        AddCommandButton(actions, "Combat",   MessageService.BCCOM_FAM_COMBAT);
-        AddCommandButton(actions, "Prestige", MessageService.BCCOM_FAM_PRESTIGE);
+        AddCommandButton(actions, "Unbind",   MessageService.BCCOM_FAM_UNBIND,
+            "Dismiss the currently bound familiar (.fam u). Your familiar returns to its box.");
+        AddCommandButton(actions, "Toggle",   MessageService.BCCOM_FAM_TOGGLE,
+            "Toggle the familiar visibility on/off (.fam toggle). Hidden familiars stop following you.");
+        AddCommandButton(actions, "Combat",   MessageService.BCCOM_FAM_COMBAT,
+            "Toggle combat mode for the active familiar (.fam combat). Off = passive, won't engage enemies.");
+        AddCommandButton(actions, "Prestige", MessageService.BCCOM_FAM_PRESTIGE,
+            "Prestige the active familiar (.fam pr). Requires max level; resets level and grants permanent bonuses.");
 
         AddSpacer(page, 4);
         var note = UIFactory.CreateLabel(page, "FamNote",
@@ -272,9 +301,12 @@ public class MainPanel : ResizeablePanelBase
         AddSpacer(page, 4);
 
         // ---------------- Picker section (visible when no box selected) ----------------
+        // childControlHeight: true is crucial here - without it the layout group
+        // does NOT enforce children's heights, so the action row, section heading,
+        // and list container all draw at their default (0) sizeDelta and overlap.
         _boxesPickerSection = UIFactory.CreateVerticalGroup(page, "BoxPickerSection",
             forceWidth: true, forceHeight: false,
-            childControlWidth: true, childControlHeight: false,
+            childControlWidth: true, childControlHeight: true,
             spacing: 4, padding: new Vector4(0, 0, 0, 0));
         UIFactory.SetLayoutElement(_boxesPickerSection,
             minWidth: 360, preferredWidth: 400, flexibleWidth: 1,
@@ -287,12 +319,13 @@ public class MainPanel : ResizeablePanelBase
         UIFactory.SetLayoutElement(pickerActions,
             minWidth: 360, preferredWidth: 400, flexibleWidth: 1,
             minHeight: 32, preferredHeight: 32, flexibleHeight: 0);
-        AddCommandButton(pickerActions, "Refresh", MessageService.BCCOM_FAM_BOXES);
+        AddCommandButton(pickerActions, "Refresh", MessageService.BCCOM_FAM_BOXES,
+            "Re-fetch your familiar boxes from the server (.fam boxes).");
 
         AddSectionHeading(_boxesPickerSection, "Available Boxes");
         _boxesListContainer = UIFactory.CreateVerticalGroup(_boxesPickerSection, "BoxListContainer",
             forceWidth: true, forceHeight: false,
-            childControlWidth: true, childControlHeight: false,
+            childControlWidth: true, childControlHeight: true,
             spacing: 2, padding: new Vector4(2, 2, 2, 2));
         UIFactory.SetLayoutElement(_boxesListContainer,
             minWidth: 360, preferredWidth: 400, flexibleWidth: 1,
@@ -301,7 +334,7 @@ public class MainPanel : ResizeablePanelBase
         // ---------------- Content section (visible when a box is selected) ----------------
         _boxesContentSection = UIFactory.CreateVerticalGroup(page, "BoxContentSection",
             forceWidth: true, forceHeight: false,
-            childControlWidth: true, childControlHeight: false,
+            childControlWidth: true, childControlHeight: true,
             spacing: 4, padding: new Vector4(0, 0, 0, 0));
         UIFactory.SetLayoutElement(_boxesContentSection,
             minWidth: 360, preferredWidth: 400, flexibleWidth: 1,
@@ -329,15 +362,17 @@ public class MainPanel : ResizeablePanelBase
             backText.fontSize = 13;
         }
         backBtn.OnClick = OnBackToBoxesClicked;
+        TooltipHover.Attach(backBtn.GameObject, "Return to the box list without changing your active box.");
 
-        AddCommandButton(contentActions, "Reload", MessageService.BCCOM_FAM_LIST_CURRENT_BOX);
+        AddCommandButton(contentActions, "Reload", MessageService.BCCOM_FAM_LIST_CURRENT_BOX,
+            "Re-fetch the familiars in the currently-active box (sends .fam l).");
 
         _boxesContentHeading = AddInfoLabel(_boxesContentSection, "ContentHeading",
             "Familiars in (none)", FontStyles.Italic, fontSize: 13);
 
         _boxesContentContainer = UIFactory.CreateVerticalGroup(_boxesContentSection, "BoxContentContainer",
             forceWidth: true, forceHeight: false,
-            childControlWidth: true, childControlHeight: false,
+            childControlWidth: true, childControlHeight: true,
             spacing: 2, padding: new Vector4(2, 2, 2, 2));
         UIFactory.SetLayoutElement(_boxesContentContainer,
             minWidth: 360, preferredWidth: 400, flexibleWidth: 1,
@@ -512,10 +547,14 @@ public class MainPanel : ResizeablePanelBase
         UIFactory.SetLayoutElement(actions,
             minWidth: 360, preferredWidth: 400, flexibleWidth: 1,
             minHeight: 32, preferredHeight: 32, flexibleHeight: 0);
-        AddCommandButton(actions, "List Classes",  MessageService.BCCOM_CLASS_LIST);
-        AddCommandButton(actions, "List Spells",   MessageService.BCCOM_CLASS_LIST_SPELLS);
-        AddCommandButton(actions, "List Stats",    MessageService.BCCOM_CLASS_LIST_STATS);
-        AddCommandButton(actions, "Toggle Shift",  MessageService.BCCOM_CLASS_TOGGLE_SHIFT);
+        AddCommandButton(actions, "List Classes",  MessageService.BCCOM_CLASS_LIST,
+            "List the classes available on this server (.class l). Response appears in chat.");
+        AddCommandButton(actions, "List Spells",   MessageService.BCCOM_CLASS_LIST_SPELLS,
+            "List the spells granted by your current class (.class lsp). Response in chat.");
+        AddCommandButton(actions, "List Stats",    MessageService.BCCOM_CLASS_LIST_STATS,
+            "List the weapon/blood stat synergies for your current class (.class lst).");
+        AddCommandButton(actions, "Toggle Shift",  MessageService.BCCOM_CLASS_TOGGLE_SHIFT,
+            "Toggle whether the class spell occupies your shift-slot (.class shift).");
 
         AddSpacer(page, 4);
         var note = UIFactory.CreateLabel(page, "ClassNote",
@@ -570,11 +609,16 @@ public class MainPanel : ResizeablePanelBase
         UIFactory.SetLayoutElement(actions,
             minWidth: 360, preferredWidth: 400, flexibleWidth: 1,
             minHeight: 32, preferredHeight: 32, flexibleHeight: 0);
-        AddCommandButton(actions, "Refresh",     MessageService.BCCOM_WEP_GET);
-        AddCommandButton(actions, "List Weps",   MessageService.BCCOM_WEP_LIST);
-        AddCommandButton(actions, "List Stats",  MessageService.BCCOM_WEP_LIST_STATS);
-        AddCommandButton(actions, "Reset Stats", MessageService.BCCOM_WEP_RESET_STATS);
-        AddCommandButton(actions, "Lock Spells", MessageService.BCCOM_WEP_LOCK_SPELLS);
+        AddCommandButton(actions, "Refresh",     MessageService.BCCOM_WEP_GET,
+            "Display your current weapon expertise details in chat (.wep get).");
+        AddCommandButton(actions, "List Weps",   MessageService.BCCOM_WEP_LIST,
+            "List all weapon expertise types tracked by Bloodcraft (.wep l).");
+        AddCommandButton(actions, "List Stats",  MessageService.BCCOM_WEP_LIST_STATS,
+            "List the weapon-stat bonuses you can choose between (.wep lst).");
+        AddCommandButton(actions, "Reset Stats", MessageService.BCCOM_WEP_RESET_STATS,
+            "Reset your chosen bonus stats for the current weapon (.wep rst).");
+        AddCommandButton(actions, "Lock Spells", MessageService.BCCOM_WEP_LOCK_SPELLS,
+            "Lock in the next spells you equip to use as your unarmed slot spells (.wep locksp).");
 
         AddSpacer(page, 4);
         var note = UIFactory.CreateLabel(page, "WepNote",
@@ -626,9 +670,12 @@ public class MainPanel : ResizeablePanelBase
         UIFactory.SetLayoutElement(actions,
             minWidth: 360, preferredWidth: 400, flexibleWidth: 1,
             minHeight: 32, preferredHeight: 32, flexibleHeight: 0);
-        AddCommandButton(actions, "Toggle Shift",  MessageService.BCCOM_CLASS_TOGGLE_SHIFT);
-        AddCommandButton(actions, "Lock Spells",   MessageService.BCCOM_WEP_LOCK_SPELLS);
-        AddCommandButton(actions, "Refresh",       MessageService.BCCOM_WEP_GET);
+        AddCommandButton(actions, "Toggle Shift",  MessageService.BCCOM_CLASS_TOGGLE_SHIFT,
+            "Toggle whether your class spell is locked into the shift slot (.class shift).");
+        AddCommandButton(actions, "Lock Spells",   MessageService.BCCOM_WEP_LOCK_SPELLS,
+            "Lock in next-equipped spells for use in your unarmed slots (.wep locksp).");
+        AddCommandButton(actions, "Refresh",       MessageService.BCCOM_WEP_GET,
+            "Refresh weapon expertise details (.wep get). Chat receives the response.");
 
         AddSpacer(page, 4);
         var note = UIFactory.CreateLabel(page, "ShiftNote",
@@ -703,7 +750,8 @@ public class MainPanel : ResizeablePanelBase
         UIFactory.SetLayoutElement(diagRow,
             minWidth: 360, preferredWidth: 400, flexibleWidth: 1,
             minHeight: 32, preferredHeight: 32, flexibleHeight: 0);
-        AddCommandButton(diagRow, "Server Health", MessageService.BCCOM_MISC_HEALTH);
+        AddCommandButton(diagRow, "Server Health", MessageService.BCCOM_MISC_HEALTH,
+            "Show the Bloodcraft server's startup readiness summary in chat (.misc health). Admin only.");
 
         AddSpacer(page, 6);
         AddSectionHeading(page, "Admin commands (use chat — args required)");
@@ -843,7 +891,7 @@ public class MainPanel : ResizeablePanelBase
         UIFactory.SetLayoutElement(spacer, minHeight: height, preferredHeight: height, flexibleHeight: 0, flexibleWidth: 1);
     }
 
-    private static void AddCommandButton(GameObject parent, string label, string command)
+    private static void AddCommandButton(GameObject parent, string label, string command, string tooltip = null)
     {
         var b = UIFactory.CreateButton(parent, $"Cmd_{label}", label);
         UIFactory.SetLayoutElement(b.GameObject,
@@ -862,6 +910,11 @@ public class MainPanel : ResizeablePanelBase
             t.fontSize = 13;
         }
         b.OnClick = () => EnqueueOrWarn(command);
+
+        // Hover tooltip: default to the literal command text so even un-described
+        // buttons surface what they'll send; per-call site can pass a richer
+        // explanation if it's worth the words.
+        TooltipHover.Attach(b.GameObject, tooltip ?? $"Sends '{command}' to the server.");
     }
 
     private static void EnqueueOrWarn(string command)
