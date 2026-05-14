@@ -15,6 +15,8 @@ public enum PanelType
     ClassTab,
     ExpertiseTab,
     UnarmedShiftTab,
+    PrestigeTab,
+    LevelsTab,
     AdminTab,
 
     // Secondary overlays (independent draggable panels):

@@ -69,6 +69,26 @@ public class MainPanel : ResizeablePanelBase
     private TextMeshProUGUI _unarmedBonusLabel;
     private bool _shiftSubscribed;
 
+    // Prestige-tab live labels (current-prestige across systems)
+    private TextMeshProUGUI _prestigeXpLabel;
+    private TextMeshProUGUI _prestigeLegacyLabel;
+    private TextMeshProUGUI _prestigeExpertiseLabel;
+    private TextMeshProUGUI _prestigeFamLabel;
+    private bool _prestigeSubscribed;
+
+    // Levels-tab live labels (full overview)
+    private TextMeshProUGUI _lvlXpLabel;
+    private TextMeshProUGUI _lvlLegacyLabel;
+    private TextMeshProUGUI _lvlExpertiseLabel;
+    private TextMeshProUGUI _lvlExpertiseBonusLabel;
+    private TextMeshProUGUI _lvlFamLabel;
+    private TextMeshProUGUI _lvlFamStatsLabel;
+    private TextMeshProUGUI _lvlProfessions1Label;
+    private TextMeshProUGUI _lvlProfessions2Label;
+    private TextMeshProUGUI _lvlProfessions3Label;
+    private TextMeshProUGUI _lvlProfessions4Label;
+    private bool _lvlSubscribed;
+
     // Boxes-tab live state
     private TextMeshProUGUI _boxesActiveBoxLabel;
     private TextMeshProUGUI _boxesContentHeading;
@@ -104,6 +124,8 @@ public class MainPanel : ResizeablePanelBase
                 (PanelType.ClassTab,        "Class"),
                 (PanelType.ExpertiseTab,    "Weapon Expertise"),
                 (PanelType.UnarmedShiftTab, "Unarmed + Shift"),
+                (PanelType.PrestigeTab,     "Prestige"),
+                (PanelType.LevelsTab,       "Levels"),
                 (PanelType.AdminTab,        "Admin"),
             },
         },
@@ -313,6 +335,12 @@ public class MainPanel : ResizeablePanelBase
                     break;
                 case PanelType.UnarmedShiftTab:
                     BuildUnarmedShiftTab(page);
+                    break;
+                case PanelType.PrestigeTab:
+                    BuildPrestigeTab(page);
+                    break;
+                case PanelType.LevelsTab:
+                    BuildLevelsTab(page);
                     break;
                 case PanelType.AdminTab:
                     BuildAdminTab(page);
@@ -888,6 +916,194 @@ public class MainPanel : ResizeablePanelBase
     }
 
     // -----------------------------------------------------------------------
+    // Prestige tab
+    // -----------------------------------------------------------------------
+
+    private void BuildPrestigeTab(GameObject page)
+    {
+        AddSectionHeading(page, "Current Prestige");
+
+        _prestigeXpLabel        = AddInfoLabel(page, "PrestigeXp",        "Experience prestige: —", FontStyles.Normal, fontSize: 13);
+        _prestigeLegacyLabel    = AddInfoLabel(page, "PrestigeLegacy",    "Blood legacy prestige: —", FontStyles.Normal, fontSize: 13);
+        _prestigeExpertiseLabel = AddInfoLabel(page, "PrestigeExpertise", "Weapon expertise prestige: —", FontStyles.Normal, fontSize: 13);
+        _prestigeFamLabel       = AddInfoLabel(page, "PrestigeFam",       "Familiar prestige: —", FontStyles.Normal, fontSize: 13);
+
+        AddSpacer(page, 4);
+        AddSectionHeading(page, "Quick actions");
+
+        var actions = UIFactory.CreateHorizontalGroup(page, "PrestigeActions",
+            forceExpandWidth: true, forceExpandHeight: false,
+            childControlWidth: true, childControlHeight: true,
+            spacing: 6, padding: new Vector4(0, 0, 0, 0));
+        UIFactory.SetLayoutElement(actions,
+            minWidth: 360, preferredWidth: 400, flexibleWidth: 1,
+            minHeight: 32, preferredHeight: 32, flexibleHeight: 0);
+        AddCommandButton(actions, "List",      MessageService.BCCOM_PRESTIGE_LIST,
+            "List the prestige systems available on this server (.prestige l). Response in chat.");
+        AddCommandButton(actions, "Sync Buffs",MessageService.BCCOM_PRESTIGE_SYNC_BUFFS,
+            "Re-apply your prestige buffs if any have dropped (.prestige sb).");
+        AddCommandButton(actions, "Exoform",   MessageService.BCCOM_PRESTIGE_TOGGLE_EXOFORM,
+            "Toggle taunting to enter exoform shapeshift (.prestige exoform). Requires Exo prestige.");
+        AddCommandButton(actions, "Shroud",    MessageService.BCCOM_PRESTIGE_TOGGLE_SHROUD,
+            "Toggle permashroud if you qualify for it (.prestige shroud).");
+
+        AddSpacer(page, 4);
+        AddSectionHeading(page, "Prestige actions (forms)");
+
+        CollapsibleSection.Build(page,
+            title: "Prestige in a system (.prestige me)",
+            startExpanded: false,
+            tooltip: "Expand to prestige in a specific system — Experience, a weapon expertise, a blood legacy, or Exo.",
+            buildContent: c => FormBuilder.Build(c,
+                title: "Prestige in a system",
+                commandTemplate: ".prestige me {type}",
+                new EnumField<PlayerStateService.PrestigeType>("type", "Prestige type",
+                    defaultValue: PlayerStateService.PrestigeType.Experience,
+                    tooltip: "Which leveling system to prestige in. You must be at max level in that system.")));
+
+        CollapsibleSection.Build(page,
+            title: "Show prestige info (.prestige get)",
+            startExpanded: false,
+            tooltip: "Expand to display detailed info about your prestige in a specific system. Chat receives the response.",
+            buildContent: c => FormBuilder.Build(c,
+                title: "Show prestige info",
+                commandTemplate: ".prestige get {type}",
+                new EnumField<PlayerStateService.PrestigeType>("type", "Prestige type",
+                    defaultValue: PlayerStateService.PrestigeType.Experience)));
+
+        CollapsibleSection.Build(page,
+            title: "Leaderboard (.prestige lb)",
+            startExpanded: false,
+            tooltip: "Expand to view the prestige leaderboard for a system.",
+            buildContent: c => FormBuilder.Build(c,
+                title: "Prestige leaderboard",
+                commandTemplate: ".prestige lb {type}",
+                new EnumField<PlayerStateService.PrestigeType>("type", "Prestige type",
+                    defaultValue: PlayerStateService.PrestigeType.Experience)));
+
+        CollapsibleSection.Build(page,
+            title: "Select exoform variant (.prestige sf)",
+            startExpanded: false,
+            tooltip: "Expand to switch between the Evolved Vampire and Corrupted Serpent exoform shapeshifts.",
+            buildContent: c => FormBuilder.Build(c,
+                title: "Select exoform",
+                commandTemplate: ".prestige sf {form}",
+                new EnumField<PlayerStateService.ExoformVariant>("form", "Exoform",
+                    defaultValue: PlayerStateService.ExoformVariant.EvolvedVampire,
+                    tooltip: "EvolvedVampire or CorruptedSerpent.")));
+
+        RenderPrestige();
+        if (!_prestigeSubscribed)
+        {
+            PlayerStateService.ExperienceChanged += OnAnyForPrestige;
+            PlayerStateService.LegacyChanged     += OnAnyForPrestige;
+            PlayerStateService.ExpertiseChanged  += OnAnyForPrestige;
+            PlayerStateService.FamiliarChanged   += OnAnyForPrestige;
+            _prestigeSubscribed = true;
+        }
+    }
+
+    private void OnAnyForPrestige() => RenderPrestige();
+
+    private void RenderPrestige()
+    {
+        if (_prestigeXpLabel == null) return;
+        _prestigeXpLabel.text        = $"Experience prestige: {PlayerStateService.Experience.Prestige}";
+        _prestigeLegacyLabel.text    = $"Blood legacy prestige ({PlayerStateService.Legacy.Type}): {PlayerStateService.Legacy.Prestige}";
+        _prestigeExpertiseLabel.text = $"Weapon expertise prestige ({PlayerStateService.Expertise.Type}): {PlayerStateService.Expertise.Prestige}";
+        _prestigeFamLabel.text       = $"Familiar prestige ({(string.IsNullOrEmpty(PlayerStateService.Familiar.Name) ? "no familiar" : PlayerStateService.Familiar.Name)}): {PlayerStateService.Familiar.Prestige}";
+    }
+
+    // -----------------------------------------------------------------------
+    // Experience Levels overview tab (read-only summary across systems)
+    // -----------------------------------------------------------------------
+
+    private void BuildLevelsTab(GameObject page)
+    {
+        AddSectionHeading(page, "Player Experience");
+        _lvlXpLabel = AddInfoLabel(page, "LvlXp", "—", FontStyles.Normal, fontSize: 13);
+
+        AddSpacer(page, 4);
+        AddSectionHeading(page, "Blood Legacy");
+        _lvlLegacyLabel = AddInfoLabel(page, "LvlLegacy", "—", FontStyles.Normal, fontSize: 13);
+
+        AddSpacer(page, 4);
+        AddSectionHeading(page, "Weapon Expertise");
+        _lvlExpertiseLabel      = AddInfoLabel(page, "LvlExpertise",      "—", FontStyles.Normal, fontSize: 13);
+        _lvlExpertiseBonusLabel = AddInfoLabel(page, "LvlExpertiseBonus", "Bonus stats: —", FontStyles.Italic, fontSize: 12);
+
+        AddSpacer(page, 4);
+        AddSectionHeading(page, "Familiar (active)");
+        _lvlFamLabel      = AddInfoLabel(page, "LvlFam",      "—", FontStyles.Normal, fontSize: 13);
+        _lvlFamStatsLabel = AddInfoLabel(page, "LvlFamStats", "HP —   PP —   SP —", FontStyles.Italic, fontSize: 12);
+
+        AddSpacer(page, 4);
+        AddSectionHeading(page, "Professions");
+        _lvlProfessions1Label = AddInfoLabel(page, "LvlProf1", "—", FontStyles.Normal, fontSize: 12);
+        _lvlProfessions2Label = AddInfoLabel(page, "LvlProf2", "—", FontStyles.Normal, fontSize: 12);
+        _lvlProfessions3Label = AddInfoLabel(page, "LvlProf3", "—", FontStyles.Normal, fontSize: 12);
+        _lvlProfessions4Label = AddInfoLabel(page, "LvlProf4", "—", FontStyles.Normal, fontSize: 12);
+
+        RenderLevels();
+        if (!_lvlSubscribed)
+        {
+            PlayerStateService.ExperienceChanged += OnAnyForLevels;
+            PlayerStateService.LegacyChanged     += OnAnyForLevels;
+            PlayerStateService.ExpertiseChanged  += OnAnyForLevels;
+            PlayerStateService.FamiliarChanged   += OnAnyForLevels;
+            PlayerStateService.ProfessionChanged += OnAnyForLevels;
+            _lvlSubscribed = true;
+        }
+    }
+
+    private void OnAnyForLevels() => RenderLevels();
+
+    private void RenderLevels()
+    {
+        if (_lvlXpLabel == null) return;
+        var exp = PlayerStateService.Experience;
+        var leg = PlayerStateService.Legacy;
+        var wep = PlayerStateService.Expertise;
+        var fam = PlayerStateService.Familiar;
+        var pro = PlayerStateService.Profession;
+
+        _lvlXpLabel.text = exp.Prestige > 0
+            ? $"Level {exp.Level} ({exp.Progress * 100f:0.#}%)   Prestige {exp.Prestige}   Class: {exp.Class}"
+            : $"Level {exp.Level} ({exp.Progress * 100f:0.#}%)   Class: {exp.Class}";
+
+        _lvlLegacyLabel.text = leg.Prestige > 0
+            ? $"{leg.Type}   Level {leg.Level} ({leg.Progress * 100f:0.#}%)   Prestige {leg.Prestige}"
+            : $"{leg.Type}   Level {leg.Level} ({leg.Progress * 100f:0.#}%)";
+
+        _lvlExpertiseLabel.text = wep.Prestige > 0
+            ? $"{wep.Type}   Level {wep.Level} ({wep.Progress * 100f:0.#}%)   Prestige {wep.Prestige}"
+            : $"{wep.Type}   Level {wep.Level} ({wep.Progress * 100f:0.#}%)";
+
+        var wepStats = PlayerStateService.DecodeWeaponBonusStats(wep.BonusStatsRaw);
+        var wepNamed = new System.Collections.Generic.List<string>();
+        foreach (var s in wepStats)
+            if (s != PlayerStateService.WeaponStatType.None) wepNamed.Add(s.ToString());
+        _lvlExpertiseBonusLabel.text = wepNamed.Count > 0
+            ? $"Bonus stats: {string.Join(", ", wepNamed)}"
+            : "Bonus stats: (none yet — choose via .wep cst)";
+
+        bool famActive = fam.Level > 0 || !string.IsNullOrEmpty(fam.Name);
+        _lvlFamLabel.text = famActive
+            ? (fam.Prestige > 0
+                ? $"{fam.Name}   Level {fam.Level} ({fam.Progress * 100f:0.#}%)   Prestige {fam.Prestige}"
+                : $"{fam.Name}   Level {fam.Level} ({fam.Progress * 100f:0.#}%)")
+            : "(no familiar bound)";
+        _lvlFamStatsLabel.text = famActive
+            ? $"HP {fam.MaxHealth}   PP {fam.PhysicalPower}   SP {fam.SpellPower}"
+            : "HP —   PP —   SP —";
+
+        _lvlProfessions1Label.text = $"Enchanting    Lv {pro.EnchantingLevel:00} ({pro.EnchantingProgress * 100f:0.#}%)        Alchemy        Lv {pro.AlchemyLevel:00} ({pro.AlchemyProgress * 100f:0.#}%)";
+        _lvlProfessions2Label.text = $"Harvesting    Lv {pro.HarvestingLevel:00} ({pro.HarvestingProgress * 100f:0.#}%)        Blacksmithing  Lv {pro.BlacksmithingLevel:00} ({pro.BlacksmithingProgress * 100f:0.#}%)";
+        _lvlProfessions3Label.text = $"Tailoring     Lv {pro.TailoringLevel:00} ({pro.TailoringProgress * 100f:0.#}%)        Woodcutting    Lv {pro.WoodcuttingLevel:00} ({pro.WoodcuttingProgress * 100f:0.#}%)";
+        _lvlProfessions4Label.text = $"Mining        Lv {pro.MiningLevel:00} ({pro.MiningProgress * 100f:0.#}%)        Fishing        Lv {pro.FishingLevel:00} ({pro.FishingProgress * 100f:0.#}%)";
+    }
+
+    // -----------------------------------------------------------------------
     // Admin tab
     // -----------------------------------------------------------------------
 
@@ -1262,6 +1478,23 @@ public class MainPanel : ResizeablePanelBase
             PlayerStateService.BoxContentsChanged -= OnBoxContentsChanged;
             PlayerStateService.ActiveBoxChanged   -= OnActiveBoxChanged;
             _boxesSubscribed = false;
+        }
+        if (_prestigeSubscribed)
+        {
+            PlayerStateService.ExperienceChanged -= OnAnyForPrestige;
+            PlayerStateService.LegacyChanged     -= OnAnyForPrestige;
+            PlayerStateService.ExpertiseChanged  -= OnAnyForPrestige;
+            PlayerStateService.FamiliarChanged   -= OnAnyForPrestige;
+            _prestigeSubscribed = false;
+        }
+        if (_lvlSubscribed)
+        {
+            PlayerStateService.ExperienceChanged -= OnAnyForLevels;
+            PlayerStateService.LegacyChanged     -= OnAnyForLevels;
+            PlayerStateService.ExpertiseChanged  -= OnAnyForLevels;
+            PlayerStateService.FamiliarChanged   -= OnAnyForLevels;
+            PlayerStateService.ProfessionChanged -= OnAnyForLevels;
+            _lvlSubscribed = false;
         }
     }
 }

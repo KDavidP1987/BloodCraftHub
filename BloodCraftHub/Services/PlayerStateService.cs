@@ -94,6 +94,49 @@ public static class PlayerStateService
         SpellCriticalStrikeDamage,
     }
 
+    // Mirrors LearningMods/Bloodcraft-main/Interfaces/PrestigeInterface.cs::PrestigeType.
+    // Used by the Prestige tab as the dropdown source for .prestige me/get/lb commands.
+    // ORDER MATTERS - Bloodcraft accepts these as STRING names so the user types the
+    // enum name (e.g. "SwordExpertise"); we just emit the name from the dropdown.
+    public enum PrestigeType
+    {
+        Experience,
+        Exo,
+        SwordExpertise,
+        AxeExpertise,
+        MaceExpertise,
+        SpearExpertise,
+        CrossbowExpertise,
+        GreatSwordExpertise,
+        SlashersExpertise,
+        PistolsExpertise,
+        ReaperExpertise,
+        LongbowExpertise,
+        WhipExpertise,
+        UnarmedExpertise,
+        FishingPoleExpertise,
+        TwinBladesExpertise,
+        DaggersExpertise,
+        ClawsExpertise,
+        WorkerLegacy,
+        WarriorLegacy,
+        ScholarLegacy,
+        RogueLegacy,
+        MutantLegacy,
+        DraculinLegacy,
+        ImmortalLegacy,
+        CreatureLegacy,
+        BruteLegacy,
+        CorruptionLegacy,
+    }
+
+    // Bloodcraft's exoform shapeshift options for .prestige sf.
+    public enum ExoformVariant
+    {
+        EvolvedVampire,
+        CorruptedSerpent,
+    }
+
     // Matches Bloodcraft/Eclipse's per-blood stat bonus codes (1-based; 0 = None).
     public enum BloodStatType
     {

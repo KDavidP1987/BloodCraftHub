@@ -40,8 +40,16 @@ public static partial class MessageService
     // ---------- Leveling (.lvl) ----------
     public const string BCCOM_LVL_GET            = ".lvl get";
 
-    // ---------- Prestige ----------
-    public const string BCCOM_PRESTIGE_GET       = ".prestige get";
+    // ---------- Prestige (player-facing) ----------
+    public const string BCCOM_PRESTIGE_LIST                = ".prestige l";
+    public const string BCCOM_PRESTIGE_SYNC_BUFFS          = ".prestige sb";
+    public const string BCCOM_PRESTIGE_TOGGLE_EXOFORM      = ".prestige exoform";
+    public const string BCCOM_PRESTIGE_TOGGLE_SHROUD       = ".prestige shroud";
+    // .prestige me/get/lb take a PrestigeType; .prestige sf takes an ExoformVariant.
+    public const string BCCOM_PRESTIGE_ME_FORMAT           = ".prestige me {0}";
+    public const string BCCOM_PRESTIGE_GET_FORMAT          = ".prestige get {0}";
+    public const string BCCOM_PRESTIGE_LEADERBOARD_FORMAT  = ".prestige lb {0}";
+    public const string BCCOM_PRESTIGE_SELECT_FORM_FORMAT  = ".prestige sf {0}";
 
     // ---------- Blood legacy (.bl) ----------
     public const string BCCOM_BL_GET             = ".bl get";
