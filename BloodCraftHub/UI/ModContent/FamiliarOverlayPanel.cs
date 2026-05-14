@@ -3,6 +3,7 @@ using BloodCraftHub.UI.Framework.CustomLib.Panel;
 using BloodCraftHub.UI.Framework.UniverseLib.UI;
 using BloodCraftHub.UI.Framework.UniverseLib.UI.Panels;
 using BloodCraftHub.UI.ModContent.Data;
+using TMPro;
 using UnityEngine;
 using UIBase = BloodCraftHub.UI.Framework.UniverseLib.UI.UIBase;
 
@@ -35,8 +36,13 @@ public class FamiliarOverlayPanel : ResizeablePanelBase
     {
         base.ConstructPanelContent();
         var label = UIFactory.CreateLabel(ContentRoot, "FamOverlayLabel",
-            "Familiar overlay\n(no data yet — wiring in Phase 3)");
-        UIFactory.SetLayoutElement(label.GameObject, flexibleWidth: 1, flexibleHeight: 1);
+            "Familiar overlay\n(no data yet — wiring in Phase 3)",
+            TextAlignmentOptions.Center, color: null, fontSize: 14);
+        UIFactory.SetLayoutElement(label.GameObject,
+            minWidth: 200, preferredWidth: 220, flexibleWidth: 1,
+            minHeight: 60, preferredHeight: 70, flexibleHeight: 1);
+        label.TextMesh.enableWordWrapping = true;
+        label.TextMesh.overflowMode = TextOverflowModes.Overflow;
     }
 
     internal override void Reset() { }

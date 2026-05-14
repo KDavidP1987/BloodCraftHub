@@ -5,6 +5,7 @@ using BloodCraftHub.UI.Framework.UniverseLib.UI;
 using BloodCraftHub.UI.Framework.UniverseLib.UI.Models;
 using BloodCraftHub.UI.Framework.UniverseLib.UI.Panels;
 using BloodCraftHub.UI.ModContent.Data;
+using TMPro;
 using UnityEngine;
 using UnityEngine.UI;
 using UIBase = BloodCraftHub.UI.Framework.UniverseLib.UI.UIBase;
@@ -113,12 +114,29 @@ public class MainPanel : ResizeablePanelBase
         {
             var page = UIFactory.CreateVerticalGroup(content, $"Tab_{tab}",
                 forceWidth: true, forceHeight: true,
-                childControlWidth: true, childControlHeight: true);
-            UIFactory.SetLayoutElement(page, flexibleWidth: 1, flexibleHeight: 1);
+                childControlWidth: true, childControlHeight: true,
+                spacing: 6, padding: new Vector4(8, 8, 8, 8));
+            UIFactory.SetLayoutElement(page,
+                minWidth: 380, preferredWidth: 420, flexibleWidth: 1,
+                minHeight: 280, preferredHeight: 320, flexibleHeight: 1);
+
+            var heading = UIFactory.CreateLabel(page, "TabHeading", label,
+                TextAlignmentOptions.TopLeft, color: null, fontSize: 20);
+            UIFactory.SetLayoutElement(heading.GameObject,
+                minWidth: 360, preferredWidth: 400, flexibleWidth: 1,
+                minHeight: 28, preferredHeight: 30, flexibleHeight: 0);
+            heading.TextMesh.fontStyle = FontStyles.Bold;
+            heading.TextMesh.enableWordWrapping = false;
+            heading.TextMesh.overflowMode = TextOverflowModes.Overflow;
 
             var placeholder = UIFactory.CreateLabel(page, "Placeholder",
-                $"{label} — coming soon.\nThis tab will surface the matching Bloodcraft commands.");
-            UIFactory.SetLayoutElement(placeholder.GameObject, flexibleWidth: 1, flexibleHeight: 1);
+                "Coming soon — this tab will surface the matching Bloodcraft commands.",
+                TextAlignmentOptions.TopLeft, color: null, fontSize: 14);
+            UIFactory.SetLayoutElement(placeholder.GameObject,
+                minWidth: 360, preferredWidth: 400, flexibleWidth: 1,
+                minHeight: 40, preferredHeight: 80, flexibleHeight: 1);
+            placeholder.TextMesh.enableWordWrapping = true;
+            placeholder.TextMesh.overflowMode = TextOverflowModes.Overflow;
 
             page.SetActive(false);
             _tabContent[tab] = page;
