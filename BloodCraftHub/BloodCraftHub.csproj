@@ -41,7 +41,12 @@
     <!-- VampireReferenceAssemblies is the newer/more-maintained alternative to VRising.Unhollowed.Client
          that Eclipse uses. Both reference the same underlying interop types. -->
     <PackageReference Include="VampireReferenceAssemblies" Version="1.1.11-r96495-b8" />
-    <PackageReference Include="System.Text.Json" Version="9.0.5" />
+    <!-- DELIBERATELY NO System.Text.Json reference: pulling 9.x as a direct package
+         causes BepInEx's IL2CPP runtime to look for System.Text.Json.dll 9.0.0.0
+         alongside our plugin, which isn't shipped and produces a FileNotFoundException
+         at Plugin.Load. The .NET 6 runtime hosted by V Rising doesn't bundle a
+         compatible System.Text.Json. We avoid the issue by parsing our tiny
+         secrets.json with regex in Resources/SecretManager.cs instead. -->
   </ItemGroup>
 
   <ItemGroup>
