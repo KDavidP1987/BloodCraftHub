@@ -66,7 +66,15 @@ internal static class ClientChatPatch
 
                 if (EclipseProtocolService.TryHandleServerMessage(text))
                 {
-                    // We consumed this message — destroy the entity so it doesn't show in chat.
+                    // Eclipse consumed this message — destroy so it doesn't show in chat.
+                    Plugin.EntityManager.DestroyEntity(entity);
+                    continue;
+                }
+
+                // Fall through to the legacy regex pipeline for things Bloodcraft
+                // doesn't ship via the structured protocol (.fam boxes / .fam l).
+                if (MessageService.HandleInboundChat(text))
+                {
                     Plugin.EntityManager.DestroyEntity(entity);
                 }
             }

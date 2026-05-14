@@ -67,6 +67,10 @@ public static partial class MessageService
     {
         if (string.IsNullOrEmpty(text)) return;
         OutputMessages.Enqueue(text);
+        // Let the regex pipeline arm its intercept flag for tracked commands
+        // BEFORE the response can arrive (queue tick is at least one frame
+        // later, but the server response can come earlier on retries / batches).
+        NoteOutboundForIntercept(text);
     }
 
     public static void SetCharacter(Entity entity)

@@ -67,6 +67,12 @@ public class MainPanel : ResizeablePanelBase
     private TextMeshProUGUI _unarmedBonusLabel;
     private bool _shiftSubscribed;
 
+    // Boxes-tab live state
+    private TextMeshProUGUI _boxesActiveBoxLabel;
+    private GameObject _boxesListContainer;
+    private GameObject _boxesContentContainer;
+    private bool _boxesSubscribed;
+
     private static readonly (PanelType Tab, string Label)[] Tabs =
     {
         (PanelType.FamiliarsTab,    "Familiars"),
@@ -139,6 +145,9 @@ public class MainPanel : ResizeablePanelBase
             {
                 case PanelType.FamiliarsTab:
                     BuildFamiliarsTab(page);
+                    break;
+                case PanelType.BoxesTab:
+                    BuildBoxesTab(page);
                     break;
                 case PanelType.ClassTab:
                     BuildClassTab(page);
@@ -253,6 +262,177 @@ public class MainPanel : ResizeablePanelBase
     }
 
     private void OnFamiliarChanged() => RenderFamiliar(PlayerStateService.Familiar);
+
+    // -----------------------------------------------------------------------
+    // Boxes tab
+    // -----------------------------------------------------------------------
+
+    private void BuildBoxesTab(GameObject page)
+    {
+        AddSectionHeading(page, "Active Box");
+        _boxesActiveBoxLabel = AddInfoLabel(page, "ActiveBox",
+            string.IsNullOrEmpty(PlayerStateService.ActiveBox)
+                ? "(none selected)"
+                : PlayerStateService.ActiveBox,
+            FontStyles.Bold, fontSize: 14);
+
+        var topActions = UIFactory.CreateHorizontalGroup(page, "BoxTopActions",
+            forceExpandWidth: true, forceExpandHeight: false,
+            childControlWidth: false, childControlHeight: true,
+            spacing: 6, padding: new Vector4(0, 0, 0, 0));
+        UIFactory.SetLayoutElement(topActions,
+            minWidth: 360, preferredWidth: 400, flexibleWidth: 1,
+            minHeight: 32, preferredHeight: 32, flexibleHeight: 0);
+        AddCommandButton(topActions, "Refresh Boxes", MessageService.BCCOM_FAM_BOXES);
+        AddCommandButton(topActions, "Refresh Contents", MessageService.BCCOM_FAM_LIST_CURRENT_BOX);
+
+        AddSpacer(page, 4);
+        AddSectionHeading(page, "Available Boxes");
+        _boxesListContainer = UIFactory.CreateVerticalGroup(page, "BoxListContainer",
+            forceWidth: true, forceHeight: false,
+            childControlWidth: true, childControlHeight: false,
+            spacing: 2, padding: new Vector4(2, 2, 2, 2));
+        UIFactory.SetLayoutElement(_boxesListContainer,
+            minWidth: 360, preferredWidth: 400, flexibleWidth: 1,
+            minHeight: 60, preferredHeight: 80, flexibleHeight: 0);
+
+        AddSpacer(page, 4);
+        AddSectionHeading(page, "Familiars in selected box");
+        _boxesContentContainer = UIFactory.CreateVerticalGroup(page, "BoxContentContainer",
+            forceWidth: true, forceHeight: false,
+            childControlWidth: true, childControlHeight: false,
+            spacing: 2, padding: new Vector4(2, 2, 2, 2));
+        UIFactory.SetLayoutElement(_boxesContentContainer,
+            minWidth: 360, preferredWidth: 400, flexibleWidth: 1,
+            minHeight: 60, preferredHeight: 100, flexibleHeight: 1);
+
+        AddSpacer(page, 4);
+        var note = UIFactory.CreateLabel(page, "BoxesNote",
+            "Click \"Refresh Boxes\" to pull your box list. Click a box to load its familiars; click a familiar to bind it. Resize this panel taller if your lists are long.",
+            TextAlignmentOptions.TopLeft, color: null, fontSize: 11);
+        UIFactory.SetLayoutElement(note.GameObject,
+            minWidth: 360, preferredWidth: 400, flexibleWidth: 1,
+            minHeight: 30, preferredHeight: 40, flexibleHeight: 0);
+        note.TextMesh.enableWordWrapping = true;
+        note.TextMesh.overflowMode = TextOverflowModes.Overflow;
+
+        RenderBoxList();
+        RenderBoxContents();
+
+        if (!_boxesSubscribed)
+        {
+            PlayerStateService.BoxListChanged     += OnBoxListChanged;
+            PlayerStateService.BoxContentsChanged += OnBoxContentsChanged;
+            PlayerStateService.ActiveBoxChanged   += OnActiveBoxChanged;
+            _boxesSubscribed = true;
+        }
+    }
+
+    private void OnBoxListChanged()     => RenderBoxList();
+    private void OnBoxContentsChanged() => RenderBoxContents();
+    private void OnActiveBoxChanged()
+    {
+        if (_boxesActiveBoxLabel != null)
+            _boxesActiveBoxLabel.text = string.IsNullOrEmpty(PlayerStateService.ActiveBox)
+                ? "(none selected)" : PlayerStateService.ActiveBox;
+        RenderBoxContents();
+    }
+
+    private void RenderBoxList()
+    {
+        if (_boxesListContainer == null) return;
+        ClearChildren(_boxesListContainer);
+
+        var boxes = PlayerStateService.BoxList;
+        if (boxes.Count == 0)
+        {
+            var empty = UIFactory.CreateLabel(_boxesListContainer, "BoxesEmpty",
+                "(no boxes loaded yet — click Refresh Boxes)",
+                TextAlignmentOptions.MidlineLeft, color: null, fontSize: 12);
+            UIFactory.SetLayoutElement(empty.GameObject,
+                minWidth: 340, preferredWidth: 380, flexibleWidth: 1,
+                minHeight: 20, preferredHeight: 22, flexibleHeight: 0);
+            empty.TextMesh.fontStyle = FontStyles.Italic;
+            return;
+        }
+
+        foreach (var name in boxes)
+        {
+            var captured = name;
+            var b = UIFactory.CreateButton(_boxesListContainer, $"BoxBtn_{name}", name);
+            UIFactory.SetLayoutElement(b.GameObject,
+                minWidth: 340, preferredWidth: 380, flexibleWidth: 1,
+                minHeight: 26, preferredHeight: 28, flexibleHeight: 0);
+            b.OnClick = () => OnBoxClicked(captured);
+        }
+    }
+
+    private void RenderBoxContents()
+    {
+        if (_boxesContentContainer == null) return;
+        ClearChildren(_boxesContentContainer);
+
+        var active = PlayerStateService.ActiveBox;
+        if (string.IsNullOrEmpty(active))
+        {
+            var empty = UIFactory.CreateLabel(_boxesContentContainer, "ContentEmpty",
+                "(click a box above to load its familiars)",
+                TextAlignmentOptions.MidlineLeft, color: null, fontSize: 12);
+            UIFactory.SetLayoutElement(empty.GameObject,
+                minWidth: 340, preferredWidth: 380, flexibleWidth: 1,
+                minHeight: 20, preferredHeight: 22, flexibleHeight: 0);
+            empty.TextMesh.fontStyle = FontStyles.Italic;
+            return;
+        }
+
+        if (!PlayerStateService.BoxContents.TryGetValue(active, out var entries) || entries.Count == 0)
+        {
+            var pending = UIFactory.CreateLabel(_boxesContentContainer, "ContentPending",
+                $"Loading familiars for {active}…",
+                TextAlignmentOptions.MidlineLeft, color: null, fontSize: 12);
+            UIFactory.SetLayoutElement(pending.GameObject,
+                minWidth: 340, preferredWidth: 380, flexibleWidth: 1,
+                minHeight: 20, preferredHeight: 22, flexibleHeight: 0);
+            pending.TextMesh.fontStyle = FontStyles.Italic;
+            return;
+        }
+
+        foreach (var entry in entries)
+        {
+            var idx = entry.Index;
+            var label = $"{entry.Index:00}  —  {entry.Name}";
+            var b = UIFactory.CreateButton(_boxesContentContainer, $"FamBtn_{entry.Index}", label);
+            UIFactory.SetLayoutElement(b.GameObject,
+                minWidth: 340, preferredWidth: 380, flexibleWidth: 1,
+                minHeight: 24, preferredHeight: 26, flexibleHeight: 0);
+            b.OnClick = () => OnFamiliarClicked(idx);
+        }
+    }
+
+    private static void OnBoxClicked(string boxName)
+    {
+        PlayerStateService.SetActiveBox(boxName);
+        // .fam cb selects the box server-side, then .fam l lists its contents.
+        // Both go through the throttled queue (2s between sends) so the server
+        // sees them in order even under load.
+        EnqueueOrWarn(string.Format(MessageService.BCCOM_FAM_SWITCH_BOX_FORMAT, boxName));
+        EnqueueOrWarn(MessageService.BCCOM_FAM_LIST_CURRENT_BOX);
+    }
+
+    private static void OnFamiliarClicked(int index)
+    {
+        EnqueueOrWarn(string.Format(MessageService.BCCOM_FAM_BIND_BY_INDEX_FORMAT, index));
+    }
+
+    private static void ClearChildren(GameObject parent)
+    {
+        if (parent == null) return;
+        var t = parent.transform;
+        for (int i = t.childCount - 1; i >= 0; i--)
+        {
+            UnityEngine.Object.Destroy(t.GetChild(i).gameObject);
+        }
+    }
 
     // -----------------------------------------------------------------------
     // Class tab
@@ -700,6 +880,13 @@ public class MainPanel : ResizeablePanelBase
             PlayerStateService.ExpertiseChanged  -= OnExpertiseChangedForUnarmed;
             PlayerStateService.ShiftSpellChanged -= OnShiftSpellChanged;
             _shiftSubscribed = false;
+        }
+        if (_boxesSubscribed)
+        {
+            PlayerStateService.BoxListChanged     -= OnBoxListChanged;
+            PlayerStateService.BoxContentsChanged -= OnBoxContentsChanged;
+            PlayerStateService.ActiveBoxChanged   -= OnActiveBoxChanged;
+            _boxesSubscribed = false;
         }
     }
 }

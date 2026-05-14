@@ -181,6 +181,13 @@ public static class PlayerStateService
         public int SpellIndex; // PrefabGUID hash of the equipped shift spell
     }
 
+    public struct FamiliarBoxEntry
+    {
+        public int    Index;     // 1-based position within the box
+        public string Name;      // familiar display name
+        public string ColorHex;  // server-sent color hex (e.g. "#FFFF00") - hints at school
+    }
+
     public struct ServerConfig
     {
         public bool Loaded;
@@ -204,6 +211,13 @@ public static class PlayerStateService
     public static ShiftSpellState  ShiftSpell  { get; private set; }
     public static ServerConfig     Config      { get; private set; }
 
+    // Box-browser state fed by the legacy regex pipeline (MessageService_Processing.HandleInboundChat).
+    public static System.Collections.Generic.List<string> BoxList { get; private set; }
+        = new System.Collections.Generic.List<string>();
+    public static System.Collections.Generic.Dictionary<string, System.Collections.Generic.List<FamiliarBoxEntry>> BoxContents { get; private set; }
+        = new System.Collections.Generic.Dictionary<string, System.Collections.Generic.List<FamiliarBoxEntry>>();
+    public static string ActiveBox { get; private set; }
+
     public static event Action ExperienceChanged;
     public static event Action LegacyChanged;
     public static event Action ExpertiseChanged;
@@ -212,6 +226,9 @@ public static class PlayerStateService
     public static event Action QuestChanged;
     public static event Action ShiftSpellChanged;
     public static event Action ConfigChanged;
+    public static event Action BoxListChanged;
+    public static event Action BoxContentsChanged;
+    public static event Action ActiveBoxChanged;
 
     // =========================================================================
     // MUTATORS - called from EclipseProtocolService
@@ -226,6 +243,26 @@ public static class PlayerStateService
     internal static void UpdateWeeklyQuest(in QuestState s)     { WeeklyQuest = s; Fire(QuestChanged); }
     internal static void UpdateShiftSpell(in ShiftSpellState s) { ShiftSpell = s; Fire(ShiftSpellChanged); }
     internal static void UpdateConfig(in ServerConfig s)        { Config = s;     Fire(ConfigChanged); }
+
+    internal static void UpdateBoxList(System.Collections.Generic.List<string> boxes)
+    {
+        BoxList = boxes ?? new System.Collections.Generic.List<string>();
+        Fire(BoxListChanged);
+    }
+
+    internal static void UpdateBoxContents(string boxName, System.Collections.Generic.List<FamiliarBoxEntry> entries)
+    {
+        if (string.IsNullOrEmpty(boxName)) return;
+        BoxContents[boxName] = entries ?? new System.Collections.Generic.List<FamiliarBoxEntry>();
+        Fire(BoxContentsChanged);
+    }
+
+    public static void SetActiveBox(string boxName)
+    {
+        if (ActiveBox == boxName) return;
+        ActiveBox = boxName;
+        Fire(ActiveBoxChanged);
+    }
 
     private static void Fire(Action evt)
     {
