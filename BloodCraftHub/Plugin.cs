@@ -4,6 +4,7 @@ using BepInEx.Logging;
 using BepInEx.Unity.IL2CPP;
 using BloodCraftHub.Behaviors;
 using BloodCraftHub.Config;
+using BloodCraftHub.Services;
 using BloodCraftHub.UI;
 using BloodCraftHub.Utils;
 using HarmonyLib;
@@ -54,6 +55,11 @@ public class Plugin : BasePlugin
         UIManager = new BCHubUIManager();
         CoreUpdateBehavior = new CoreUpdateBehavior();
         CoreUpdateBehavior.Setup();
+
+        // Tick the outbound chat queue every frame. ProcessAllMessages no-ops
+        // until MessageService.SetCharacter/SetUser get called (by InitializationPatch
+        // once the player is in-world), so this is safe at Load time.
+        CoreUpdateBehavior.Actions.Add(MessageService.ProcessAllMessages);
 
         _harmony = Harmony.CreateAndPatchAll(Assembly.GetExecutingAssembly(), MyPluginInfo.PLUGIN_GUID);
 

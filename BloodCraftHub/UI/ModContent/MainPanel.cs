@@ -1,10 +1,12 @@
 using System.Collections.Generic;
 using BloodCraftHub.Config;
+using BloodCraftHub.Services;
 using BloodCraftHub.UI.Framework.CustomLib.Panel;
 using BloodCraftHub.UI.Framework.UniverseLib.UI;
 using BloodCraftHub.UI.Framework.UniverseLib.UI.Models;
 using BloodCraftHub.UI.Framework.UniverseLib.UI.Panels;
 using BloodCraftHub.UI.ModContent.Data;
+using BloodCraftHub.Utils;
 using TMPro;
 using UnityEngine;
 using UnityEngine.UI;
@@ -134,13 +136,36 @@ public class MainPanel : ResizeablePanelBase
                 TextAlignmentOptions.TopLeft, color: null, fontSize: 14);
             UIFactory.SetLayoutElement(placeholder.GameObject,
                 minWidth: 360, preferredWidth: 400, flexibleWidth: 1,
-                minHeight: 40, preferredHeight: 80, flexibleHeight: 1);
+                minHeight: 40, preferredHeight: 80, flexibleHeight: 0);
             placeholder.TextMesh.enableWordWrapping = true;
             placeholder.TextMesh.overflowMode = TextOverflowModes.Overflow;
+
+            // Phase 3a smoke-test: a single button that exercises the outbound queue.
+            // Will be replaced by real per-tab UI in Phase 4.
+            if (tab == PanelType.FamiliarsTab)
+                AddOutboundTestButton(page);
 
             page.SetActive(false);
             _tabContent[tab] = page;
         }
+    }
+
+    private static void AddOutboundTestButton(GameObject parent)
+    {
+        var b = UIFactory.CreateButton(parent, "TestSendFamBoxes", "Send: " + MessageService.BCCOM_FAM_BOXES);
+        UIFactory.SetLayoutElement(b.GameObject,
+            minWidth: 240, preferredWidth: 260, flexibleWidth: 0,
+            minHeight: 28, preferredHeight: 30, flexibleHeight: 0);
+        b.OnClick = () =>
+        {
+            if (!MessageService.IsInitialized)
+            {
+                LogUtils.LogWarning("MessageService not yet initialized — try again once your character is in-world.");
+                return;
+            }
+            MessageService.EnqueueMessage(MessageService.BCCOM_FAM_BOXES);
+            LogUtils.LogInfo($"Enqueued outbound: {MessageService.BCCOM_FAM_BOXES}");
+        };
     }
 
     private void BuildOverlayFooter(GameObject parent)

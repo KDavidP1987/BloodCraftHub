@@ -1,4 +1,5 @@
 using System;
+using BloodCraftHub.Services;
 using BloodCraftHub.Utils;
 using HarmonyLib;
 using ProjectM;
@@ -46,7 +47,11 @@ public static class InitializationPatch
         {
             foreach (var e in entities)
             {
-                if (e.Has<LocalUser>()) { /* Phase 3: MessageService.SetUser(e); */ break; }
+                if (e.Has<LocalUser>())
+                {
+                    MessageService.SetUser(e);
+                    break;
+                }
             }
         }
         finally { entities.Dispose(); }
@@ -60,7 +65,7 @@ public static class InitializationPatch
                 if (e.Has<LocalCharacter>())
                 {
                     Plugin.LocalCharacter = e;
-                    // Phase 3: MessageService.SetCharacter(e);
+                    MessageService.SetCharacter(e);
                     break;
                 }
             }
