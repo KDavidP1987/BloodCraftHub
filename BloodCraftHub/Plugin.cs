@@ -1,6 +1,5 @@
 using System.Reflection;
 using BepInEx;
-using BepInEx.Configuration;
 using BepInEx.Logging;
 using BepInEx.Unity.IL2CPP;
 using BloodCraftHub.Behaviors;
@@ -8,6 +7,7 @@ using BloodCraftHub.Config;
 using BloodCraftHub.UI;
 using BloodCraftHub.Utils;
 using HarmonyLib;
+using Unity.Entities;
 using UnityEngine;
 
 namespace BloodCraftHub;
@@ -24,10 +24,16 @@ public class Plugin : BasePlugin
 
     public static bool IsClient { get; private set; }
     public static bool IsInitialized { get; private set; }
+    public static bool IsGameDataInitialized { get; set; }
 
-    // Set true to surface a test UI populated with dummy data on load.
-    // Do not ship as true.
+    // Set true to surface UI immediately on load with dummy data; do not ship as true.
     public const bool IS_TESTING = false;
+
+    // Client-world handles populated by GameManagerPatch / InitializationPatch.
+    private static World _client;
+    public static EntityManager EntityManager => _client.EntityManager;
+    public static bool IsClientNull() => _client == null;
+    public static Entity LocalCharacter { get; set; } = Entity.Null;
 
     private Harmony _harmony;
 
@@ -49,20 +55,35 @@ public class Plugin : BasePlugin
         CoreUpdateBehavior = new CoreUpdateBehavior();
         CoreUpdateBehavior.Setup();
 
-        // Patch everything in this assembly that carries Harmony attributes.
-        // Individual patch classes live under BloodCraftHub.Patches.
         _harmony = Harmony.CreateAndPatchAll(Assembly.GetExecutingAssembly(), MyPluginInfo.PLUGIN_GUID);
 
         IsInitialized = true;
         Log.LogInfo($"Plugin {MyPluginInfo.PLUGIN_GUID} v{MyPluginInfo.PLUGIN_VERSION} loaded.");
 
         if (IS_TESTING)
-            UIManager.SetupAndShowUI();
+            UIOnInitialize();
     }
 
     public override bool Unload()
     {
         _harmony?.UnpatchSelf();
         return true;
+    }
+
+    /// <summary>Called from InitializationPatch once the player is in-world.</summary>
+    public static void UIOnInitialize()
+    {
+        if (UIManager.IsInitialized) return;
+        UIManager.SetupAndShowUI();
+        LogUtils.LogInfo("UI Manager initialized.");
+    }
+
+    /// <summary>Called from GameManagerPatch once the client World is available.</summary>
+    public static void GameDataOnInitialize(World world)
+    {
+        if (IsGameDataInitialized || !IsClient) return;
+        _client = world;
+        IsGameDataInitialized = true;
+        LogUtils.LogInfo("Client world bound; game data initialized.");
     }
 }

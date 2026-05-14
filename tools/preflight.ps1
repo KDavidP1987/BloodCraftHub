@@ -129,7 +129,7 @@ if ($Mode -eq 'Release') {
 
     # 6. CHANGELOG.md has a "## <currentVersion>" entry at the top.
     $changelog = Join-Path $repoRoot 'CHANGELOG.md'
-    if (Test-Path $changelog -and $csprojVersion) {
+    if ((Test-Path $changelog) -and $csprojVersion) {
         $head = (Get-Content $changelog -TotalCount 20) -join "`n"
         if ($head -match "(?m)^##\s+$([regex]::Escape($csprojVersion))\b") {
             Pass "CHANGELOG.md has an entry for $csprojVersion."
