@@ -1139,35 +1139,117 @@ public class MainPanel : ResizeablePanelBase
                 new IntField("level", "Level", min: 1, max: 200,
                     tooltip: "Target character level. Bloodcraft default cap is 90.")));
 
-        AddSpacer(page, 6);
-        AddSectionHeading(page, "Admin commands (use chat — args required)");
+        // Set prestige
+        CollapsibleSection.Build(page,
+            title: "Set player prestige (.prestige set)",
+            startExpanded: false,
+            tooltip: "Expand to set a player's prestige level in a specific system.",
+            buildContent: c => FormBuilder.Build(c,
+                title: "Set player prestige",
+                commandTemplate: ".prestige set {player} {type} {level}",
+                new PlayerNameField("player", "Player",
+                    tooltip: "Target player's character name."),
+                new EnumField<PlayerStateService.PrestigeType>("type", "Prestige type",
+                    defaultValue: PlayerStateService.PrestigeType.Experience,
+                    tooltip: "Which prestige system to set."),
+                new IntField("level", "Level", min: 0, max: 100,
+                    tooltip: "Prestige level (0 to reset).")));
 
-        AddAdminRefLine(page, ".prestige set [Player] [PrestigeType] [Level]",
-            "Set a player's prestige in a system. PrestigeType is e.g. Experience / Expertise / Legacy.");
-        AddAdminRefLine(page, ".prestige r [Player] [PrestigeType]",
-            "Reset a prestige for the player.");
-        AddAdminRefLine(page, ".bl set [Player] [Blood] [Level]",
-            "Set a player's blood legacy level.");
-        AddAdminRefLine(page, ".wep set [Player] [Weapon] [Level]",
-            "Set a player's weapon expertise level.");
-        AddAdminRefLine(page, ".prof set [Player] [Profession] [Level]",
-            "Set a player's profession level.");
-        AddAdminRefLine(page, ".fam sl [Player] [Level]",
-            "Set a player's familiar level.");
-        AddAdminRefLine(page, ".quest rf [Player]",
-            "Refresh daily/weekly quests for a player.");
-        AddAdminRefLine(page, ".quest c [Player] [QuestType]",
-            "Forcibly complete a quest for a player. QuestType is Daily or Weekly.");
+        // Reset prestige
+        CollapsibleSection.Build(page,
+            title: "Reset player prestige (.prestige r)",
+            startExpanded: false,
+            tooltip: "Expand to reset a player's prestige in a specific system.",
+            buildContent: c => FormBuilder.Build(c,
+                title: "Reset player prestige",
+                commandTemplate: ".prestige r {player} {type}",
+                new PlayerNameField("player", "Player"),
+                new EnumField<PlayerStateService.PrestigeType>("type", "Prestige type",
+                    defaultValue: PlayerStateService.PrestigeType.Experience,
+                    tooltip: "Which prestige system to reset.")));
+
+        // Set blood legacy
+        CollapsibleSection.Build(page,
+            title: "Set blood legacy (.bl set)",
+            startExpanded: false,
+            tooltip: "Expand to set a player's blood legacy level.",
+            buildContent: c => FormBuilder.Build(c,
+                title: "Set blood legacy",
+                commandTemplate: ".bl set {player} {blood} {level}",
+                new PlayerNameField("player", "Player"),
+                new EnumField<PlayerStateService.BloodType>("blood", "Blood",
+                    defaultValue: PlayerStateService.BloodType.Warrior,
+                    tooltip: "Worker / Warrior / Scholar / Rogue / Mutant / Draculin / Immortal / Creature / Brute / Corruption."),
+                new IntField("level", "Level", min: 0, max: 100)));
+
+        // Set weapon expertise
+        CollapsibleSection.Build(page,
+            title: "Set weapon expertise (.wep set)",
+            startExpanded: false,
+            tooltip: "Expand to set a player's weapon expertise level for a specific weapon.",
+            buildContent: c => FormBuilder.Build(c,
+                title: "Set weapon expertise",
+                commandTemplate: ".wep set {player} {weapon} {level}",
+                new PlayerNameField("player", "Player"),
+                new EnumField<PlayerStateService.WeaponType>("weapon", "Weapon",
+                    defaultValue: PlayerStateService.WeaponType.Sword),
+                new IntField("level", "Level", min: 0, max: 100)));
+
+        // Set profession
+        CollapsibleSection.Build(page,
+            title: "Set profession (.prof set)",
+            startExpanded: false,
+            tooltip: "Expand to set a player's level in a specific profession.",
+            buildContent: c => FormBuilder.Build(c,
+                title: "Set profession",
+                commandTemplate: ".prof set {player} {profession} {level}",
+                new PlayerNameField("player", "Player"),
+                new EnumField<PlayerStateService.ProfessionType>("profession", "Profession",
+                    defaultValue: PlayerStateService.ProfessionType.Mining),
+                new IntField("level", "Level", min: 0, max: 100)));
+
+        // Set familiar level
+        CollapsibleSection.Build(page,
+            title: "Set familiar level (.fam sl)",
+            startExpanded: false,
+            tooltip: "Expand to set a player's currently-bound familiar to a specific level.",
+            buildContent: c => FormBuilder.Build(c,
+                title: "Set familiar level",
+                commandTemplate: ".fam sl {player} {level}",
+                new PlayerNameField("player", "Player",
+                    tooltip: "Target player. Their currently-bound familiar is affected."),
+                new IntField("level", "Level", min: 1, max: 100)));
+
+        // Refresh quests
+        CollapsibleSection.Build(page,
+            title: "Refresh quests (.quest rf)",
+            startExpanded: false,
+            tooltip: "Expand to force-refresh a player's daily and weekly quests.",
+            buildContent: c => FormBuilder.Build(c,
+                title: "Refresh quests",
+                commandTemplate: ".quest rf {player}",
+                new PlayerNameField("player", "Player")));
+
+        // Complete a quest
+        CollapsibleSection.Build(page,
+            title: "Complete quest (.quest c)",
+            startExpanded: false,
+            tooltip: "Expand to forcibly complete a player's daily or weekly quest.",
+            buildContent: c => FormBuilder.Build(c,
+                title: "Complete quest",
+                commandTemplate: ".quest c {player} {schedule}",
+                new PlayerNameField("player", "Player"),
+                new EnumField<PlayerStateService.QuestSchedule>("schedule", "Schedule",
+                    defaultValue: PlayerStateService.QuestSchedule.Daily,
+                    tooltip: "Daily or Weekly.")));
 
         AddSpacer(page, 6);
         var note = UIFactory.CreateLabel(page, "AdminNote",
-            "Phase 5b: the first admin form (Set player level above) is live. " +
-            "Remaining commands move to forms in Phase 5e. " +
-            "If you aren't an admin on this server, commands will return a permission error.",
+            "All admin commands now have forms. If you aren't an admin on this server, commands return a permission error.",
             TextAlignmentOptions.TopLeft, color: null, fontSize: 12);
         UIFactory.SetLayoutElement(note.GameObject,
             minWidth: 360, preferredWidth: 400, flexibleWidth: 1,
-            minHeight: 40, preferredHeight: 60, flexibleHeight: 0);
+            minHeight: 22, preferredHeight: 32, flexibleHeight: 0);
         note.TextMesh.enableWordWrapping = true;
         note.TextMesh.overflowMode = TextOverflowModes.Overflow;
     }

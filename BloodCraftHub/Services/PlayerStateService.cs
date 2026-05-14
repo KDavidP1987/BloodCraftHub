@@ -137,6 +137,28 @@ public static class PlayerStateService
         CorruptedSerpent,
     }
 
+    // The 8 Bloodcraft professions. Used as the dropdown source for .prof set
+    // (and any future profession-targeted commands). Names match the strings
+    // Bloodcraft accepts.
+    public enum ProfessionType
+    {
+        Enchanting,
+        Alchemy,
+        Harvesting,
+        Blacksmithing,
+        Tailoring,
+        Woodcutting,
+        Mining,
+        Fishing,
+    }
+
+    // Bloodcraft's quest schedule. .quest c takes this as a string.
+    public enum QuestSchedule
+    {
+        Daily,
+        Weekly,
+    }
+
     // Matches Bloodcraft/Eclipse's per-blood stat bonus codes (1-based; 0 = None).
     public enum BloodStatType
     {
