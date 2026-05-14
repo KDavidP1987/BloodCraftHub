@@ -17,11 +17,21 @@
     <PackageProjectUrl></PackageProjectUrl>
 
     <!-- Optional: copy build output straight into your client's BepInEx plugins dir.
-         Override on the command line: dotnet build -p:DeployToClient=true -->
+         Override on the command line: dotnet build -p:DeployToClient=true
+         Default targets the r2modman / Thunderstore Mod Manager "Default" profile.
+         Override the profile name:   -p:R2ModmanProfile=MyProfile
+         Or target a non-r2modman install: -p:ClientPluginDirectory="C:\...\VRising\BepInEx\plugins" -->
     <DeployToClient>false</DeployToClient>
-    <ClientPluginDirectory Condition="'$(ClientPluginDirectory)' == ''">C:\Program Files (x86)\Steam\steamapps\common\VRising\BepInEx\plugins</ClientPluginDirectory>
+    <R2ModmanProfile Condition="'$(R2ModmanProfile)' == ''">Default</R2ModmanProfile>
+    <ClientPluginDirectory Condition="'$(ClientPluginDirectory)' == ''">$(APPDATA)\Thunderstore Mod Manager\DataFolder\VRising\profiles\$(R2ModmanProfile)\BepInEx\plugins</ClientPluginDirectory>
 
     <BepInExVersion>6.0.0-be.733</BepInExVersion>
+
+    <!-- The transitive deps brought in by System.Text.Json 9.0.5 (System.IO.Pipelines,
+         Microsoft.Bcl.AsyncInterfaces, etc.) warn that they aren't tested on net6.0.
+         V Rising's IL2CPP build forces us to net6.0, so the only real choice is to
+         silence the warning. (See https://aka.ms/SuppressTfmSupportBuildWarnings) -->
+    <SuppressTfmSupportBuildWarnings>true</SuppressTfmSupportBuildWarnings>
   </PropertyGroup>
 
   <ItemGroup>

@@ -60,8 +60,10 @@ public class Plugin : BasePlugin
         IsInitialized = true;
         Log.LogInfo($"Plugin {MyPluginInfo.PLUGIN_GUID} v{MyPluginInfo.PLUGIN_VERSION} loaded.");
 
+#pragma warning disable CS0162 // IS_TESTING is a compile-time feature flag; unreachability here is intentional.
         if (IS_TESTING)
             UIOnInitialize();
+#pragma warning restore CS0162
     }
 
     public override bool Unload()
