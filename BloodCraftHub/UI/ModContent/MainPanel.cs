@@ -139,7 +139,10 @@ public class MainPanel : ResizeablePanelBase
         {
             Title = "Help",
             StartExpanded = false,
-            Tabs = System.Array.Empty<(PanelType, string)>(),
+            Tabs = new[]
+            {
+                (PanelType.QuickStartTab, "Quick Start"),
+            },
         },
     };
 
@@ -363,6 +366,9 @@ public class MainPanel : ResizeablePanelBase
                     break;
                 case PanelType.AdminTab:
                     BuildAdminTab(page);
+                    break;
+                case PanelType.QuickStartTab:
+                    BuildQuickStartTab(page);
                     break;
                 default:
                     AddComingSoonBody(page, label);
@@ -1280,6 +1286,129 @@ public class MainPanel : ResizeablePanelBase
             minHeight: 22, preferredHeight: 32, flexibleHeight: 0);
         note.TextMesh.enableWordWrapping = true;
         note.TextMesh.overflowMode = TextOverflowModes.Overflow;
+    }
+
+    // -----------------------------------------------------------------------
+    // Quick Start Guide tab (Help group)
+    // -----------------------------------------------------------------------
+
+    private void BuildQuickStartTab(GameObject page)
+    {
+        AddGuideSection(page,
+            "Welcome to BloodCraftHub",
+            "BloodCraftHub is the unified UI for the Bloodcraft V Rising mod. " +
+            "Every chat command from Bloodcraft can be issued from this UI - " +
+            "just open the matching tab and use the buttons or forms. The " +
+            "left rail groups tabs into BLOODCRAFT / KINDRED / HELP - click " +
+            "a group header to collapse or expand it. The footer toggles the " +
+            "secondary overlays (XP, Familiar), auto-resize, and the input " +
+            "block while typing.");
+
+        AddGuideSection(page,
+            "Leveling (passive)",
+            "Your character earns XP automatically as you defeat enemies. " +
+            "Current level, progress, and class show on the Levels tab and " +
+            "in the XP overlay (toggle on the panel footer). Nothing to " +
+            "click to gain XP - just play. When you hit the level cap, you " +
+            "can prestige (see Prestige below) to reset level and earn " +
+            "permanent bonuses.");
+
+        AddGuideSection(page,
+            "Familiars",
+            "Familiars are summoned combat companions collected from random " +
+            "drops when you defeat eligible mobs and V-Bloods. The drop " +
+            "table and rate are server-configured.\n\n" +
+            "Boxes hold your familiar collection (named buckets you can " +
+            "switch between). The Boxes tab lists them: click a box to load " +
+            "its contents, then click any familiar to bind it as your " +
+            "active companion. Use the Familiars tab to unbind, toggle " +
+            "combat mode, or prestige the active familiar.\n\n" +
+            "Shiny familiars are rare visual+stat variants of normal " +
+            "familiars - the server admin configures the rate. A shiny " +
+            "drop is the same creature but with a glowing effect and " +
+            "(usually) noticeably better stats.");
+
+        AddGuideSection(page,
+            "Classes",
+            "A class specializes your character with weapon synergies, " +
+            "stat bonuses, and a unique spell. Use Class -> List Classes " +
+            "to see what's available on your server. To pick a class, type " +
+            "`.class s <ClassName>` in chat - a UI selector lands in a " +
+            "later phase. Most classes grant a spell that can occupy your " +
+            "shift slot (see Unarmed + Shift below).");
+
+        AddGuideSection(page,
+            "Weapon Expertise",
+            "Each weapon type (Sword, Axe, Mace, ...) tracks its own " +
+            "expertise level. Switch to a weapon and use it - expertise " +
+            "rises. The Weapon Expertise tab shows level, progress, " +
+            "prestige, and the bonus stats you've chosen for the currently-" +
+            "equipped weapon. Choose a stat with `.wep cst <Weapon> <Stat>` " +
+            "(stat picker coming to UI in a later phase). Common choices: " +
+            "PhysicalPower / SpellPower / one of the crit chances.");
+
+        AddGuideSection(page,
+            "Unarmed + Shift slot",
+            "Two ways to gain extra ability slots:\n\n" +
+            "Unarmed: when you have no weapon equipped, you use unarmed " +
+            "expertise. Bloodcraft tracks it like any weapon. Unarmed " +
+            "expertise unlocks extra spell slots so you can cast while " +
+            "weaponless. Use `.wep locksp` after equipping the spells you " +
+            "want to keep.\n\n" +
+            "Shift slot: by default your shift ability is your travel " +
+            "spell (wolf, bat, etc.). Bloodcraft can replace it with a " +
+            "class spell instead. Toggle the override from Class -> " +
+            "Toggle Shift. Pick which class spell goes in the slot with " +
+            "`.class csp <#>`.");
+
+        AddGuideSection(page,
+            "Prestige",
+            "At max level in any system (Experience, a weapon expertise, " +
+            "a blood legacy, etc.) you can prestige. Prestiging resets the " +
+            "level to 1 but grants permanent stat multipliers proportional " +
+            "to your prestige count.\n\n" +
+            "Use the Prestige tab: expand 'Prestige in a system', pick the " +
+            "type from the dropdown, Submit. Quick actions: List shows what " +
+            "exists; Sync Buffs re-applies your prestige buffs; Exoform " +
+            "toggles the high-prestige shapeshift; Shroud is the " +
+            "permanent stealth toggle if you qualify.");
+
+        AddGuideSection(page,
+            "Tips",
+            "- Hover any control to see what it does (footer at panel bottom).\n" +
+            "- Auto-resize ON: the panel grows to fit the active tab. Turn " +
+            "off if you prefer manual sizing.\n" +
+            "- Suspend game input ON: typing into UI fields won't move your " +
+            "character. Turn off if you'd rather have continuous gameplay.\n" +
+            "- The two secondary overlays (XP, Familiar) are independent " +
+            "draggable panels - useful while playing.");
+    }
+
+    private static void AddGuideSection(GameObject parent, string title, string body)
+    {
+        AddSectionHeading(parent, title);
+
+        var lbl = UIFactory.CreateLabel(parent, $"Guide_{title}", body,
+            TextAlignmentOptions.TopLeft, color: null, fontSize: 12);
+        // Guide body: word-wrap on, generous min height so the parent layout
+        // reserves enough room. Actual rendered height will exceed this for
+        // longer paragraphs; the page's VerticalLayoutGroup auto-flows.
+        UIFactory.SetLayoutElement(lbl.GameObject,
+            minWidth: 360, preferredWidth: 400, flexibleWidth: 1,
+            minHeight: 40, preferredHeight: EstimateHeight(body, 56), flexibleHeight: 0);
+        lbl.TextMesh.enableWordWrapping = true;
+        lbl.TextMesh.overflowMode = TextOverflowModes.Overflow;
+        lbl.TextMesh.fontStyle = FontStyles.Normal;
+    }
+
+    /// <summary>Cheap line-count estimate for guide body text so its preferredHeight reflects content.</summary>
+    private static int EstimateHeight(string body, int charsPerLine)
+    {
+        if (string.IsNullOrEmpty(body)) return 40;
+        // One line per ~charsPerLine columns, plus one extra line per "\n".
+        int lines = 1 + body.Length / charsPerLine;
+        foreach (var ch in body) if (ch == '\n') lines++;
+        return Math.Max(40, lines * 16);
     }
 
     private static void AddAdminRefLine(GameObject parent, string command, string summary)

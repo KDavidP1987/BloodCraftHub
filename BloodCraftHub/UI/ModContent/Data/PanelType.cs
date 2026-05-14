@@ -19,6 +19,9 @@ public enum PanelType
     LevelsTab,
     AdminTab,
 
+    // Help / Reference tabs:
+    QuickStartTab,
+
     // Secondary overlays (independent draggable panels):
     ExperienceOverlay,
     FamiliarOverlay,
