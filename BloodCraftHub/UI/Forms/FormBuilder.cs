@@ -4,6 +4,7 @@ using BloodCraftHub.UI.Framework.UniverseLib.UI;
 using BloodCraftHub.Utils;
 using TMPro;
 using UnityEngine;
+using UnityEngine.EventSystems;
 
 namespace BloodCraftHub.UI.Forms;
 
@@ -148,5 +149,12 @@ public static class FormBuilder
         MessageService.EnqueueMessage(command);
         if (status != null) status.text = $"Sent: {command}";
         LogUtils.LogInfo($"Form sent: {command}");
+
+        // Release UI focus on submit so the player isn't stuck in typing-mode
+        // (game input was suspended while a field was focused; releasing
+        // immediately restores gameplay input regardless of the user's
+        // Suspend-Game-Input setting).
+        try { EventSystem.current?.SetSelectedGameObject(null); }
+        catch { /* harmless - EventSystem may not exist on first frame */ }
     }
 }

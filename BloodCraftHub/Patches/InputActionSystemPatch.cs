@@ -30,6 +30,12 @@ internal static class InputActionSystemPatch
     [HarmonyPrefix]
     private static bool OnUpdate_Prefix()
     {
+        // Bail out fast when the user has turned the feature off so the game
+        // sees normal input in every case (typing fields will then also feed
+        // the character; the user is opting into that tradeoff).
+        if (Plugin.Settings == null || !Config.Settings.SuspendGameInputWhileTyping)
+            return true;
+
         var es = EventSystem.current;
         if (es == null) return true;
 

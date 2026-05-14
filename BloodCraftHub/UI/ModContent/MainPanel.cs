@@ -988,6 +988,33 @@ public class MainPanel : ResizeablePanelBase
         _xpOverlayToggle  = AddOverlayToggle(footer, "XP overlay",       PanelType.ExperienceOverlay);
         _famOverlayToggle = AddOverlayToggle(footer, "Familiar overlay", PanelType.FamiliarOverlay);
         AddAutoResizeToggle(footer);
+        AddInputBlockToggle(footer);
+    }
+
+    private void AddInputBlockToggle(GameObject parent)
+    {
+        var t = UIFactory.CreateToggle(parent, "InputBlockToggle");
+        UIFactory.SetLayoutElement(t.GameObject,
+            minWidth: 200, preferredWidth: 220, flexibleWidth: 0,
+            minHeight: 24, preferredHeight: 24, flexibleHeight: 0);
+        t.Text.text = "Suspend game input when typing";
+        t.Text.fontSize = 13;
+        t.Text.enableWordWrapping = false;
+        t.Text.overflowMode = TextOverflowModes.Overflow;
+        t.Text.alignment = TextAlignmentOptions.MidlineLeft;
+        UIFactory.SetLayoutElement(t.Text.gameObject,
+            minWidth: 170, preferredWidth: 190, flexibleWidth: 1,
+            minHeight: 24, preferredHeight: 24, flexibleHeight: 0);
+
+        t.Toggle.isOn = Settings.SuspendGameInputWhileTyping;
+        TooltipHover.Attach(t.GameObject,
+            "When on: WASD typed into UI fields stays in the form (game input paused). Off: " +
+            "game keeps reading input even while a field is focused (typing also moves your character).");
+        t.OnValueChanged += value =>
+        {
+            Plugin.Instance.Config.Bind(Settings.UI_SETTINGS_GROUP,
+                nameof(Settings.SuspendGameInputWhileTyping), true, "").Value = value;
+        };
     }
 
     private void AddAutoResizeToggle(GameObject parent)

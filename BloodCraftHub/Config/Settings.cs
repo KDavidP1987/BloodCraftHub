@@ -67,6 +67,13 @@ public class Settings
     public static bool IsPanelAutoResizeEnabled =>
         (ConfigEntries[nameof(IsPanelAutoResizeEnabled)] as ConfigEntry<bool>)?.Value ?? true;
 
+    // When true: game input is suspended (InputActionSystem.OnUpdate skipped)
+    // while any TMP_InputField is focused, so WASD typed into forms doesn't
+    // move the character. Off = no suspension; typing into fields will also
+    // be received by the game (the user can move while a field is focused).
+    public static bool SuspendGameInputWhileTyping =>
+        (ConfigEntries[nameof(SuspendGameInputWhileTyping)] as ConfigEntry<bool>)?.Value ?? true;
+
     public Settings InitConfig()
     {
         if (!Directory.Exists(CONFIG_PATH)) Directory.CreateDirectory(CONFIG_PATH);
@@ -89,6 +96,7 @@ public class Settings
         InitConfigEntry(OVERLAY_SETTINGS_GROUP, nameof(ShowExperienceOverlay),       false, "Show the experience tracker overlay by default.");
         InitConfigEntry(OVERLAY_SETTINGS_GROUP, nameof(ShowFamiliarOverlay),         false, "Show the quick-familiar overlay by default.");
         InitConfigEntry(UI_SETTINGS_GROUP,      nameof(IsPanelAutoResizeEnabled),    true,  "Auto-resize the main panel vertically to fit the active tab's content (capped at 90% of screen height).");
+        InitConfigEntry(UI_SETTINGS_GROUP,      nameof(SuspendGameInputWhileTyping), true,  "Suspend game input (movement / hotkeys) while typing into a UI field, so WASD doesn't move the character. Turn off if you'd rather have continuous gameplay input even while a form field is focused.");
 
         return this;
     }
