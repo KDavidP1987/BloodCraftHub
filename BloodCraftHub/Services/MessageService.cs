@@ -57,6 +57,12 @@ public static partial class MessageService
 
     public static bool IsInitialized => _isInitialized;
 
+    /// <summary>Local user entity once <see cref="SetUser"/> has been called; <see cref="Entity.Null"/> otherwise.</summary>
+    public static Entity LocalUser => _localUser;
+
+    /// <summary>Local character entity once <see cref="SetCharacter"/> has been called; <see cref="Entity.Null"/> otherwise.</summary>
+    public static Entity LocalCharacter => _localCharacter;
+
     public static void EnqueueMessage(string text)
     {
         if (string.IsNullOrEmpty(text)) return;
@@ -112,6 +118,19 @@ public static partial class MessageService
 
         if (OutputMessages.Any())
             SendMessage(OutputMessages.Dequeue());
+    }
+
+    /// <summary>
+    /// Send a chat message immediately, bypassing the 2-second throttle queue.
+    /// Use for one-off protocol messages that must land on the next frame
+    /// (e.g. the Eclipse-protocol registration handshake); use
+    /// <see cref="EnqueueMessage"/> for player-initiated commands so we don't
+    /// flood the server parser.
+    /// </summary>
+    public static void SendRaw(string text)
+    {
+        if (!_isInitialized || string.IsNullOrEmpty(text)) return;
+        SendMessage(text);
     }
 
     private static void SendMessage(string text)

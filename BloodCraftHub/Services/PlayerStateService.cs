@@ -1,37 +1,81 @@
+using System;
+using System.Globalization;
+
 namespace BloodCraftHub.Services;
 
-// Merged player-state store. Single source of truth for both panels and overlays.
+// Single source of truth for player progress data.
 //
-// PORT FROM:
-//   LearningMods/BloodCraftUI-master/BloodCraftUI/Services/BloodCraftStateService.cs (familiar boxes, equipment, active fam)
-//   LearningMods/Eclipse-main/Services/DataService.cs                                (XP, prestige, legacy, expertise, professions, quest state)
+// Fed by EclipseProtocolService.HandleProgressMessage (preferred path, structured).
+// In future phases, MessageService_Processing regex parsers will fill in things
+// the structured protocol doesn't cover (familiar box listings, etc.).
 //
-// Fed by:
-//   - EclipseProtocolService for structured data (preferred path).
-//   - MessageService_Processing regex handlers for anything the protocol doesn't cover (familiar box contents, etc.).
-//
-// Consumed by:
-//   - UI panels via subscription / observation (event handlers or polled getters).
-//   - HUD overlays under UI/Overlays/.
+// UI panels subscribe to the *Changed events; no panel should poll fields directly.
 public static class PlayerStateService
 {
-    // Examples — fill in concrete fields as you port:
-    //
-    // public struct ProgressState
-    // {
-    //     public float ExpPercent;
-    //     public int   ExpLevel;
-    //     public int   ExpPrestige;
-    //     public int   ClassId;
-    //     public float LegacyPercent;
-    //     public int   LegacyLevel;
-    //     public float ExpertisePercent;
-    //     public int   ExpertiseLevel;
-    //     // ... etc.
-    // }
-    //
-    // public static ProgressState Progress { get; private set; }
-    // public static event System.Action ProgressChanged;
-    //
-    // public static void UpdateProgress(in ProgressState next) { Progress = next; ProgressChanged?.Invoke(); }
+    // Mirrors Eclipse-main/Services/DataService.PlayerClass (NetworkEventSubType.ProgressToClient field [3]).
+    public enum PlayerClass
+    {
+        None,
+        BloodKnight,
+        DemonHunter,
+        VampireLord,
+        ShadowBlade,
+        ArcaneSorcerer,
+        DeathMage,
+    }
+
+    // ---------- Experience ----------
+    public struct ExperienceState
+    {
+        public float       Progress;   // 0.0 .. 1.0 of the way to next level
+        public int         Level;
+        public int         Prestige;
+        public PlayerClass Class;
+    }
+    public static ExperienceState Experience { get; private set; }
+    public static event Action ExperienceChanged;
+
+    // ---------- Server-config snapshot (received once on registration) ----------
+    public struct ServerConfig
+    {
+        public bool Loaded;
+        public int  MaxPlayerLevel;
+        public int  MaxLegacyLevel;
+        public int  MaxExpertiseLevel;
+        public int  MaxFamiliarLevel;
+    }
+    public static ServerConfig Config { get; private set; }
+    public static event Action ConfigChanged;
+
+    // ---------- Mutators (called by EclipseProtocolService) ----------
+
+    internal static void UpdateExperience(in ExperienceState next)
+    {
+        Experience = next;
+        try { ExperienceChanged?.Invoke(); }
+        catch (Exception ex) { Utils.LogUtils.LogError($"ExperienceChanged handler threw: {ex}"); }
+    }
+
+    internal static void UpdateConfig(in ServerConfig next)
+    {
+        Config = next;
+        try { ConfigChanged?.Invoke(); }
+        catch (Exception ex) { Utils.LogUtils.LogError($"ConfigChanged handler threw: {ex}"); }
+    }
+
+    // ---------- Parsing helpers ----------
+
+    /// <summary>Parse a float string with invariant culture; tolerate decimals or integers; clamp to [0..1] if percentScale is true.</summary>
+    internal static float ParseProgress(string s, bool percentScale = true)
+    {
+        if (string.IsNullOrEmpty(s)) return 0f;
+        if (!float.TryParse(s, NumberStyles.Float, CultureInfo.InvariantCulture, out var v)) return 0f;
+        return percentScale ? Math.Clamp(v / 100f, 0f, 1f) : v;
+    }
+
+    internal static int ParseInt(string s)
+    {
+        if (string.IsNullOrEmpty(s)) return 0;
+        return int.TryParse(s, NumberStyles.Integer, CultureInfo.InvariantCulture, out var v) ? v : 0;
+    }
 }

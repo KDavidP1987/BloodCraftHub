@@ -51,6 +51,7 @@ public class Plugin : BasePlugin
         }
 
         Settings = new Settings().InitConfig();
+        EclipseProtocolService.Initialize();
 
         UIManager = new BCHubUIManager();
         CoreUpdateBehavior = new CoreUpdateBehavior();
