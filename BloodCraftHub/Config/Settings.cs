@@ -58,8 +58,25 @@ public class Settings
     }
 
     // ---- Secondary overlays (BloodCraftHub addition) ----
-    public static bool ShowExperienceOverlay => (ConfigEntries[nameof(ShowExperienceOverlay)] as ConfigEntry<bool>)?.Value ?? false;
-    public static bool ShowFamiliarOverlay   => (ConfigEntries[nameof(ShowFamiliarOverlay)]   as ConfigEntry<bool>)?.Value ?? false;
+    // These are read on UIOnInitialize to restore each overlay's last visibility
+    // state across sessions. BCHubUIManager.ToggleOverlay writes the new value
+    // here so a flip persists. (Pre-0.6.0 these settings existed but were never
+    // wired into the toggle path, so the overlays always defaulted to off.)
+    public static bool ShowExperienceOverlay   => (ConfigEntries[nameof(ShowExperienceOverlay)]   as ConfigEntry<bool>)?.Value ?? false;
+    public static bool ShowFamiliarOverlay     => (ConfigEntries[nameof(ShowFamiliarOverlay)]     as ConfigEntry<bool>)?.Value ?? false;
+    public static bool ShowFamiliarBrowser     => (ConfigEntries[nameof(ShowFamiliarBrowser)]     as ConfigEntry<bool>)?.Value ?? false;
+    public static bool ShowDailyQuestOverlay   => (ConfigEntries[nameof(ShowDailyQuestOverlay)]   as ConfigEntry<bool>)?.Value ?? false;
+
+    public static void SetShowExperienceOverlay(bool v) => SetBool(nameof(ShowExperienceOverlay), v);
+    public static void SetShowFamiliarOverlay(bool v)   => SetBool(nameof(ShowFamiliarOverlay),   v);
+    public static void SetShowFamiliarBrowser(bool v)   => SetBool(nameof(ShowFamiliarBrowser),   v);
+    public static void SetShowDailyQuestOverlay(bool v) => SetBool(nameof(ShowDailyQuestOverlay), v);
+
+    private static void SetBool(string key, bool value)
+    {
+        if (ConfigEntries.TryGetValue(key, out var entry) && entry is ConfigEntry<bool> b)
+            b.Value = value;
+    }
 
     // Auto-resize: main panel grows vertically to fit content (capped at 90% of
     // screen height). User-toggleable via the footer checkbox - some players
@@ -67,12 +84,65 @@ public class Settings
     public static bool IsPanelAutoResizeEnabled =>
         (ConfigEntries[nameof(IsPanelAutoResizeEnabled)] as ConfigEntry<bool>)?.Value ?? true;
 
-    // When true: game input is suspended (InputActionSystem.OnUpdate skipped)
-    // while any TMP_InputField is focused, so WASD typed into forms doesn't
-    // move the character. Off = no suspension; typing into fields will also
-    // be received by the game (the user can move while a field is focused).
+    // EXPERIMENTAL — default OFF as of 0.1.3 because the underlying mechanism
+    // (skipping InputActionSystem.OnUpdate via Harmony) also wedges Unity's UI
+    // input pipeline. When on, clicking into a form field can lock you out of
+    // the panel itself with no way to recover. We default off until a non-
+    // locking suspension mechanism is available; opting in is fine if you're
+    // willing to take the risk (mash Escape / quit if it freezes).
     public static bool SuspendGameInputWhileTyping =>
-        (ConfigEntries[nameof(SuspendGameInputWhileTyping)] as ConfigEntry<bool>)?.Value ?? true;
+        (ConfigEntries[nameof(SuspendGameInputWhileTyping)] as ConfigEntry<bool>)?.Value ?? false;
+    public static void SetSuspendGameInputWhileTyping(bool value)
+    {
+        if (ConfigEntries.TryGetValue(nameof(SuspendGameInputWhileTyping), out var entry)
+            && entry is ConfigEntry<bool> b)
+            b.Value = value;
+    }
+
+    // (SuspendGameInputWhileUIOpen was removed in 0.1.2 — the implementation
+    // also wedged the UI-input pipeline, so any user who toggled it on got
+    // their game frozen across sessions. The .cfg entry is no longer registered;
+    // any stale value in the user's config is inert.)
+
+    // Tristate per-server-mod availability (Auto / On / Off). Auto uses a
+    // probe to decide:
+    //   - Bloodcraft: present iff EclipseProtocolService.UserRegistered ever
+    //     becomes true within the session (the server ACK'd our handshake).
+    //   - Kindred: no protocol indicator, so Auto defaults to "assume present"
+    //     for now; flip to Off manually if your server doesn't have it.
+    // Set to Off and the corresponding tab group renders collapsed + grayed.
+    public enum ModAvailability { Auto, On, Off }
+
+    private static ModAvailability ReadAvailability(string key)
+    {
+        var raw = (ConfigEntries.TryGetValue(key, out var entry) && entry is ConfigEntry<string> s) ? s.Value : "Auto";
+        return raw switch { "On" => ModAvailability.On, "Off" => ModAvailability.Off, _ => ModAvailability.Auto };
+    }
+
+    public static ModAvailability BloodcraftAvailability => ReadAvailability(nameof(BloodcraftAvailability));
+    public static ModAvailability KindredAvailability    => ReadAvailability(nameof(KindredAvailability));
+    public static void SetBloodcraftAvailability(ModAvailability v) => SetAvailability(nameof(BloodcraftAvailability), v);
+    public static void SetKindredAvailability(ModAvailability v)    => SetAvailability(nameof(KindredAvailability), v);
+    private static void SetAvailability(string key, ModAvailability v)
+    {
+        if (ConfigEntries.TryGetValue(key, out var entry) && entry is ConfigEntry<string> s)
+            s.Value = v.ToString();
+    }
+
+    // User-asserted "I am a server admin" flag. Off by default. When off, all
+    // admin panels (Bloodcraft Admin tab + 3 Kindred admin sub-tabs) display a
+    // placeholder explaining the gate and a toggle to flip the flag, so a
+    // non-admin player isn't presented with commands the server will reject
+    // anyway. We don't probe the server for actual admin status because the
+    // chat-pipe protocol gives us no reliable signal.
+    public static bool IsAdmin =>
+        (ConfigEntries[nameof(IsAdmin)] as ConfigEntry<bool>)?.Value ?? false;
+    public static void SetIsAdmin(bool value)
+    {
+        if (ConfigEntries.TryGetValue(nameof(IsAdmin), out var entry)
+            && entry is ConfigEntry<bool> b)
+            b.Value = value;
+    }
 
     public Settings InitConfig()
     {
@@ -93,10 +163,15 @@ public class Settings
         InitConfigEntry(FAM_SETTINGS_GROUP,     nameof(LastBindCommand),             "",    "Last bind command sent (used to restore selection).");
         InitConfigEntry(FAM_SETTINGS_GROUP,     nameof(AutoEnableFamiliarEquipment), true,  "Automatically enable familiar equipment management on UI bring-up.");
 
-        InitConfigEntry(OVERLAY_SETTINGS_GROUP, nameof(ShowExperienceOverlay),       false, "Show the experience tracker overlay by default.");
-        InitConfigEntry(OVERLAY_SETTINGS_GROUP, nameof(ShowFamiliarOverlay),         false, "Show the quick-familiar overlay by default.");
+        InitConfigEntry(OVERLAY_SETTINGS_GROUP, nameof(ShowExperienceOverlay),       false, "Whether the XP overlay was visible at last logout. Restored automatically on UI bring-up.");
+        InitConfigEntry(OVERLAY_SETTINGS_GROUP, nameof(ShowFamiliarOverlay),         false, "Whether the Familiar overlay (active stats) was visible at last logout.");
+        InitConfigEntry(OVERLAY_SETTINGS_GROUP, nameof(ShowFamiliarBrowser),         false, "Whether the Familiar Browser overlay was visible at last logout.");
+        InitConfigEntry(OVERLAY_SETTINGS_GROUP, nameof(ShowDailyQuestOverlay),       false, "Whether the Daily Quest overlay was visible at last logout.");
         InitConfigEntry(UI_SETTINGS_GROUP,      nameof(IsPanelAutoResizeEnabled),    true,  "Auto-resize the main panel vertically to fit the active tab's content (capped at 90% of screen height).");
-        InitConfigEntry(UI_SETTINGS_GROUP,      nameof(SuspendGameInputWhileTyping), true,  "Suspend game input (movement / hotkeys) while typing into a UI field, so WASD doesn't move the character. Turn off if you'd rather have continuous gameplay input even while a form field is focused.");
+        InitConfigEntry(UI_SETTINGS_GROUP,      nameof(SuspendGameInputWhileTyping), false, "EXPERIMENTAL — off by default in 0.1.3+. When on, suspends gameplay input while you're typing into a BCH form field (so WASD doesn't move the character). The implementation can also lock the UI on some configs — if your panel becomes unresponsive after clicking a field, this is why. Turn back on at your own risk; mash Escape / quit V Rising if it freezes.");
+        InitConfigEntry(GENERAL_SETTINGS_GROUP, nameof(IsAdmin),                     false, "Self-asserted: 'I have admin privileges on this server'. Off by default; when off, the admin tabs are hidden behind a 'You are not an admin' placeholder. Toggle on if you actually have admin so the admin commands surface.");
+        InitConfigEntry(GENERAL_SETTINGS_GROUP, nameof(BloodcraftAvailability),      "Auto", "Whether the server has the Bloodcraft mod. Auto = present iff the server ACK'd our Eclipse handshake. On = always assume present. Off = always disable the BLOODCRAFT tab group.");
+        InitConfigEntry(GENERAL_SETTINGS_GROUP, nameof(KindredAvailability),         "Auto", "Whether the server has the Kindred suite (KindredCommands + KindredLogistics). No protocol probe is wired yet, so Auto currently means 'assume present'. Set to Off explicitly if your server doesn't have these mods to grey out the KINDRED tab group.");
 
         return this;
     }

@@ -68,13 +68,18 @@ public static class CollapsibleSection
             TooltipHover.Attach(header.GameObject, tooltip);
 
         // Content - hidden when collapsed.
+        // No fixed preferredHeight - the inner VerticalLayoutGroup auto-computes
+        // from the form/widget tree the caller builds. A fixed 80 here was the
+        // bug behind "submit button cut off when form expands": the parent
+        // reserved only 80px for a 200+px form, and the form rendered on top
+        // of the next sibling.
         var content = UIFactory.CreateVerticalGroup(group, "Content",
             forceWidth: true, forceHeight: false,
             childControlWidth: true, childControlHeight: true,
             spacing: 4, padding: new Vector4(8, 4, 4, 8));
         UIFactory.SetLayoutElement(content,
             minWidth: 360, preferredWidth: 400, flexibleWidth: 1,
-            minHeight: 40, preferredHeight: 80, flexibleHeight: 0);
+            flexibleHeight: 0);
         content.SetActive(startExpanded);
 
         // Build user-supplied content into the content GameObject.

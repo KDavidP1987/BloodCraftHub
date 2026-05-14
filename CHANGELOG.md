@@ -1,5 +1,294 @@
 # Changelog
 
+## 0.8.1 — Familiar Browser glyph fix + deferred auto-pull
+
+**Square-glyph buttons replaced with rendering-safe alternatives.** The header buttons used `◄` (BLACK LEFT-POINTING POINTER, U+25C4), `►` (U+25BA), and `↻` (CLOCKWISE OPEN CIRCLE ARROW, U+21BB) — V Rising's TMPro fallback font lacks all three glyphs, so they rendered as featureless squares with no indication of what they did. Replaced with `←` / `→` (LEFTWARDS / RIGHTWARDS ARROW, U+2190 / U+2192) which we already use successfully for the main Boxes tab Back button, and the literal word `Reload` for the refresh button. Buttons widened from 32→36px (arrows) / 32→64px (Reload) to fit the new labels at fontSize 18 (arrows) / 12 (Reload). Tooltips kept. Also updated the empty-list hint strings ("click ↻ to refresh" / "use ◄ ► to pick a box") to match the new glyphs.
+
+**Deferred auto-pull fixes "boxes not loading on login".** The first-load `.fam boxes` auto-pull in `ConstructPanelContent` had an inline `if (MessageService.IsInitialized && BoxList.Count == 0)` check. With 0.6.0's overlay-restore-on-init feature, the panel now constructs DURING `Plugin.UIOnInitialize`, which runs from `CharacterHUDEntry.Awake` BEFORE `CommonClientDataSystem.OnUpdate` has a chance to call `MessageService.SetUser` / `SetCharacter`. The inline check saw `IsInitialized=false` and silently skipped, so a user with the overlay set to auto-restore opened it to an empty box list with no fetch ever happening. Replaced the inline check with `TickDeferredAutoPull` — a per-frame ticker registered with `CoreUpdateBehavior` that fires the auto-pull as soon as `MessageService.IsInitialized` flips true, then unregisters. Reset() removes the ticker so it doesn't keep firing after panel destruction.
+
+## 0.8.0 — Browser sizing + Lookups + Vanilla Admin reference + Thunderstore links
+
+**Familiar Browser overlay — taller default.** MinHeight bumped 360 → 440 so the default panel size shows ~12 familiar rows comfortably (full 10-fam box plus extras) without scrolling. Also tightened a couple of internal row heights 24→22.
+
+**Kindred Admin: World — Lookups section promoted.** The `.search item` / `.search npc` forms already existed but were buried in a "Search" section easy to miss. Renamed to "Lookups (find IDs for spawn / give)" with a prominent italic intro explaining the workflow (search → copy prefab name → paste into Spawn / Give forms), better placeholders, richer tooltips, and a "List All Bosses" quick button for `.boss list`. KindredCommands does the heavy lifting server-side; replies appear in chat.
+
+**About tab — Thunderstore links for backing mods.** Added "Open" buttons for:
+- Bloodcraft on Thunderstore (zfolmt's mod page)
+- KindredCommands on Thunderstore (odjit's mod page)
+
+So if a player wants to research the underlying commands or check for updates, the page is one click away.
+
+**New "Vanilla Admin" reference tab under HELP.** V Rising's vanilla admin commands (`adminauth` / `BanUser` / `Kick` / `give` / `giveset` / `SpawnUnit` / `Banhammer` / `Unban` / `BanList` / `Connectinfo` / `Save` / `List` / `Help` / etc.) are CONSOLE commands, not chat commands — they're typed into the in-game console (default key F1). BCH is a CLIENT mod that sends CHAT messages, so it can't trigger console commands directly. Added a documentation tab under HELP that:
+- Explains the console-vs-chat distinction up front
+- Documents the common vanilla admin commands organized by purpose (auth / players / spawning / server)
+- Points each one at the existing chat-command equivalent in the Kindred admin tabs (so users know they don't have to drop into the console for routine tasks like kick/ban/give/spawn)
+- Includes a short "how to use the console" section (F1 key, adminauth gate, command-line `-console` flag fallback)
+
+**Outside this release** (still queued):
+- PlayerNameField autocomplete dropdown
+- `.class csp` shift-spell-picker dropdown
+- Per-row Move in Boxes Edit mode
+- Suspend-typing lockup root cause
+- In-UI parsing of `.search item` / `.search npc` / `.boss list` replies (replies currently land in chat; future iteration could parse + click-to-fill into spawn forms)
+
+## 0.7.0 — Final Bloodcraft audit gaps + scrollbar click + About-tab links
+
+**Bloodcraft re-audit found 4 commands + 1 entire group missing.** Earlier "complete coverage" claims for `.prestige` / `.class` / `.quest` were over-stated. Wired:
+- `.prestige ignore [Player]` — admin: toggle a player's leaderboard exclusion (paired with the leveling `.lvl ignore` form). Form on Bloodcraft Admin tab.
+- `.prestige iacknowledge…` (the spelled-out global purge) — admin: globally remove every player's prestige buffs so config-changed buffs can be re-applied. Form on Admin tab with required confirm.
+- `.quest c [Player] [Type]` — admin: force-complete a player's Daily/Weekly quest. Form on Admin tab.
+- `.prof` (`.profession`) **whole group** — 4 commands. Player-facing log/get/list on a new "Profession Tools" section of the Levels tab; admin set on the Bloodcraft Admin tab. New `BloodcraftProfession` enum (8 professions) drives the dropdown.
+
+Plus new `BloodcraftQuestType` enum (Daily/Weekly) for the .quest c form's type picker.
+
+**About-tab URLs are now openable.** Each external link (Discord / PayPal / SkillEra.IO / GitHub repo) gets an inline "Open" button that calls `Application.OpenURL` to launch your default browser. Cleaner than wiring TMPro `<link>` handlers under IL2CPP. New `AddLinkRow` helper.
+
+**Scrollbar click-to-drag works.** Unity's Slider.OnPointerDown should jump the value when you click the bar, but in our canvas hierarchy it only fires on the handle. Added `SliderClickRegistry` — a per-frame mouse-down handler (registered with `CoreUpdateBehavior` in `Plugin.Load`) that detects clicks anywhere on a registered slider's track and snaps the value. Skips when the click was on the handle so the existing Unity drag still owns that gesture. Sliders self-register from `UIFactory.CreateSliderScrollbar`.
+
+**Outside this release** (still queued):
+- PlayerNameField autocomplete dropdown (cache fills passively but no UI yet) — needs a custom suggestion widget
+- `.class csp` shift-spell-picker dropdown — would need `.class lsp` parsing + new state slot for spell names per class
+- Per-row Move in Boxes Edit mode — global form covers it; per-row workflow is multi-step
+- Suspend-typing lockup root cause — safe default (off + force-disabled on load) is in place; needs a different input-suspension layer entirely
+
+## 0.6.0 — Overlay sizing & persistence + .fam audit gaps
+
+**Familiar Browser overlay — sizing fix.** The dedicated swap-warning slot was reserving ~36px at the top regardless of state. Combined it with the active-familiar label into a single dual-purpose status line: shows "Active: {name}" when idle, the swap-confirm warning when armed. Recovers the wasted vertical space — full 10-familiar boxes now fit comfortably without scrolling at the default panel height.
+
+**Overlay visibility persists across sessions.** New bug found: every overlay (XP / Familiar / Familiar Browser / Daily Quest) defaulted to off on every login regardless of what the user had toggled. Root cause: the `Settings.Show*Overlay` config entries existed but were never read on init AND `BCHubUIManager.ToggleOverlay` never wrote to them.
+- `BCHubUIManager.ToggleOverlay` now persists the new state via `Settings.SetShow*` after every flip.
+- New `BCHubUIManager.RestoreOverlaysFromSettings()` runs from `Plugin.UIOnInitialize` after `SetupAndShowUI` to bring back any overlay that was visible at last logout.
+- New settings: `ShowFamiliarBrowser`, `ShowDailyQuestOverlay` (the older `ShowExperienceOverlay` / `ShowFamiliarOverlay` are now actually wired).
+
+**Server-side toggle "stickiness" caveat.** `Toggle Emotes` / `Toggle Combat` / `Toggle Shift` / `Toggle XP Log` / etc. are all **server-side flags** — Bloodcraft flips a value on the server and reports the new state in chat. The client never sees the underlying value, so we can't "remember" it in the .cfg the same way. A new italic note on the Levels tab explains this so the behavior isn't confusing.
+
+**Bloodcraft `.fam` audit re-run — 13 commands wired** (the earlier "complete coverage" claim was wrong):
+
+*More Familiar Actions section on the Familiars tab:*
+- `.fam s [Name]` — search boxes by familiar name
+- `.fam sb [Name]` — smartbind (search + bind in one step)
+- `.fam shiny [SpellSchool]` — spend vampiric dust to make active familiar shiny (new `FamiliarShinySchoolChoice` enum: Blood / Storm / Unholy / Chaos / Frost / Illusion)
+- `.fam option [Setting]` — toggle per-player familiar settings
+- `.fam echoes [VBloodName]` — buy V-Blood exo reward
+- `.fam reset` — destroy all entities in follower buffer (DESTRUCTIVE; required confirm)
+
+*Battle Groups section on the Familiars tab — full PvP-grouping system, 7 commands:*
+- `.fam bgs` (list) / `.fam bg [group]` (show)
+- `.fam cbg [group]` (choose active) / `.fam abg [group]` (create) / `.fam dbg [group]` (delete, with required confirm)
+- `.fam sbg [group] [slot]` (assign active familiar to slot)
+- `.fam challenge [player]` (initiate / queue PvP)
+
+**Bloodcraft `.misc` audit — 6 player-facing commands wired** (Levels tab → new Player Tools section):
+- `.misc userstats`, `.misc remindme`, `.misc silence`, `.misc kitme`, `.misc prepare`
+- `.misc sct [Type]` (collapsible form with type field)
+
+**Bloodcraft `.lvl` audit — 2 commands wired:**
+- `.lvl log` — toggle XP-gain logging (Player Tools)
+- `.lvl ignore [Player]` — admin: toggle shared-XP exclusion (Bloodcraft Admin tab)
+
+**Outside this release** (still queued from the earlier polish list):
+- Scrollbar click-to-drag investigation
+- PlayerNameField autocomplete dropdown (cache fills passively but no UI yet)
+- Clickable About-tab URLs (TMPro `<link>` + click handler)
+- `.class csp` shift-spell-picker dropdown (currently IntField)
+- Per-row Move in Boxes Edit mode (per-row Delete works)
+
+## 0.5.0 — Audit gaps + UX polish + per-row edit mode
+
+**Top-right "—" close button now actually closes.** `MainPanel` skips `ResizeablePanelBase.ConstructPanelContent()` (which would hide the title bar entirely), so the inherited title bar with its dead "—" button stayed visible. Wired `OnClosePanelClicked` to `SetActive(false)` so the button hides the panel; the floating button stays so you can reopen.
+
+**Footer toggles wrap to 2 rows.** Adding the Familiar Browser toggle in 0.4.1 + the long "Suspend game input when typing" label pushed toggles off the right edge at the panel's MinWidth=600. Footer is now a vertical wrapper containing two horizontal rows: row 1 holds the four overlay toggles (XP / Familiar / Familiar Browser / Daily quest), row 2 holds the two behavior toggles (Auto-resize / Suspend-input). Reduced per-toggle min-width 200→130 and shortened the suspend label to "Suspend game input on type (experimental)".
+
+**Familiar Browser polish.**
+- Tooltips on ◄ / ► / ↻ buttons explaining what each does (was non-descript squares).
+- Box-name header now reads `BoxName  (X / N)` so you can see your position in the cycle.
+- Familiar list wrapped in a ScrollView so a full box of 10+ familiars no longer overlaps the Unbind footer. Also bumped MinHeight 240→360 so the default size shows ~10 rows comfortably.
+
+**Input-field + dropdown contrast.** `CreateInputField` and `CreateDropdown` were using `Theme.DarkBackground` (matches the panel background, ~0.07 brightness), so fields nearly invisibly blended. Now: lighter slate background (0.18, 0.18, 0.21) plus a subtle ~0.55 gray outline. Visible at any panel opacity.
+
+**Class tab — `.class csp` shift-spell-picker form.** New collapsible "Choose class shift spell" form: IntField 1-32 + Submit. Use 'List Spells' (already there) to see the numbered options before submitting.
+
+**Blood Legacy tab — in-UI `.bl get [Type]` parser.** Mirrors the 0.3.0 prestige-info pattern. Submit the "Show info for a specific blood" form, the multi-line reply is parsed into `BloodInfo` (BloodType / Level / Prestige / Essence / ProgressPct / StatLines) and rendered in a panel below: title in Bloodcraft red, level summary, bulleted stat lines. New `InterceptFlag.AwaitingBloodInfo` / `ReceivingBloodInfo` + `_bloodHeaderRegex` / `_bloodStatLineRegex` parsers. The bare `.bl get` (no arg) is intentionally NOT intercepted — the live Eclipse stream already keeps the equipped blood current and intercepting would clobber the structured display on every Refresh click.
+
+**Boxes tab — per-row edit mode.** New "Edit mode" toggle next to the Reload button on the box content view. When ON, each familiar row sprouts a red Delete button: first click changes its label to "Confirm?", second click within 3 seconds fires `.fam r {index}` and auto-refreshes the list. Off by default so accidental clicks can't trigger destruction. Move-from-row stays as the existing global form (Bloodcraft's `.fam mb` is multi-step and doesn't fit a one-click row UX).
+
+**KindredCommands audit gaps wired** — 13 commands that existed in KindredCommands but weren't surfaced anywhere in BCH:
+- *Admin: Players* — `.playerinfo`, `.idcheck`, `.assignsteamID`, `.showhair`, `.gruelsettings`, `.feedsettings`, `.unbindall` (with required confirm)
+- *Admin: Server* — `.wipe` (queue), `.commencewipe` (with required confirm), `.cancelwipe`
+- *Admin: World* — `.longestofflinecastles`, `.clan castles`, `.clan fix`, `.bloodbound add`, `.bloodbound remove`
+
+Each gets the same form-with-tooltip pattern as the existing admin sub-tabs; destructive ones get the `RequireTrue` confirm checkbox.
+
+**Deferred:** scrollbar click-to-drag (mouse wheel works, click-on-bar doesn't move the handle). Needs deeper investigation into Unity's Slider raycast / event flow vs the parent ScrollRect — saving for a future pass.
+
+## 0.4.1 — Familiar Browser overlay
+
+**New `FamiliarBrowserOverlayPanel`** — an overlay-sized version of the Boxes tab so you can switch boxes and bind/unbind familiars without opening the main panel. Independent draggable / resizable like the other overlays.
+
+Layout:
+- Header row: ◄ {ActiveBoxName} ► [↻] — prev/next cycles through `PlayerStateService.BoxList` and fires `.fam cb {box}` + `.fam l`; the refresh button re-pulls boxes + contents
+- Active-familiar indicator: `Active: {Name} Lv N` (or "(none bound)")
+- Reserved warning slot for the auto-swap confirm (matches the main Boxes tab's no-shift behavior)
+- Familiar list: clickable rows formatted `01 — Name Lv N P{prestige} ★ {shiny}` — click to bind, with the same two-click destruction-confirm as the main Boxes tab when one is already bound
+- Footer: "Unbind active" button (disabled when no familiar is bound)
+
+On first show, if `PlayerStateService.BoxList` is empty, sends `.fam boxes` automatically — so the overlay is useful even if the user never opens the main Boxes tab.
+
+Auto-swap state is local to the overlay, so arming a swap here doesn't carry into the main panel. Subscribes to BoxList / BoxContents / ActiveBox / Familiar changed events; Reset() unsubscribes.
+
+Toggle from the panel footer alongside the existing "XP overlay" / "Familiar overlay" / "Daily quest" checkboxes. New label "**Familiar Browser**" — distinct from the existing "Familiar overlay" (which still shows just the active familiar's stats).
+
+New `PanelType.FamiliarBrowserOverlay` enum value; wired through `BCHubUIManager` (Reset / SetActive / ToggleOverlay / IsOverlayOpen / EnsureFamiliarBrowserOverlay).
+
+## 0.4.0 — Weapon Expertise stat picker + Blood Legacy tab
+
+**`EnumIndexField<T>`** — new `FormField` subclass; same dropdown UX as `EnumField<T>` but emits the 1-based dropdown index ("1".."12") instead of the enum NAME ("PhysicalPower"). Bloodcraft's `.wep cst <Weapon> <StatIndex>` and `.bl cst <Blood> <StatIndex>` use a 1-based int (the command body does `--statType` to re-zero-base it server-side). Wrapping in a typed dropdown lets the user pick a NAMED stat while the form still substitutes the integer the parser expects.
+
+**Three new picker enums** in `PlayerStateService`, mirroring Bloodcraft's enum order and excluding the sentinel/non-pickable values:
+- `WeaponBonusStat` (12 values: MaxHealth → SpellCritDamage)
+- `BloodBonusStat` (12 values: HealingReceived → CorruptionDamageReduction)
+- `BloodTypeChoice` (10 valid bloods: Worker / Warrior / Scholar / Rogue / Mutant / Draculin / Immortal / Creature / Brute / Corruption — excludes None / VBlood / Frailed / GateBoss which Bloodcraft rejects as legacy choices)
+
+**Weapon Expertise tab — bonus-stat picker.** Replaced the dead-end "use chat" note with a collapsible "Set bonus stat for a weapon (.wep cst)" form: WeaponType dropdown + EnumIndexField<WeaponBonusStat> dropdown. Submit auto-refreshes via `.wep get`. New `BCCOM_WEP_CHOOSE_STAT_FORMAT` constant. The "show all weapons' settings in one view" the user asked for in earlier feedback **is not possible** — Bloodcraft's `.wep get` only ever returns the equipped weapon's data, no command queries non-equipped weapons. Surfaced this limitation in a new italic note on the tab so the user isn't left wondering.
+
+**New Blood Legacy tab** under BLOODCRAFT (between Weapon Expertise and Unarmed + Shift). Mirrors the Weapon Expertise tab's structure:
+- Live "Current Blood Legacy" labels (type / level + progress + prestige / chosen bonus stats) fed by `PlayerStateService.Legacy` via the existing Eclipse stream
+- Action row: Refresh / List Bloods / List Stats / Reset Stats (`.bl get` / `.bl l` / `.bl lst` / `.bl rst`)
+- Collapsible: **Set bonus stat for a blood type** (`.bl cst <Blood> <StatIndex>`) — BloodTypeChoice + EnumIndexField<BloodBonusStat>; submit auto-refreshes via `.bl get`
+- Collapsible: **Show info for a specific blood** (`.bl get <Blood>`) — unlike `.wep get`, Bloodcraft's `.bl get` accepts a blood-type argument so you CAN inspect a non-current blood's level + chosen stats. Reply still goes to chat (in-UI parsing is a future iteration)
+- Italic note explaining the difference from Weapon Expertise
+
+New BCCOM constants: `BCCOM_BL_GET_FORMAT`, `BCCOM_BL_LIST`, `BCCOM_BL_LIST_STATS`, `BCCOM_BL_RESET_STATS`, `BCCOM_BL_CHOOSE_STAT_FORMAT`.
+
+Outside this release: per-row Move/Delete in box contents, in-UI parsing of `.bl get` reply (analogous to the `.prestige get` parser added in 0.3.0).
+
+## 0.3.1 — Form post-submit hook + About tab
+
+**FormBuilder gained an `onSubmitted` callback overload.** Lets a form chain a follow-up command after the primary one is enqueued. Used to:
+- Auto-refresh the box-contents list (`.fam l`) after Permanently Delete familiar (`.fam r`) — the user's previous view stayed stale until they manually clicked Reload.
+- Auto-refresh after Move active familiar (`.fam mb`) for the same reason.
+- Auto-refresh the box list (`.fam boxes`) after Create / Delete-empty / Rename box.
+
+Existing `FormBuilder.Build(parent, title, template, params fields)` stays — overload resolution picks the new `Build(parent, title, template, Action onSubmitted, params fields)` only when a callback is passed.
+
+**About tab under HELP.** New tab next to Quick Start with credits + community links:
+- Bloodcraft credit (zfolmt) — "Leveling, expertise, legacies, professions, familiars, classes, quests!"
+- KindredCommands credit (odjit) — "Commands to expand administration efforts and provide information"
+- About me: player Chaos, V Rising server "The Shadow Realm" (Brutal, PvE), Discord link, PayPal support link, personal website
+- About this UI: open source pointer to the GitHub repo
+
+## 0.3.0 — Class apply + in-UI Prestige info
+
+**Class tab — apply a class from the UI.** New collapsible "Select / change your class (.class s)" form on the Class tab. Dropdown picks from `BloodcraftClassChoice` (BloodKnight / DemonHunter / VampireLord / ShadowBlade / ArcaneSorcerer / DeathMage — Bloodcraft's six built-in classes; the new enum is a subset of `PlayerClass` minus the `None` sentinel so users can't pick an invalid value). Submit sends `.class s {Class}`; Bloodcraft replies in chat with success or rejection. New `BCCOM_CLASS_SELECT_FORMAT` / `BCCOM_CLASS_CHANGE_FORMAT` constants for the two equivalent aliases.
+
+**Prestige tab — in-UI display of `.prestige get` results.** The "Show prestige info" form already existed but only echoed to chat. Now its multi-line reply is parsed into a structured `PrestigeInfo` (TypeName, Level, MaxLevel, EffectLines) and rendered in a dedicated panel below the form:
+- Title in Bloodcraft green (`#90EE90`): `{Type} Prestige Info`
+- Level line: `Current Prestige Level: {N} / {Max}`
+- Effect lines: bulleted list of growth-rate / stat-bonus / total-effect text Bloodcraft sends, color tags stripped
+
+Implementation: new `InterceptFlag.AwaitingPrestigeInfo` / `ReceivingPrestigeInfo` states, regex match on the `<color=#90EE90>Type</color> Prestige Info:` header to enter receive mode, a level-line regex (`<color=yellow>{N}</color>/{Max}`) to capture the bracket, then any further line in receive mode is treated as an "effect" line (color tags stripped via `<[^>]+>` replace). Existing 600 ms timeout flush handles end-of-reply. `NoteOutboundForIntercept` arms when the outgoing command starts with `.prestige get ` (matches all PrestigeType variants without enumerating them).
+
+`PlayerStateService` gained `PrestigeInfo` struct + `PrestigeInfoLatest` snapshot + `PrestigeInfoChanged` event. The Prestige tab subscribes; Reset() unsubscribes.
+
+Outside this release: Weapon Expertise per-weapon view, Blood attributes tab, per-row Move/Delete in box contents — still queued for 0.3.x.
+
+## 0.2.1 — Relabel destruction, add real Move/Delete, both quests in overlay, server availability
+
+**Familiars tab — `.fam ub` is "Unbind", not "Destroy".** Tracing Bloodcraft source confirmed `.fam ub` destroys the in-world familiar entity but **preserves the box record** (level/prestige/shiny intact); the familiar can be re-bound from the box at any time. So calling it "Destroy (Permanent)" was misleading. Renamed the red two-click button to plain **Unbind** (no red color, no confirm) and updated the tooltip to explain the in-world-only effect plus point at the new Permanently Delete form for actual destruction.
+
+**Boxes tab — auto-swap warning rewritten + layout no longer shifts.** The 0.2.0 warning ("DESTROY current and bind it") was wrong for the same reason as above. New text reads "Active: FamX. Click {target} again within 5s to unbind current and bind it. The current familiar returns to its box (level/prestige preserved); use Permanently Delete below to actually remove it from your collection." The warning label now reserves space (~38px) even when empty, so showing/hiding it doesn't push the familiar list down and yank the click target out from under the cursor.
+
+**Boxes tab — Move + Permanently Delete forms.** Two new collapsible forms at the bottom of the box content view:
+- **Move active familiar to box (.fam mb)** — moves the currently-bound familiar into the named box. User has to bind first; explained in the form tooltip.
+- **Permanently delete familiar from box (.fam r)** — IntField for index + a `RequireTrue` BoolField "Yes, permanently delete" that gates submission. The form refuses to submit unless the confirm box is checked, so accidental deletion needs both an unchecked-by-default confirm AND a Submit click.
+
+`BoolField` gained an optional `RequireTrue` flag for confirmation gates on destructive forms.
+
+**Daily Quest overlay — both quests at once.** `DailyQuestOverlayPanel` now renders Daily AND Weekly stacked, each with its own header (cyan `#00FFFF` for Daily, magenta `#BF40BF` for Weekly), target line, and progress line. The reroll hint adapts (`.quest r d` vs `.quest r w`).
+
+**Server availability detection — collapses tab groups when the backing mod is absent.**
+- New `Settings.ModAvailability` (Auto / On / Off) for both Bloodcraft and Kindred.
+- Auto for Bloodcraft = present iff `EclipseProtocolService.UserRegistered` is true (server ACK'd our Eclipse handshake).
+- Auto for Kindred = currently always-on (no protocol indicator yet — set to Off manually if your server doesn't have it).
+- When unavailable, the left-rail group header shows `–  GROUPNAME  (unavailable)` in gray, becomes non-interactable, and starts collapsed. Tab buttons within stay rendered so the user can still see what BCH supports.
+- Override via the .cfg: `BloodcraftAvailability` / `KindredAvailability` keys under `[GeneralOptions]`, values `Auto` / `On` / `Off`.
+
+## 0.2.0 — Shiny labels, safe auto-swap, Daily Quests, admin-tab cleanup
+
+**Boxes tab — shiny element labels.** `FamiliarBoxEntry` now exposes `ShinySchool` derived from the captured shiny color hex (Bloodcraft v1.13.x mapping in `FamiliarShinySchools`: `#A020F0`→Chaos, `#FFD700`→Storm, `#FF0000`→Blood, `#008080`→Illusion, `#00FFFF`→Frost, `#00FF00`→Unholy). Box rows now render as `01  —  RoyalRavager   Lv 12  P3  ★ Storm`.
+
+**Boxes tab — safe two-click auto-swap.** Clicking a familiar while another is bound now arms a destruction-confirm: a warm-orange banner appears explaining "Active: FamX. Click {target} again within 5s to DESTROY current and bind it. Bloodcraft has no non-destructive switch." Second click on the SAME familiar within the window fires `.fam ub` (destroy) → `.fam b N` (bind new) sequentially. State clears on box change, Back, timeout, or any other familiar click. Bloodcraft's bind strictly errors if a familiar is bound and `.fam t` (toggle/dismiss) doesn't free the slot — `HasActiveFamiliar()` only returns false once the entity is *destroyed*. So the destructive path is the only one Bloodcraft offers; the UI surfaces it explicitly instead of silently destroying.
+
+**`.castle openplots` → `.openplots`.** The KindredCommands command isn't in the `castle` group; it's a top-level `.openplots` (alias `.op`). Old constant returned "command not found"; fixed and updated the tooltip.
+
+**Kindred Logistics admin split into its own tab.** The "Admin Globals (.lg)" CollapsibleSection that used to live at the bottom of the Logistics tab is now a sibling tab `Logistics: Admin` under KINDRED, gated behind `RenderAdminGate("Kindred Logistics admin")`. Non-admins see the placeholder + "I am a server admin" toggle they're already used to; admins see the full set of `.lg` toggles + `.adminstash` form. Player-side Logistics (personal toggles, utility commands) stays on the original Logistics tab.
+
+**Daily Quests tab + overlay (Bloodcraft `.quest`).** New tab under BLOODCRAFT showing both Daily and Weekly quest state from `PlayerStateService.DailyQuest` / `WeeklyQuest` (already streamed by the Eclipse protocol). Each section has Refresh / Track / Reroll buttons (`.quest p|t|r d|w`) plus a Toggle Quest Log button (`.quest log`). The new `DailyQuestOverlay` is a small movable HUD identical in style to the XP and Familiar overlays — toggle from the panel footer (third overlay checkbox). Shows target name, V-Blood marker, and progress / completion state.
+
+**Quick Start Guide formatting.** Replaced the line-count-based `EstimateHeight` (consistently overshot by a couple of px per line, producing visible gaps between sections) with `ContentSizeFitter.PreferredSize` so each section sizes itself to the actual rendered TMP text. Sections now sit flush against each other.
+
+Outside this release: per-row Move/Delete edit mode in box contents, Class-apply UI, Weapon Expertise per-weapon view, Blood attributes tab, in-UI Prestige display — still queued for 0.2.x.
+
+## 0.1.3 — Safety + Boxes polish
+
+**Suspend-typing toggle defaulted OFF + force-disabled on load.** Same root cause as the 0.1.1 lockup is still present: returning `false` from `InputActionSystem.OnUpdate` also wedges UI input. The 0.1.2 scoping fix only narrowed *when* the patch fires (BCH fields only), not the underlying mechanism — and as the user discovered, clicking into a Kindred Logistics text field with the toggle on still freezes the panel. Until a non-locking suspension mechanism is in place: default off; force-disable on `Plugin.Load` if the user has it on (one-time write, logged); footer toggle now carries an EXPERIMENTAL warning + tooltip explaining the lockup. Anyone who genuinely wants the feature can opt in each session.
+
+**Auto-resize: chrome budget bumped 76 → 110px.** The earlier number missed the panel's title-bar height; manifested as the panel coming up a row or two short when switching to a long box-content view.
+
+**Familiars tab — Emote Bindings reference.** Bloodcraft has no chat command to *trigger* an emote programmatically, so a "Beckon" button isn't possible — the player must perform the emote in-world. Added a small reference card so the bindings (Wave→recall, Salute→combat, Clap→bind, Beckon→interact/inventory) are visible without having to remember them.
+
+**Boxes tab — richer per-familiar display.** Extended `BOX_CONTENT_ENTRY_REGEX` to capture level, prestige tier, and shiny indicator (Bloodcraft sends them all in the `.fam l` reply already; we just weren't parsing them). `FamiliarBoxEntry` now has `Level`, `Prestige`, `IsShiny`, `ShinyColorHex` fields. List rows now render as `01  —  RoyalRavager   Lv 12  P3  ★`.
+
+**Boxes tab — box management.** New collapsible forms in the picker view: Create new box (`.fam ab`), Delete empty box (`.fam db`), Rename box (`.fam rb`). Move-familiar-between-boxes is intentionally deferred to 0.2.0 because Bloodcraft's `.fam mb` only acts on the currently-bound familiar — the workflow needs binding first, then the move command, which is a multi-step UX that fits better with the planned "edit mode" toggle.
+
+Outside this release: `.fam mb` workflow, per-row Move/Delete in box contents, Class-apply UI, Weapon Expertise per-weapon view, Blood attributes tab, in-UI Prestige display — all queued for 0.2.x.
+
+## 0.1.2 — Hotfix for two 0.1.1 regressions
+
+**Removed `SuspendGameInputWhileUIOpen`.** The 0.1.1 implementation returned `false` from `InputActionSystem.OnUpdate` whenever the BCH panel was open — but that also wedged Unity's UI input pipeline, so any user with the toggle on couldn't click the panel, couldn't escape, and couldn't disable the setting. Worse, the value persisted in the .cfg, so they were locked out across sessions the moment they opened BCH again. The setting and footer toggle are gone; the value in the user's existing `.cfg` is now an inert orphan (BepInEx ignores keys it doesn't bind).
+
+**V Rising native chat — Enter no longer fires gameplay.** Scoped `InputActionSystemPatch` to fields that are descendants of `Plugin.UIManager.UIRoot`. Previously the patch suppressed input for any focused TMP_InputField — including V Rising's own chat — and the suppression was apparently being layered on top of V Rising's own input gating, so the closing Enter keystroke bled through into gameplay (attack/etc.) the same frame. With the descendant check, V Rising's chat is no longer touched, vanilla input handling applies, no bleed-through. Removed the 100ms focus-release grace from 0.1.1 — it was the wrong layer to fix this at and unneeded with the scoping fix.
+
+## 0.1.1 — Bugfix sweep (post-0.1.0 in-game testing)
+
+Driven by a comprehensive bug report after the first 0.1.0 in-game session.
+
+**Familiars tab — wrong Bloodcraft commands.** Audit against current Bloodcraft v1.13.x sources caught three command aliases that no longer match:
+- `BCCOM_FAM_UNBIND` was `.fam u` → `.fam ub`
+- `BCCOM_FAM_COMBAT` was `.fam combat` → `.fam c`
+- `BCCOM_FAM_TOGGLE`  was `.fam toggle` → `.fam t`
+- Removed dead `BCCOM_FAM_RESET_STATS` (`.fam rs` doesn't exist server-side)
+- New: `BCCOM_FAM_TOGGLE_EMOTES` (`.fam e`), `BCCOM_FAM_LIST_EMOTES` (`.fam actions`)
+
+The Familiars action row is now two rows. Toggle is re-labeled **Recall / Dismiss** (recallable) and Unbind is re-labeled **Destroy (Permanent)** with red tint and a two-click confirm — these were previously identical-looking and identical-named, and a single click on the wrong button permanently destroyed a familiar. The old Combat button now sends the correct `.fam c`. New Toggle/List Emotes buttons surface the emote-binding system that ties clap (or any emote) to "open familiar inventory" — previously a player had no in-UI way to know clap was bound.
+
+**Tooltips never ticked.** Log diagnostic showed `ticking=False, bindings=415` — bindings registered fine, but `EnsureTicking()` was bailing on a load-order race against `Plugin.CoreUpdateBehavior`. Moved `TooltipHover.TickAll` registration to `Plugin.Load()` directly (alongside `MessageService.ProcessAllMessages`); removed the lazy `EnsureTicking` indirection that was failing.
+
+**Boxes tab fixes:**
+- Box-content regex didn't match Bloodcraft v1.13.x format (server adds a space after `|`); added `\s*` so both old and new formats match. `.fam l` was returning zero entries → UI sat on "Loading familiars for X…" forever.
+- The state machine waited for a "first non-color line" terminator that frequently never arrived; replaced with a timeout-based flush registered in `Plugin.Load()` (`TickInterceptTimeouts`, 600ms grace). Also stops mid-list system messages from prematurely flushing partial state.
+- Auto-pull `.fam boxes` on first open of the Boxes tab so the user doesn't have to click Refresh on every cold open.
+- Moved the "click Refresh / click a box" hint to the top of the tab so it can never be visually overlapped by a long box list.
+- Dropped fixed `flexibleHeight: 1` on picker/content sections so the box list takes its natural height; AutoResize grows the panel and the tab-page ScrollView (Phase 5j) handles overflow when the panel hits 0.9*screen.
+- Logging on intercept transitions (arm + flush) for future debugging.
+
+**Form / collapsible-section sizing.** Two recurring "fixed preferredHeight that's wrong" bugs were causing forms to overlap each other and the submit button to render off-screen:
+- `CollapsibleSection`'s content container had `preferredHeight: 80` regardless of contents → form rendered on top of the next sibling.
+- `FormBuilder` predicted form height as `70 + fields*34` → wrong for any form with an `EnumField`/`PlayerNameField`, submit button got cut off.
+
+Both now drop fixed `preferredHeight` and let the inner `VerticalLayoutGroup` auto-compute; `AutoResize` sees the correct preferred-height and grows the panel to fit. Multiple expanded forms now stack instead of overlapping.
+
+**Dropdown couldn't be closed without selecting.** TMP_Dropdown's own click-outside Blocker doesn't fire reliably in our canvas setup. Added `FormDropdownRegistry.TickCloseOnOutsideClick` registered in `Plugin.Load` — closes any open dropdown when the user clicks outside its rect.
+
+**Input handling — three related fixes:**
+- Critical lockup on text-field click (game keeps acting + UI unresponsive): added focus-change diagnostic logging to `InputActionSystemPatch` so a future repro produces actionable log evidence.
+- Native chat conflict (Enter-to-send in V Rising chat fired a gameplay action the same frame): added a 100ms focus-release grace window; the closing keystroke can no longer bleed through.
+- New `Settings.SuspendGameInputWhileUIOpen` toggle (default off) + footer checkbox: when on, **all** game input is suspended whenever the main BCH panel is visible, not just while typing. Solves "my character attacks/moves on every UI click."
+
+**Levels tab.** Added a "List Weapon Types (chat)" button and a one-line note explaining that the Eclipse protocol only streams the active weapon's expertise — per-weapon snapshots aren't available without server-side support, so the in-panel "all weapons" view requested isn't possible yet. Surfacing the limitation so the user isn't left wondering.
+
+**Admin gating.** New `Settings.IsAdmin` flag (default off). When off, the Bloodcraft Admin tab and the three Kindred admin sub-tabs (Players / Server / World) display a placeholder explaining the gate plus a "I am a server admin" toggle. Flipping the toggle re-shows the current tab with full admin commands. Keeps non-admin players from being shown commands the server would reject anyway.
+
 All notable changes to BloodCraftHub. Pre-1.0; commits group into phases tracked by the development conversation. Once we ship to Thunderstore, this file transitions to standard semver-tagged entries.
 
 ## 0.1.0 (unreleased) — feature build-out

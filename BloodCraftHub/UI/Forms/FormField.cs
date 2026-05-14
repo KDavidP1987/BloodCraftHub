@@ -89,6 +89,49 @@ public class PlayerNameField : TextField
 }
 
 // ---------------------------------------------------------------------------
+// FormDropdownRegistry - non-generic registry of every active TMP_Dropdown
+// created by an EnumField<T>. Lifted out of EnumField<T> because static fields
+// on a generic class are per-T (so each EnumField<BloodType>, EnumField<Foo>,
+// etc. would have its own list and the per-frame outside-click checker would
+// only see dropdowns of one specific T).
+// ---------------------------------------------------------------------------
+public static class FormDropdownRegistry
+{
+    private static readonly System.Collections.Generic.List<TMP_Dropdown> _active = new();
+
+    internal static void Register(TMP_Dropdown dd)
+    {
+        if (dd != null) _active.Add(dd);
+    }
+
+    /// <summary>Per-frame: close any open dropdown when the user clicks outside it.
+    /// Registered with CoreUpdateBehavior in Plugin.Load.</summary>
+    public static void TickCloseOnOutsideClick()
+    {
+        if (!UnityEngine.Input.GetMouseButtonDown(0)) return;
+        if (_active.Count == 0) return;
+
+        Vector2 mouse = UnityEngine.Input.mousePosition;
+        for (int i = _active.Count - 1; i >= 0; i--)
+        {
+            var dd = _active[i];
+            if (dd == null) { _active.RemoveAt(i); continue; }
+
+            // Find the runtime-spawned options panel: it's a child of the dropdown
+            // named "Dropdown List" while expanded; absent when collapsed.
+            var listTransform = dd.transform.Find("Dropdown List");
+            if (listTransform == null) continue;
+
+            var listRt = listTransform as RectTransform;
+            var ddRt   = dd.transform as RectTransform;
+            bool overList = listRt != null && UnityEngine.RectTransformUtility.RectangleContainsScreenPoint(listRt, mouse, null);
+            bool overDd   = ddRt   != null && UnityEngine.RectTransformUtility.RectangleContainsScreenPoint(ddRt,   mouse, null);
+            if (!overList && !overDd) dd.Hide();
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
 // EnumField<T> - TMP_Dropdown populated from Enum.GetNames(typeof(T)).
 // Value sent to the server is the enum NAME (not the integer index), which is
 // what most Bloodcraft / Kindred commands expect (e.g. ".prestige set X Experience 5").
@@ -122,6 +165,8 @@ public class EnumField<T> : FormField where T : struct, Enum
             minHeight: 24, preferredHeight: 26, flexibleHeight: 0);
         if (!string.IsNullOrEmpty(Tooltip))
             TooltipHover.Attach(go, Tooltip);
+
+        FormDropdownRegistry.Register(dropdown);
     }
 
     public override string GetValueString()
@@ -134,17 +179,44 @@ public class EnumField<T> : FormField where T : struct, Enum
 }
 
 // ---------------------------------------------------------------------------
+// EnumIndexField<T> - same dropdown UX as EnumField<T>, but emits the 1-based
+// dropdown index (e.g. "5") instead of the enum NAME (e.g. "PhysicalPower").
+//
+// Bloodcraft's `.wep cst <Weapon> <StatIndex>` and `.bl cst <Blood> <StatIndex>`
+// commands use a 1-based integer for the stat picker (the command body does
+// `--statType` to convert it back to 0-based). Wrapping the dropdown lets the
+// user pick a NAMED stat while the form template still substitutes the integer
+// the server expects. Pair with picker enums (WeaponBonusStat / BloodBonusStat)
+// that mirror Bloodcraft's enum order so dropdown index 0+1=1 maps to enum 1.
+// ---------------------------------------------------------------------------
+public class EnumIndexField<T> : EnumField<T> where T : struct, Enum
+{
+    public EnumIndexField() : base() { }
+    public EnumIndexField(string name, string label, T defaultValue = default, string tooltip = null)
+        : base(name, label, defaultValue, tooltip) { }
+
+    public override string GetValueString()
+    {
+        if (Dropdown == null || OptionNames == null || OptionNames.Length == 0) return "";
+        return (Dropdown.value + 1).ToString();
+    }
+}
+
+// ---------------------------------------------------------------------------
 // BoolField - toggle. Emits "true"/"false" for commands that take a boolean arg.
 // ---------------------------------------------------------------------------
 public class BoolField : FormField
 {
     public bool Default { get; set; }
+    /// <summary>If true, IsValid() requires the toggle to be checked. Use for
+    /// confirmation gates on destructive commands (.fam r, etc.).</summary>
+    public bool RequireTrue { get; set; }
     protected ToggleRef Toggle;
 
     public BoolField() { }
-    public BoolField(string name, string label, bool defaultValue = false, string tooltip = null)
+    public BoolField(string name, string label, bool defaultValue = false, string tooltip = null, bool requireTrue = false)
     {
-        Name = name; Label = label; Default = defaultValue; Tooltip = tooltip;
+        Name = name; Label = label; Default = defaultValue; Tooltip = tooltip; RequireTrue = requireTrue;
     }
 
     public override void Build(GameObject row)
@@ -160,5 +232,10 @@ public class BoolField : FormField
     }
 
     public override string GetValueString() => (Toggle?.Toggle != null && Toggle.Toggle.isOn) ? "true" : "false";
-    public override bool   IsValid() => Toggle != null;
+    public override bool   IsValid()
+    {
+        if (Toggle == null) return false;
+        if (RequireTrue && (Toggle.Toggle == null || !Toggle.Toggle.isOn)) return false;
+        return true;
+    }
 }

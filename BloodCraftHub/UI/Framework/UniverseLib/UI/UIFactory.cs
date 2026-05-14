@@ -554,7 +554,17 @@ public static class UIFactory
 
         Image mainImage = mainObj.AddComponent<Image>();
         mainImage.type = Image.Type.Sliced;
-        mainImage.color = Theme.DarkBackground;
+        // Slightly lighter than the panel/form background (which uses
+        // Theme.DarkBackground = 0.07) so the input field is visibly distinct
+        // and the user can see where to click to type. Earlier versions used
+        // Theme.DarkBackground here, which made fields blend into the panel.
+        mainImage.color = new Color(0.18f, 0.18f, 0.21f, Theme.DarkBackground.a);
+
+        // Add a subtle outline so the field's edge is unmistakable even at
+        // low panel opacity.
+        var fieldOutline = mainObj.AddComponent<Outline>();
+        fieldOutline.effectColor = new Color(0.55f, 0.55f, 0.6f, 0.85f);
+        fieldOutline.effectDistance = new Vector2(1f, -1f);
 
         TMP_InputField inputField = mainObj.AddComponent<TMP_InputField>();
         Navigation nav = inputField.navigation;
@@ -721,8 +731,14 @@ public static class UIFactory
         labelText.alignment = TextAlignmentOptions.MidlineLeft;
 
         Image dropdownImage = dropdownObj.AddComponent<Image>();
-        dropdownImage.color = Theme.DarkBackground;
+        // Same lighter shade + outline as input fields so dropdowns are also
+        // visibly distinct from the panel background.
+        dropdownImage.color = new Color(0.18f, 0.18f, 0.21f, Theme.DarkBackground.a);
         dropdownImage.type = Image.Type.Sliced;
+
+        var dropdownOutline = dropdownObj.AddComponent<Outline>();
+        dropdownOutline.effectColor = new Color(0.55f, 0.55f, 0.6f, 0.85f);
+        dropdownOutline.effectDistance = new Vector2(1f, -1f);
 
         dropdown = dropdownObj.AddComponent<TMP_Dropdown>();
         dropdown.targetGraphic = dropdownImage;
@@ -922,6 +938,12 @@ public static class UIFactory
         slider.fillRect = handleRect;
         slider.targetGraphic = handleImage;
         slider.direction = Slider.Direction.TopToBottom;
+
+        // Register so the per-frame click-on-track handler in
+        // BloodCraftHub.UI.Framework.UniverseLib.UI.Widgets.SliderClickRegistry
+        // can move the value when the user clicks anywhere on the bar (Unity's
+        // built-in OnPointerDown only fires on the handle in our hierarchy).
+        Widgets.SliderClickRegistry.Register(slider);
 
         SetLayoutElement(mainObj, minWidth: 25, flexibleWidth: 0, flexibleHeight: 9999);
 

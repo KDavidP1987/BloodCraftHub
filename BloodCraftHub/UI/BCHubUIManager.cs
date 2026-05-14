@@ -29,6 +29,8 @@ public class BCHubUIManager : UIManagerBase
     private MainPanel _mainPanel;
     private ExperienceOverlayPanel _experienceOverlay;
     private FamiliarOverlayPanel _familiarOverlay;
+    private FamiliarBrowserOverlayPanel _familiarBrowserOverlay;
+    private DailyQuestOverlayPanel _dailyQuestOverlay;
 
     public bool IsMainPanelOpen => _mainPanel != null && _mainPanel.Enabled;
 
@@ -45,6 +47,8 @@ public class BCHubUIManager : UIManagerBase
         _mainPanel = null;
         _experienceOverlay = null;
         _familiarOverlay = null;
+        _familiarBrowserOverlay = null;
+        _dailyQuestOverlay = null;
     }
 
     protected override void AddMainContentPanel()
@@ -63,6 +67,8 @@ public class BCHubUIManager : UIManagerBase
         _mainPanel?.SetActive(active && IsMainPanelOpen);
         _experienceOverlay?.SetActive(active && (_experienceOverlay?.Enabled ?? false));
         _familiarOverlay?.SetActive(active && (_familiarOverlay?.Enabled ?? false));
+        _familiarBrowserOverlay?.SetActive(active && (_familiarBrowserOverlay?.Enabled ?? false));
+        _dailyQuestOverlay?.SetActive(active && (_dailyQuestOverlay?.Enabled ?? false));
     }
 
     /// <summary>Show or hide the main tabbed panel.</summary>
@@ -88,20 +94,65 @@ public class BCHubUIManager : UIManagerBase
             case PanelType.ExperienceOverlay:
                 EnsureExperienceOverlay();
                 _experienceOverlay.SetActive(!_experienceOverlay.Enabled);
+                BloodCraftHub.Config.Settings.SetShowExperienceOverlay(_experienceOverlay.Enabled);
                 break;
             case PanelType.FamiliarOverlay:
                 EnsureFamiliarOverlay();
                 _familiarOverlay.SetActive(!_familiarOverlay.Enabled);
+                BloodCraftHub.Config.Settings.SetShowFamiliarOverlay(_familiarOverlay.Enabled);
+                break;
+            case PanelType.FamiliarBrowserOverlay:
+                EnsureFamiliarBrowserOverlay();
+                _familiarBrowserOverlay.SetActive(!_familiarBrowserOverlay.Enabled);
+                BloodCraftHub.Config.Settings.SetShowFamiliarBrowser(_familiarBrowserOverlay.Enabled);
+                break;
+            case PanelType.DailyQuestOverlay:
+                EnsureDailyQuestOverlay();
+                _dailyQuestOverlay.SetActive(!_dailyQuestOverlay.Enabled);
+                BloodCraftHub.Config.Settings.SetShowDailyQuestOverlay(_dailyQuestOverlay.Enabled);
                 break;
             default:
                 throw new ArgumentOutOfRangeException(nameof(overlay), overlay, "Not a secondary overlay.");
         }
     }
 
+    /// <summary>
+    /// Construct + show any overlay that was visible at last logout. Called from
+    /// SetupAndShowUI once the UI bootstraps in-world. Pre-0.6.0, overlay
+    /// visibility never persisted across sessions because no caller wrote the
+    /// Settings.Show* values back when the user toggled, AND nobody read them
+    /// on init either. Both halves of the loop are wired now.
+    /// </summary>
+    public void RestoreOverlaysFromSettings()
+    {
+        if (BloodCraftHub.Config.Settings.ShowExperienceOverlay)
+        {
+            EnsureExperienceOverlay();
+            _experienceOverlay.SetActive(true);
+        }
+        if (BloodCraftHub.Config.Settings.ShowFamiliarOverlay)
+        {
+            EnsureFamiliarOverlay();
+            _familiarOverlay.SetActive(true);
+        }
+        if (BloodCraftHub.Config.Settings.ShowFamiliarBrowser)
+        {
+            EnsureFamiliarBrowserOverlay();
+            _familiarBrowserOverlay.SetActive(true);
+        }
+        if (BloodCraftHub.Config.Settings.ShowDailyQuestOverlay)
+        {
+            EnsureDailyQuestOverlay();
+            _dailyQuestOverlay.SetActive(true);
+        }
+    }
+
     public bool IsOverlayOpen(PanelType overlay) => overlay switch
     {
-        PanelType.ExperienceOverlay => _experienceOverlay?.Enabled ?? false,
-        PanelType.FamiliarOverlay   => _familiarOverlay?.Enabled ?? false,
+        PanelType.ExperienceOverlay      => _experienceOverlay?.Enabled ?? false,
+        PanelType.FamiliarOverlay        => _familiarOverlay?.Enabled ?? false,
+        PanelType.FamiliarBrowserOverlay => _familiarBrowserOverlay?.Enabled ?? false,
+        PanelType.DailyQuestOverlay      => _dailyQuestOverlay?.Enabled ?? false,
         _ => false,
     };
 
@@ -119,6 +170,22 @@ public class BCHubUIManager : UIManagerBase
         _experienceOverlay = new ExperienceOverlayPanel(UiBase);
         _panels.Add(_experienceOverlay);
         _experienceOverlay.SetActive(false);
+    }
+
+    private void EnsureFamiliarBrowserOverlay()
+    {
+        if (_familiarBrowserOverlay != null) return;
+        _familiarBrowserOverlay = new FamiliarBrowserOverlayPanel(UiBase);
+        _panels.Add(_familiarBrowserOverlay);
+        _familiarBrowserOverlay.SetActive(false);
+    }
+
+    private void EnsureDailyQuestOverlay()
+    {
+        if (_dailyQuestOverlay != null) return;
+        _dailyQuestOverlay = new DailyQuestOverlayPanel(UiBase);
+        _panels.Add(_dailyQuestOverlay);
+        _dailyQuestOverlay.SetActive(false);
     }
 
     private void EnsureFamiliarOverlay()

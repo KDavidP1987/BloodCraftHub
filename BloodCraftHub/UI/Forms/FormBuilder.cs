@@ -31,6 +31,28 @@ public static class FormBuilder
         string title,
         string commandTemplate,
         params FormField[] fields)
+        => BuildInternal(parent, title, commandTemplate, onSubmitted: null, fields: fields);
+
+    /// <summary>
+    /// Same as <see cref="Build(GameObject,string,string,FormField[])"/> but with a
+    /// post-submit callback that fires after <see cref="MessageService.EnqueueMessage"/>
+    /// returns. Use to chain a follow-up command (e.g. send `.fam l` after a delete
+    /// to refresh the box-content list). Not invoked if validation fails.
+    /// </summary>
+    public static GameObject Build(
+        GameObject parent,
+        string title,
+        string commandTemplate,
+        Action onSubmitted,
+        params FormField[] fields)
+        => BuildInternal(parent, title, commandTemplate, onSubmitted, fields);
+
+    private static GameObject BuildInternal(
+        GameObject parent,
+        string title,
+        string commandTemplate,
+        Action onSubmitted,
+        FormField[] fields)
     {
         if (fields == null) fields = Array.Empty<FormField>();
 
@@ -38,15 +60,15 @@ public static class FormBuilder
             forceWidth: true, forceHeight: false,
             childControlWidth: true, childControlHeight: true,
             spacing: 4, padding: new Vector4(4, 4, 4, 4));
-        // PreferredHeight buffer: title(22) + N*(row 30 + spacing 4) + submit(32) + spacing 4 + padding(8)
-        //                       ≈ 66 + fields*34
-        // Bumped from the previous (80 + fields*32) — under-sized preferredHeight made
-        // the parent's layout group cram this form into less space than it actually
-        // needs, which is what was causing the form to overlap the heading below it.
-        int prefHeight = 70 + fields.Length * 34;
+        // No fixed preferredHeight - the form's VerticalLayoutGroup auto-sums
+        // its title + field rows + submit row. Earlier versions tried to predict
+        // the height (70 + fields*34) but every variant of EnumField/PlayerNameField
+        // is a different actual height, so the prediction was always slightly
+        // wrong and the submit button got cut off. minHeight is a floor so a
+        // zero-field form still draws.
         UIFactory.SetLayoutElement(form,
             minWidth: 360, preferredWidth: 400, flexibleWidth: 1,
-            minHeight: prefHeight, preferredHeight: prefHeight, flexibleHeight: 0);
+            minHeight: 60, flexibleHeight: 0);
 
         // Title row
         var titleLbl = UIFactory.CreateLabel(form, "FormTitle", title,
@@ -112,12 +134,12 @@ public static class FormBuilder
         }
         TooltipHover.Attach(submit.GameObject, $"Send the command: {commandTemplate}");
 
-        submit.OnClick = () => HandleSubmit(commandTemplate, fields, statusLbl.TextMesh);
+        submit.OnClick = () => HandleSubmit(commandTemplate, fields, statusLbl.TextMesh, onSubmitted);
 
         return form;
     }
 
-    private static void HandleSubmit(string template, FormField[] fields, TextMeshProUGUI status)
+    private static void HandleSubmit(string template, FormField[] fields, TextMeshProUGUI status, Action onSubmitted)
     {
         // Validate every field; surface the first failure in the status label.
         foreach (var f in fields)
@@ -156,5 +178,14 @@ public static class FormBuilder
         // Suspend-Game-Input setting).
         try { EventSystem.current?.SetSelectedGameObject(null); }
         catch { /* harmless - EventSystem may not exist on first frame */ }
+
+        // Optional caller hook fires after the primary command is enqueued.
+        // Use to chain a follow-up command (e.g. refresh-the-list after a
+        // delete). Wrapped so a buggy caller can't poison the form click.
+        if (onSubmitted != null)
+        {
+            try { onSubmitted(); }
+            catch (Exception ex) { LogUtils.LogError($"Form onSubmitted handler threw: {ex}"); }
+        }
     }
 }

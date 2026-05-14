@@ -14,6 +14,7 @@ public enum PanelType
     BoxesTab,
     ClassTab,
     ExpertiseTab,
+    BloodLegacyTab,
     UnarmedShiftTab,
     PrestigeTab,
     LevelsTab,
@@ -21,17 +22,25 @@ public enum PanelType
 
     // Kindred-suite tabs (companion server mods to Bloodcraft):
     KindredLogisticsTab,
+    KindredLogisticsAdminTab,
     KindredCommandsPlayerTab,
     KindredAdminPlayersTab,
     KindredAdminServerTab,
     KindredAdminWorldTab,
 
+    // Bloodcraft daily quest tab + overlay:
+    DailyQuestTab,
+    DailyQuestOverlay,
+
     // Help / Reference tabs:
     QuickStartTab,
+    VanillaAdminTab,
+    AboutTab,
 
     // Secondary overlays (independent draggable panels):
     ExperienceOverlay,
     FamiliarOverlay,
+    FamiliarBrowserOverlay,
 
     // Legacy panel identities from BloodCraftUI — kept so the existing
     // ResizeablePanelBase config keys (Panels/<PanelType>) survive a port.

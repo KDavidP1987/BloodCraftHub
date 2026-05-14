@@ -29,16 +29,41 @@ public static partial class MessageService
     public const string BCCOM_FAM_LIST_CURRENT_BOX       = ".fam l";         // lists familiars in the currently-selected box
     public const string BCCOM_FAM_SWITCH_BOX_FORMAT      = ".fam cb {0}";    // {0} = box name
     public const string BCCOM_FAM_BIND_BY_INDEX_FORMAT   = ".fam b {0}";     // {0} = index within current box
-    public const string BCCOM_FAM_UNBIND                 = ".fam u";
-    public const string BCCOM_FAM_TOGGLE                 = ".fam toggle";
-    public const string BCCOM_FAM_COMBAT                 = ".fam combat";
+    public const string BCCOM_FAM_ADDBOX_FORMAT          = ".fam ab {0}";    // {0} = new box name
+    public const string BCCOM_FAM_DELETEBOX_FORMAT       = ".fam db {0}";    // {0} = box name (must be empty)
+    public const string BCCOM_FAM_RENAMEBOX_FORMAT       = ".fam rb {0} {1}"; // {0} = current name, {1} = new name
+    public const string BCCOM_FAM_MOVEBOX_FORMAT         = ".fam mb {0}";    // {0} = destination box; acts on currently bound familiar
+    public const string BCCOM_FAM_REMOVE_FORMAT          = ".fam r {0}";     // {0} = index in current box; permanently deletes from collection
+    public const string BCCOM_FAM_UNBIND                 = ".fam ub";       // DESTRUCTIVE: permanently destroys active familiar
+    public const string BCCOM_FAM_TOGGLE                 = ".fam t";        // calls/dismisses (recallable)
+    public const string BCCOM_FAM_COMBAT                 = ".fam c";        // toggle combat on/off
+    public const string BCCOM_FAM_TOGGLE_EMOTES          = ".fam e";        // enable/disable emote-action bindings (e.g. clap = open inventory)
+    public const string BCCOM_FAM_LIST_EMOTES            = ".fam actions";  // list current emote-action bindings
     public const string BCCOM_FAM_PRESTIGE               = ".fam pr";
-    public const string BCCOM_FAM_RESET_STATS            = ".fam rs";
     public const string BCCOM_FAM_GET_LEVEL              = ".fam gl";
-    public const string BCCOM_FAM_ENABLE_EQUIP           = ".fam smartbind";
+    public const string BCCOM_FAM_ENABLE_EQUIP           = ".fam smartbind"; // legacy constant; smartbind takes a name (see BCCOM_FAM_SMARTBIND_FORMAT)
+
+    // ---- 0.6.0 .fam audit additions ----
+    public const string BCCOM_FAM_SEARCH_FORMAT          = ".fam s {0}";       // search boxes by name
+    public const string BCCOM_FAM_SMARTBIND_FORMAT       = ".fam sb {0}";      // search and bind in one step
+    public const string BCCOM_FAM_SHINY_FORMAT           = ".fam shiny {0}";   // make active familiar shiny ([SpellSchool] = blood/storm/unholy/chaos/frost/illusion)
+    public const string BCCOM_FAM_OPTION_FORMAT          = ".fam option {0}";  // toggle a per-player familiar setting (e.g. shiny, vbloodemotes)
+    public const string BCCOM_FAM_ECHOES_FORMAT          = ".fam echoes {0}";  // purchase exo reward via VBlood essence
+    public const string BCCOM_FAM_RESET                  = ".fam reset";       // DESTRUCTIVE: destroy all entities in followerbuffer + clear active data
+
+    // ---- 0.6.0 battle group commands ----
+    public const string BCCOM_FAM_BG_LIST                = ".fam bgs";
+    public const string BCCOM_FAM_BG_SHOW_FORMAT         = ".fam bg {0}";      // {0} = group name (optional)
+    public const string BCCOM_FAM_BG_CHOOSE_FORMAT       = ".fam cbg {0}";     // {0} = group name
+    public const string BCCOM_FAM_BG_ADD_FORMAT          = ".fam abg {0}";     // {0} = new group name
+    public const string BCCOM_FAM_BG_SLOT_FORMAT         = ".fam sbg {0} {1}"; // {0} = group OR slot, {1} = slot if first arg was group
+    public const string BCCOM_FAM_BG_DELETE_FORMAT       = ".fam dbg {0}";     // {0} = group name
+    public const string BCCOM_FAM_BG_CHALLENGE_FORMAT    = ".fam challenge {0}"; // {0} = player name (optional)
 
     // ---------- Leveling (.lvl) ----------
     public const string BCCOM_LVL_GET            = ".lvl get";
+    public const string BCCOM_LVL_LOG_TOGGLE     = ".lvl log";                  // toggle in-chat XP gain logging
+    public const string BCCOM_LVL_IGNORE_FORMAT  = ".lvl ignore {0}";           // admin: add/remove player from shared-XP exclusion
 
     // ---------- Prestige (player-facing) ----------
     public const string BCCOM_PRESTIGE_LIST                = ".prestige l";
@@ -50,25 +75,67 @@ public static partial class MessageService
     public const string BCCOM_PRESTIGE_GET_FORMAT          = ".prestige get {0}";
     public const string BCCOM_PRESTIGE_LEADERBOARD_FORMAT  = ".prestige lb {0}";
     public const string BCCOM_PRESTIGE_SELECT_FORM_FORMAT  = ".prestige sf {0}";
+    // ---- 0.7.0 prestige audit additions (admin-only) ----
+    public const string BCCOM_PRESTIGE_IGNORE_LEADERBOARD_FORMAT = ".prestige ignore {0}"; // admin: toggle leaderboard exclusion for player
+    // The "iacknowledge..." nuke is intentionally spelled out in full as a guard
+    // against accidental copy/paste use. Only fires from the form with a confirm.
+    public const string BCCOM_PRESTIGE_GLOBAL_BUFF_PURGE
+        = ".prestige iacknowledgethiswillremoveallprestigebuffsfromplayersandwantthattohappen";
+
+    // ---- 0.7.0 quest audit addition ----
+    public const string BCCOM_QUEST_COMPLETE_FORMAT = ".quest c {0} {1}";  // admin: force-complete a quest for a player. {0}=player, {1}=Daily/Weekly
 
     // ---------- Blood legacy (.bl) ----------
-    public const string BCCOM_BL_GET             = ".bl get";
+    public const string BCCOM_BL_GET                 = ".bl get";
+    public const string BCCOM_BL_GET_FORMAT          = ".bl get {0}";       // {0} = blood type name (queries any blood)
+    public const string BCCOM_BL_LIST                = ".bl l";             // list legacy types
+    public const string BCCOM_BL_LIST_STATS          = ".bl lst";           // list selectable bonus stats with indices
+    public const string BCCOM_BL_RESET_STATS         = ".bl rst";           // reset chosen stats for current blood
+    public const string BCCOM_BL_CHOOSE_STAT_FORMAT  = ".bl cst {0} {1}";   // {0} = blood type name, {1} = 1-based stat index
+
+    // ---------- Profession (.prof) ----------
+    // Player-facing 'log' / 'get' / 'list', admin 'set'. Use BloodcraftProfession
+    // enum for the type argument so the dropdown emits valid names.
+    public const string BCCOM_PROF_LOG_TOGGLE   = ".prof log";
+    public const string BCCOM_PROF_GET_FORMAT   = ".prof get {0}";       // {0} = profession name (or blank)
+    public const string BCCOM_PROF_LIST         = ".prof l";
+    public const string BCCOM_PROF_SET_FORMAT   = ".prof set {0} {1} {2}"; // admin: {0}=player, {1}=profession, {2}=level
 
     // ---------- Misc (.misc) ----------
     public const string BCCOM_MISC_HEALTH         = ".misc health";
+    // ---- 0.6.0 .misc audit additions (player-facing) ----
+    public const string BCCOM_MISC_REMINDERS      = ".misc remindme";          // toggle general feature reminders
+    public const string BCCOM_MISC_SCT_FORMAT     = ".misc sct {0}";           // toggle SCT element [Type]
+    public const string BCCOM_MISC_KIT_ME         = ".misc kitme";             // claim starter kit
+    public const string BCCOM_MISC_PREPARE        = ".misc prepare";           // complete GettingReadyForTheHunt
+    public const string BCCOM_MISC_USER_STATS     = ".misc userstats";         // print neat player info
+    public const string BCCOM_MISC_SILENCE        = ".misc silence";           // reset stuck combat music
+
+    // ---------- Quests (.quest) ----------
+    public const string BCCOM_QUEST_PROGRESS_DAILY  = ".quest p d";       // print daily quest objective
+    public const string BCCOM_QUEST_PROGRESS_WEEKLY = ".quest p w";       // print weekly quest objective
+    public const string BCCOM_QUEST_TRACK_DAILY     = ".quest t d";       // print location/direction to daily target
+    public const string BCCOM_QUEST_TRACK_WEEKLY    = ".quest t w";       // print location/direction to weekly target
+    public const string BCCOM_QUEST_REROLL_DAILY    = ".quest r d";       // reroll daily (costs configured item)
+    public const string BCCOM_QUEST_REROLL_WEEKLY   = ".quest r w";       // reroll weekly (costs configured item)
+    public const string BCCOM_QUEST_LOG_TOGGLE      = ".quest log";       // toggle in-chat progress logging
 
     // ---------- Class (.class) ----------
     public const string BCCOM_CLASS_LIST          = ".class l";
     public const string BCCOM_CLASS_LIST_SPELLS   = ".class lsp";
     public const string BCCOM_CLASS_LIST_STATS    = ".class lst";
     public const string BCCOM_CLASS_TOGGLE_SHIFT  = ".class shift";
+    public const string BCCOM_CLASS_SELECT_FORMAT = ".class s {0}";   // {0} = enum name (BloodKnight, DemonHunter, ...)
+    public const string BCCOM_CLASS_CHANGE_FORMAT = ".class c {0}";   // alias of select; some servers gate one or the other
+    public const string BCCOM_CLASS_CHOOSE_SHIFT_FORMAT = ".class csp {0}"; // {0} = 1-based spell index from .class lsp output
 
     // ---------- Weapon expertise (.wep) ----------
-    public const string BCCOM_WEP_GET            = ".wep get";
-    public const string BCCOM_WEP_LIST           = ".wep l";
-    public const string BCCOM_WEP_LIST_STATS     = ".wep lst";
-    public const string BCCOM_WEP_RESET_STATS    = ".wep rst";
-    public const string BCCOM_WEP_LOCK_SPELLS    = ".wep locksp";
+    public const string BCCOM_WEP_GET                = ".wep get";
+    public const string BCCOM_WEP_LIST               = ".wep l";
+    public const string BCCOM_WEP_LIST_STATS         = ".wep lst";
+    public const string BCCOM_WEP_RESET_STATS        = ".wep rst";
+    public const string BCCOM_WEP_LOCK_SPELLS        = ".wep locksp";
+    public const string BCCOM_WEP_CHOOSE_STAT_FORMAT = ".wep cst {0} {1}";  // {0} = weapon type name, {1} = 1-based stat index
 
     // =========================================================================
     // KindredLogistics commands (separate server mod, used in the KINDRED tab)
@@ -128,7 +195,7 @@ public static partial class MessageService
     public const string BCCOM_KC_STAFF           = ".staff";
     public const string BCCOM_KC_BOSS_LIST       = ".boss list";
     public const string BCCOM_KC_REGION_LIST     = ".region list";
-    public const string BCCOM_KC_CASTLE_OPEN_PLOTS = ".castle openplots";
+    public const string BCCOM_KC_CASTLE_OPEN_PLOTS = ".openplots";  // not in castle group; top-level command (alias .op)
     public const string BCCOM_KC_GEAR_SOULSHARD_STATUS = ".gear soulshardstatus";
     public const string BCCOM_KC_CLAN_LIST       = ".clan list";
 
@@ -335,6 +402,28 @@ public static partial class MessageService
     public const string BCCOM_KCA_GEAR_REPAIR_ALL_FORMAT     = ".gear repairall {0}";         // range
     public const string BCCOM_KCA_GEAR_BREAK_ALL_FORMAT      = ".gear breakall {0}";
 
+    // ---------- 0.5.0 audit additions ----------
+    // Player-info / lookup (all admin-only despite reading what feels like user info)
+    public const string BCCOM_KCA_PLAYERINFO_FORMAT          = ".playerinfo {0}";             // player name
+    public const string BCCOM_KCA_IDCHECK_FORMAT             = ".idcheck {0}";                // steamID
+    public const string BCCOM_KCA_ASSIGN_STEAMID_FORMAT      = ".assignsteamID {0} {1}";      // player, steamID
+    public const string BCCOM_KCA_LONGEST_OFFLINE_CASTLES    = ".longestofflinecastles";
+    public const string BCCOM_KCA_SHOW_HAIR_FORMAT           = ".showhair {0}";               // player (optional)
+    public const string BCCOM_KCA_UNBIND_ALL                 = ".unbindall";                  // DESTRUCTIVE: rename + unbind every player
+    // Wipe orchestration (3-step: queue, commence, cancel)
+    public const string BCCOM_KCA_WIPE_FORMAT                = ".wipe {0}";                   // comma-separated territory IDs to exclude
+    public const string BCCOM_KCA_COMMENCE_WIPE              = ".commencewipe";               // DESTRUCTIVE: actually wipes
+    public const string BCCOM_KCA_CANCEL_WIPE                = ".cancelwipe";
+    // Clan
+    public const string BCCOM_KCA_CLAN_CASTLES_FORMAT        = ".clan castles {0}";           // clan name
+    public const string BCCOM_KCA_CLAN_FIX                   = ".clan fix";
+    // Prisoner config readouts (paired with the existing .prisoner gruel/feed setters)
+    public const string BCCOM_KCA_GRUEL_SETTINGS             = ".gruelsettings";
+    public const string BCCOM_KCA_FEED_SETTINGS              = ".feedsettings";
+    // Bloodbound item-attribute management
+    public const string BCCOM_KCA_BLOODBOUND_ADD_FORMAT      = ".bloodbound add {0}";         // item descriptor (prefab/name)
+    public const string BCCOM_KCA_BLOODBOUND_REMOVE_FORMAT   = ".bloodbound remove {0}";
+
     // =========================================================================
     // Inbound regex pipeline (Phase 3b)
     // =========================================================================
@@ -350,16 +439,69 @@ public static partial class MessageService
         ReceivingBoxList,
         AwaitingBoxContent,
         ReceivingBoxContent,
+        AwaitingPrestigeInfo,
+        ReceivingPrestigeInfo,
+        AwaitingBloodInfo,
+        ReceivingBloodInfo,
     }
 
     private static InterceptFlag _intercept = InterceptFlag.Idle;
     private static readonly List<string> _boxListBuffer = new();
     private static readonly List<PlayerStateService.FamiliarBoxEntry> _boxContentBuffer = new();
+    // Per-query buffer for the prestige info display; reset on each
+    // .prestige get send so a stale query never leaks into a fresh one.
+    private static PlayerStateService.PrestigeInfo _prestigeInfoBuffer;
+    private static PlayerStateService.BloodInfo    _bloodInfoBuffer;
+    // load-bearing: tracks last time a "useful" line for the current intercept
+    // arrived. Per-frame TickInterceptTimeouts() flushes the buffered list when
+    // this gets too stale - covers the case where Bloodcraft sends multiple
+    // batches of box/familiar lines and then no further chat noise to act as
+    // a terminator. Older code waited for "first non-color line"; that triggered
+    // both too late (UI hangs forever if no other system message ever arrives)
+    // and too early (any unrelated system announcement landing mid-list flushed
+    // empty/partial state).
+    private static double _interceptLastLineTime;
+    private const double INTERCEPT_FLUSH_AFTER_SECONDS = 0.6;
 
     private const string BOX_LIST_HEADER          = "Familiar Boxes";
     private const string BOX_SELECTED_HEADER      = "Box Selected";
     private const string BOX_NAME_REGEX           = @"<color=[^>]+>(?<box>[^<]+)</color>";
-    private const string BOX_CONTENT_ENTRY_REGEX  = @"<color=yellow>(?<idx>\d+)</color>\|<color=(?<color>[^>]+)>(?<name>[^<]+)</color>";
+
+    // Prestige info reply parsing. Bloodcraft sends 4-5 lines starting with a
+    // "<TYPE> Prestige Info:" header. Keep regexes loose: capture what we can,
+    // fall through to "raw text minus color tags" for everything else so the
+    // user can read it in the UI even when the format drifts between versions.
+    private static readonly Regex _prestigeHeaderRegex = new(
+        @"<color=#90EE90>(?<type>[^<]+)</color>\s+Prestige Info:",
+        RegexOptions.Compiled);
+    private static readonly Regex _prestigeLevelRegex = new(
+        @"Current Prestige Level:\s*<color=yellow>(?<level>\d+)</color>/(?<max>\d+)",
+        RegexOptions.Compiled);
+    // Strip any TMPro color/size/bold markup so the effect lines render cleanly
+    // in the UI without inline tags.
+    private static readonly Regex _stripTmpTagsRegex = new(@"<[^>]+>", RegexOptions.Compiled);
+
+    // Blood-info reply parsing. Bloodcraft sends 1 main info line + N stat lines:
+    //   "You're level [<color=white>{lvl}</color>][<color=#90EE90>{prestige}</color>]
+    //    with <color=yellow>{essence}</color> <color=#FFC0CB>essence</color>
+    //    (<color=white>{pct}%</color>) in <color=red>{type}</color>!"
+    //   "<color=red>{type}</color> Stats: <color=#00FFFF>{stat}</color>: <color=white>{val}</color>, ..."
+    private static readonly Regex _bloodHeaderRegex = new(
+        @"You're level \[<color=white>(?<level>\d+)</color>\]\[<color=#90EE90>(?<prestige>\d+)</color>\] with <color=yellow>(?<essence>[^<]+)</color> <color=#FFC0CB>essence</color> \(<color=white>(?<pct>[^<%]+)%?</color>\) in <color=red>(?<type>[^<]+)</color>",
+        RegexOptions.Compiled);
+    private static readonly Regex _bloodStatLineRegex = new(
+        @"^<color=red>[^<]+</color>\s+Stats:",
+        RegexOptions.Compiled);
+    // Bloodcraft v1.13.x .fam l per-familiar line. Full format from FamiliarCommands.cs:
+    //   <color=yellow>{idx}</color>| <color=green>{name}</color>[<color=#XYZ>*</color>] [<color=white>{level}</color>][<color=#90EE90>{prestige}</color>]
+    // The shiny marker (<color=#XYZ>*</color>) and the prestige bracket are optional.
+    // Capturing all of them so the UI can show level / prestige / shiny next to the name.
+    private const string BOX_CONTENT_ENTRY_REGEX  =
+        @"<color=yellow>(?<idx>\d+)</color>\|\s*" +
+        @"<color=(?<color>[^>]+)>(?<name>[^<]+)</color>" +
+        @"(?:<color=(?<shiny>[^>]+)>\*</color>)?" +
+        @"\s*\[<color=[^>]+>(?<level>\d+)</color>\]" +
+        @"(?:\[<color=[^>]+>(?<prestige>\d+)</color>\])?";
 
     private static readonly Regex _boxNameRegex         = new(BOX_NAME_REGEX,          RegexOptions.Compiled);
     private static readonly Regex _boxContentEntryRegex = new(BOX_CONTENT_ENTRY_REGEX, RegexOptions.Compiled);
@@ -377,11 +519,41 @@ public static partial class MessageService
         {
             _intercept = InterceptFlag.AwaitingBoxList;
             _boxListBuffer.Clear();
+            _interceptLastLineTime = UnityEngine.Time.realtimeSinceStartupAsDouble;
+            LogUtils.LogInfo("Intercept armed: AwaitingBoxList");
         }
         else if (command.Equals(BCCOM_FAM_LIST_CURRENT_BOX, System.StringComparison.Ordinal))
         {
             _intercept = InterceptFlag.AwaitingBoxContent;
             _boxContentBuffer.Clear();
+            _interceptLastLineTime = UnityEngine.Time.realtimeSinceStartupAsDouble;
+            LogUtils.LogInfo("Intercept armed: AwaitingBoxContent");
+        }
+        else if (command.StartsWith(".prestige get ", System.StringComparison.Ordinal))
+        {
+            _intercept = InterceptFlag.AwaitingPrestigeInfo;
+            _prestigeInfoBuffer = new PlayerStateService.PrestigeInfo
+            {
+                EffectLines = new System.Collections.Generic.List<string>(),
+            };
+            _interceptLastLineTime = UnityEngine.Time.realtimeSinceStartupAsDouble;
+            LogUtils.LogInfo("Intercept armed: AwaitingPrestigeInfo");
+        }
+        // Intercept .bl get with an explicit type (e.g. ".bl get Warrior").
+        // Skip the no-arg ".bl get" form because the live Eclipse stream
+        // already keeps PlayerStateService.Legacy current for the equipped
+        // blood — intercepting that would clobber the structured display
+        // with a partial parse on every refresh button press.
+        else if (command.Length > ".bl get ".Length
+              && command.StartsWith(".bl get ", System.StringComparison.Ordinal))
+        {
+            _intercept = InterceptFlag.AwaitingBloodInfo;
+            _bloodInfoBuffer = new PlayerStateService.BloodInfo
+            {
+                StatLines = new System.Collections.Generic.List<string>(),
+            };
+            _interceptLastLineTime = UnityEngine.Time.realtimeSinceStartupAsDouble;
+            LogUtils.LogInfo("Intercept armed: AwaitingBloodInfo");
         }
     }
 
@@ -402,6 +574,7 @@ public static partial class MessageService
                     if (text.StartsWith(BOX_LIST_HEADER, System.StringComparison.Ordinal))
                     {
                         _intercept = InterceptFlag.ReceivingBoxList;
+                        _interceptLastLineTime = UnityEngine.Time.realtimeSinceStartupAsDouble;
                         return Config.Settings.ClearServerMessages; // consume header line if hiding chat
                     }
                     return false;
@@ -415,11 +588,80 @@ public static partial class MessageService
                             if (!string.IsNullOrEmpty(name) && !_boxListBuffer.Contains(name))
                                 _boxListBuffer.Add(name);
                         }
+                        _interceptLastLineTime = UnityEngine.Time.realtimeSinceStartupAsDouble;
                         return Config.Settings.ClearServerMessages;
                     }
-                    // First non-color line ends the list. Flush + reset.
-                    FlushBoxList();
+                    // Non-color line in the middle: ignore (don't flush yet).
+                    // Some other system announcement arriving between batches
+                    // would otherwise truncate our list. The timeout in
+                    // TickInterceptTimeouts() handles end-of-list.
                     return false;
+
+                case InterceptFlag.AwaitingPrestigeInfo:
+                {
+                    var headerMatch = _prestigeHeaderRegex.Match(text);
+                    if (headerMatch.Success)
+                    {
+                        _prestigeInfoBuffer.TypeName = headerMatch.Groups["type"].Value;
+                        _intercept = InterceptFlag.ReceivingPrestigeInfo;
+                        _interceptLastLineTime = UnityEngine.Time.realtimeSinceStartupAsDouble;
+                        return Config.Settings.ClearServerMessages;
+                    }
+                    return false;
+                }
+
+                case InterceptFlag.ReceivingPrestigeInfo:
+                {
+                    var levelMatch = _prestigeLevelRegex.Match(text);
+                    if (levelMatch.Success)
+                    {
+                        _prestigeInfoBuffer.Level    = PlayerStateService.ParseInt(levelMatch.Groups["level"].Value);
+                        _prestigeInfoBuffer.MaxLevel = PlayerStateService.ParseInt(levelMatch.Groups["max"].Value);
+                        _interceptLastLineTime = UnityEngine.Time.realtimeSinceStartupAsDouble;
+                        return Config.Settings.ClearServerMessages;
+                    }
+                    // Any subsequent line until timeout is treated as an "effect"
+                    // line (growth-rate change, stat bonus improvement, etc.).
+                    // Strip color/markup so the UI label renders cleanly.
+                    var clean = _stripTmpTagsRegex.Replace(text, "").Trim();
+                    if (!string.IsNullOrEmpty(clean))
+                    {
+                        _prestigeInfoBuffer.EffectLines.Add(clean);
+                        _interceptLastLineTime = UnityEngine.Time.realtimeSinceStartupAsDouble;
+                        return Config.Settings.ClearServerMessages;
+                    }
+                    return false;
+                }
+
+                case InterceptFlag.AwaitingBloodInfo:
+                {
+                    var hm = _bloodHeaderRegex.Match(text);
+                    if (hm.Success)
+                    {
+                        _bloodInfoBuffer.BloodType   = hm.Groups["type"].Value;
+                        _bloodInfoBuffer.Level       = PlayerStateService.ParseInt(hm.Groups["level"].Value);
+                        _bloodInfoBuffer.Prestige    = PlayerStateService.ParseInt(hm.Groups["prestige"].Value);
+                        _bloodInfoBuffer.Essence     = hm.Groups["essence"].Value;
+                        _bloodInfoBuffer.ProgressPct = hm.Groups["pct"].Value;
+                        _intercept = InterceptFlag.ReceivingBloodInfo;
+                        _interceptLastLineTime = UnityEngine.Time.realtimeSinceStartupAsDouble;
+                        return Config.Settings.ClearServerMessages;
+                    }
+                    return false;
+                }
+
+                case InterceptFlag.ReceivingBloodInfo:
+                {
+                    if (_bloodStatLineRegex.IsMatch(text))
+                    {
+                        var clean = _stripTmpTagsRegex.Replace(text, "").Trim();
+                        if (!string.IsNullOrEmpty(clean))
+                            _bloodInfoBuffer.StatLines.Add(clean);
+                        _interceptLastLineTime = UnityEngine.Time.realtimeSinceStartupAsDouble;
+                        return Config.Settings.ClearServerMessages;
+                    }
+                    return false;
+                }
 
                 case InterceptFlag.AwaitingBoxContent:
                 case InterceptFlag.ReceivingBoxContent:
@@ -427,21 +669,26 @@ public static partial class MessageService
                     if (match.Success)
                     {
                         _intercept = InterceptFlag.ReceivingBoxContent;
+                        var shinyGroup = match.Groups["shiny"];
+                        var prestigeGroup = match.Groups["prestige"];
+                        var levelGroup = match.Groups["level"];
                         var entry = new PlayerStateService.FamiliarBoxEntry
                         {
-                            Index    = PlayerStateService.ParseInt(match.Groups["idx"].Value),
-                            ColorHex = match.Groups["color"].Value,
-                            Name     = match.Groups["name"].Value,
+                            Index         = PlayerStateService.ParseInt(match.Groups["idx"].Value),
+                            ColorHex      = match.Groups["color"].Value,
+                            Name          = match.Groups["name"].Value,
+                            Level         = levelGroup.Success    ? PlayerStateService.ParseInt(levelGroup.Value)    : 0,
+                            Prestige      = prestigeGroup.Success ? PlayerStateService.ParseInt(prestigeGroup.Value) : 0,
+                            IsShiny       = shinyGroup.Success,
+                            ShinyColorHex = shinyGroup.Success    ? shinyGroup.Value : null,
                         };
                         if (!_boxContentBuffer.Exists(e => e.Index == entry.Index))
                             _boxContentBuffer.Add(entry);
+                        _interceptLastLineTime = UnityEngine.Time.realtimeSinceStartupAsDouble;
                         return Config.Settings.ClearServerMessages;
                     }
-                    if (_intercept == InterceptFlag.ReceivingBoxContent)
-                    {
-                        // First non-entry line ends the content. Flush + reset.
-                        FlushBoxContent();
-                    }
+                    // Non-entry line in the middle: ignore (don't flush yet).
+                    // The timeout in TickInterceptTimeouts() handles end-of-list.
                     return false;
 
                 default:
@@ -454,6 +701,68 @@ public static partial class MessageService
             _intercept = InterceptFlag.Idle;
             return false;
         }
+    }
+
+    /// <summary>
+    /// Per-frame: flush any buffered intercept list whose last new line arrived
+    /// more than INTERCEPT_FLUSH_AFTER_SECONDS ago. Registered with
+    /// CoreUpdateBehavior in Plugin.Load alongside ProcessAllMessages.
+    /// </summary>
+    public static void TickInterceptTimeouts()
+    {
+        if (_intercept == InterceptFlag.Idle) return;
+        var now = UnityEngine.Time.realtimeSinceStartupAsDouble;
+        if (now - _interceptLastLineTime < INTERCEPT_FLUSH_AFTER_SECONDS) return;
+
+        switch (_intercept)
+        {
+            case InterceptFlag.ReceivingBoxList:
+                FlushBoxList();
+                break;
+            case InterceptFlag.ReceivingBoxContent:
+                FlushBoxContent();
+                break;
+            case InterceptFlag.ReceivingPrestigeInfo:
+                FlushPrestigeInfo();
+                break;
+            case InterceptFlag.ReceivingBloodInfo:
+                FlushBloodInfo();
+                break;
+            case InterceptFlag.AwaitingBoxList:
+            case InterceptFlag.AwaitingBoxContent:
+            case InterceptFlag.AwaitingPrestigeInfo:
+            case InterceptFlag.AwaitingBloodInfo:
+                // Server never replied (command rejected, comms hiccup, etc.).
+                // Reset so the next user click re-arms cleanly. Don't dispatch
+                // an empty list - that'd clobber any previously-loaded data.
+                LogUtils.LogWarning($"Intercept '{_intercept}' timed out with no server reply; resetting.");
+                _intercept = InterceptFlag.Idle;
+                break;
+        }
+    }
+
+    private static void FlushPrestigeInfo()
+    {
+        var snapshot = _prestigeInfoBuffer;
+        _prestigeInfoBuffer = new PlayerStateService.PrestigeInfo
+        {
+            EffectLines = new System.Collections.Generic.List<string>(),
+        };
+        _intercept = InterceptFlag.Idle;
+        PlayerStateService.UpdatePrestigeInfo(snapshot);
+        LogUtils.LogInfo($"Parsed prestige info for '{snapshot.TypeName}' (level {snapshot.Level}/{snapshot.MaxLevel}, {snapshot.EffectLines?.Count ?? 0} effect lines).");
+    }
+
+    private static void FlushBloodInfo()
+    {
+        var snapshot = _bloodInfoBuffer;
+        _bloodInfoBuffer = new PlayerStateService.BloodInfo
+        {
+            StatLines = new System.Collections.Generic.List<string>(),
+        };
+        _intercept = InterceptFlag.Idle;
+        PlayerStateService.UpdateBloodInfo(snapshot);
+        LogUtils.LogInfo($"Parsed blood info for '{snapshot.BloodType}' (level {snapshot.Level} prestige {snapshot.Prestige}, {snapshot.StatLines?.Count ?? 0} stat lines).");
     }
 
     private static void FlushBoxList()

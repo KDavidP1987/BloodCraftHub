@@ -31,6 +31,19 @@ public static class PlayerStateService
         DeathMage,
     }
 
+    /// <summary>Selectable subset of PlayerClass used in the Class-apply form.
+    /// PlayerClass includes "None" for the untouched/empty state — that's not a
+    /// valid value for `.class s` so we expose only the real classes here.</summary>
+    public enum BloodcraftClassChoice
+    {
+        BloodKnight,
+        DemonHunter,
+        VampireLord,
+        ShadowBlade,
+        ArcaneSorcerer,
+        DeathMage,
+    }
+
     public enum WeaponType
     {
         Sword,
@@ -92,6 +105,100 @@ public static class PlayerStateService
         PhysicalCriticalStrikeDamage,
         SpellCriticalStrikeChance,
         SpellCriticalStrikeDamage,
+    }
+
+    // Selectable list for the .wep cst form. Mirrors WeaponStatType minus None
+    // and uses the SAME enum-name spellings Bloodcraft prints in its `.wep lst`
+    // help reply, in the SAME order. Used with EnumIndexField so the dropdown
+    // emits the 1-based index Bloodcraft's command parser expects.
+    public enum WeaponBonusStat
+    {
+        MaxHealth,
+        MovementSpeed,
+        PrimaryAttackSpeed,
+        PhysicalLifeLeech,
+        SpellLifeLeech,
+        PrimaryLifeLeech,
+        PhysicalPower,
+        SpellPower,
+        PhysicalCritChance,
+        PhysicalCritDamage,
+        SpellCritChance,
+        SpellCritDamage,
+    }
+
+    // Selectable list for the .bl cst form. Order matches Bloodcraft's
+    // BloodStatType enum so the EnumIndexField's 1-based output lines up
+    // with what the command parser decrements back to 0-based internally.
+    public enum BloodBonusStat
+    {
+        HealingReceived,
+        DamageReduction,
+        PhysicalResistance,
+        SpellResistance,
+        ResourceYield,
+        ReducedBloodDrain,
+        SpellCooldownRecoveryRate,
+        WeaponCooldownRecoveryRate,
+        UltimateCooldownRecoveryRate,
+        MinionDamage,
+        AbilityAttackSpeed,
+        CorruptionDamageReduction,
+    }
+
+    // Pickable subset of BloodType for the .bl cst / .bl get forms — Bloodcraft
+    // rejects None/VBlood/Frailed/GateBoss as legacy choices (those are unit-
+    // category markers, not player-bondable bloods).
+    public enum BloodTypeChoice
+    {
+        Worker,
+        Warrior,
+        Scholar,
+        Rogue,
+        Mutant,
+        Draculin,
+        Immortal,
+        Creature,
+        Brute,
+        Corruption,
+    }
+
+    /// <summary>Spell schools accepted by .fam shiny. Bloodcraft does case-
+    /// insensitive substring match against `PrefabGUID.GetPrefabName()` (see
+    /// FamiliarCommands.cs#L1190), so the bare names below all hit cleanly.</summary>
+    public enum FamiliarShinySchoolChoice
+    {
+        Blood,
+        Storm,
+        Unholy,
+        Chaos,
+        Frost,
+        Illusion,
+    }
+
+    /// <summary>Profession names accepted by `.prof get/set`. Mirrors the
+    /// per-profession fields in <see cref="ProfessionState"/>; Bloodcraft's
+    /// ProfessionFactory exposes these via .prof l (8 professions in v1.13.x).
+    /// </summary>
+    public enum BloodcraftProfession
+    {
+        Enchanting,
+        Alchemy,
+        Harvesting,
+        Blacksmithing,
+        Tailoring,
+        Woodcutting,
+        Mining,
+        Fishing,
+    }
+
+    /// <summary>Quest type accepted by .quest c (admin force-complete).
+    /// `.quest p|t|r` accept "d"/"w" shorthands which we hardcode rather than
+    /// expose as picker; .quest c requires the full enum-name string.</summary>
+    public enum BloodcraftQuestType
+    {
+        Daily,
+        Weekly,
     }
 
     // Mirrors LearningMods/Bloodcraft-main/Interfaces/PrestigeInterface.cs::PrestigeType.
@@ -246,11 +353,70 @@ public static class PlayerStateService
         public int SpellIndex; // PrefabGUID hash of the equipped shift spell
     }
 
+    public struct PrestigeInfo
+    {
+        public string TypeName;     // e.g. "Experience", "SwordExpertise", "WorkerLegacy"
+        public int    Level;        // current prestige level in this system
+        public int    MaxLevel;     // server-configured cap for this system
+        // Free-form lines of "effect" text Bloodcraft sends, color tags stripped.
+        // Different prestige types have different numbers of effect lines, so we
+        // capture them as a list rather than trying to model each variant.
+        public System.Collections.Generic.List<string> EffectLines;
+    }
+
+    public struct BloodInfo
+    {
+        public string BloodType;     // e.g. "Worker", "Warrior", "Scholar"
+        public int    Level;
+        public int    Prestige;
+        public string Essence;       // Bloodcraft's "essence" progress numeric (raw text)
+        public string ProgressPct;   // e.g. "12.3"
+        // Stat lines (color tags stripped). Each one looks like
+        // "Worker Stats: PhysicalResistance: 5.2, MaxHealth: 12.5".
+        public System.Collections.Generic.List<string> StatLines;
+    }
+
     public struct FamiliarBoxEntry
     {
-        public int    Index;     // 1-based position within the box
-        public string Name;      // familiar display name
-        public string ColorHex;  // server-sent color hex (e.g. "#FFFF00") - hints at school
+        public int    Index;        // 1-based position within the box
+        public string Name;         // familiar display name
+        public string ColorHex;     // server-sent color hex (e.g. "#FFFF00") - hints at school
+        public int    Level;        // current familiar level (0 if not parsed)
+        public int    Prestige;     // prestige tier (0 if none)
+        public bool   IsShiny;      // true if Bloodcraft put the '*' shiny marker on the entry
+        public string ShinyColorHex; // color of the '*' marker if shiny - hints at shiny school
+
+        /// <summary>Element name ("Storm", "Chaos", etc.) for the shiny school, derived
+        /// from <see cref="ShinyColorHex"/>. Empty when not shiny or color unknown.</summary>
+        public string ShinySchool => IsShiny ? FamiliarShinySchools.NameForColor(ShinyColorHex) : "";
+    }
+
+    /// <summary>
+    /// Maps the hex color Bloodcraft uses for each shiny buff to the school name it
+    /// represents. Keep in sync with Bloodcraft's <c>FamiliarUnlockSystem.ShinyBuffColorHexes</c>
+    /// (currently in <c>LearningMods/Bloodcraft-main/Systems/Familiars/FamiliarUnlockSystem.cs</c>).
+    /// </summary>
+    public static class FamiliarShinySchools
+    {
+        // Bloodcraft v1.13.x mapping. Comparison is case-insensitive against the
+        // hex (with or without leading #).
+        private static readonly System.Collections.Generic.Dictionary<string, string> _byHex =
+            new(System.StringComparer.OrdinalIgnoreCase)
+            {
+                { "A020F0", "Chaos"    }, // purple
+                { "FFD700", "Storm"    }, // gold
+                { "FF0000", "Blood"    }, // red
+                { "008080", "Illusion" }, // teal
+                { "00FFFF", "Frost"    }, // cyan
+                { "00FF00", "Unholy"   }, // green
+            };
+
+        public static string NameForColor(string hex)
+        {
+            if (string.IsNullOrEmpty(hex)) return "";
+            var key = hex.StartsWith("#") ? hex.Substring(1) : hex;
+            return _byHex.TryGetValue(key, out var name) ? name : "";
+        }
     }
 
     public struct ServerConfig
@@ -294,6 +460,22 @@ public static class PlayerStateService
     public static event Action BoxListChanged;
     public static event Action BoxContentsChanged;
     public static event Action ActiveBoxChanged;
+
+    public static PrestigeInfo PrestigeInfoLatest { get; private set; }
+    public static event Action PrestigeInfoChanged;
+    internal static void UpdatePrestigeInfo(in PrestigeInfo info)
+    {
+        PrestigeInfoLatest = info;
+        Fire(PrestigeInfoChanged);
+    }
+
+    public static BloodInfo BloodInfoLatest { get; private set; }
+    public static event Action BloodInfoChanged;
+    internal static void UpdateBloodInfo(in BloodInfo info)
+    {
+        BloodInfoLatest = info;
+        Fire(BloodInfoChanged);
+    }
 
     // =========================================================================
     // MUTATORS - called from EclipseProtocolService

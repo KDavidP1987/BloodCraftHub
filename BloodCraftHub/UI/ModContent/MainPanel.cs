@@ -1,6 +1,5 @@
 using System;
 using System.Collections.Generic;
-using System;
 using BloodCraftHub.Config;
 using BloodCraftHub.Resources;
 using BloodCraftHub.Services;
@@ -51,6 +50,8 @@ public partial class MainPanel : ResizeablePanelBase
     private readonly Dictionary<PanelType, ButtonRef> _tabButtons = new();
     private Toggle _xpOverlayToggle;
     private Toggle _famOverlayToggle;
+    private Toggle _famBrowserToggle;
+    private Toggle _dqOverlayToggle;
 
     // Familiars-tab live labels
     private TextMeshProUGUI _famNameLabel;
@@ -69,6 +70,18 @@ public partial class MainPanel : ResizeablePanelBase
     private TextMeshProUGUI _wepBonusLabel;
     private bool _wepSubscribed;
 
+    // Blood-Legacy-tab live labels
+    private TextMeshProUGUI _blTypeLabel;
+    private TextMeshProUGUI _blProgressLabel;
+    private TextMeshProUGUI _blBonusLabel;
+    private bool _blSubscribed;
+
+    // In-UI Blood Info display (parsed from `.bl get [Type]` reply).
+    private TextMeshProUGUI _blInfoTitleLabel;
+    private TextMeshProUGUI _blInfoLevelLabel;
+    private TextMeshProUGUI _blInfoStatsLabel;
+    private bool _blInfoSubscribed;
+
     // Unarmed+Shift-tab live labels
     private TextMeshProUGUI _shiftSpellLabel;
     private TextMeshProUGUI _unarmedStatusLabel;
@@ -81,6 +94,13 @@ public partial class MainPanel : ResizeablePanelBase
     private TextMeshProUGUI _prestigeExpertiseLabel;
     private TextMeshProUGUI _prestigeFamLabel;
     private bool _prestigeSubscribed;
+
+    // In-UI Prestige info display (parsed from `.prestige get` reply).
+    private GameObject       _prestigeInfoSection;
+    private TextMeshProUGUI  _prestigeInfoTitleLabel;
+    private TextMeshProUGUI  _prestigeInfoLevelLabel;
+    private TextMeshProUGUI  _prestigeInfoEffectsLabel;
+    private bool _prestigeInfoSubscribed;
 
     // Levels-tab live labels (full overview)
     private TextMeshProUGUI _lvlXpLabel;
@@ -106,12 +126,34 @@ public partial class MainPanel : ResizeablePanelBase
     private TextMeshProUGUI _boxesActiveBoxLabel;
     private TextMeshProUGUI _boxesContentHeading;
     private TextMeshProUGUI _boxesStatusLabel;
+    private LabelRef        _boxesSwapWarning;     // hidden by default; warns of pending destructive swap
     private GameObject _boxesPickerSection;       // parent wrapping picker heading + list
     private GameObject _boxesContentSection;      // parent wrapping content heading + list
     private GameObject _boxesListContainer;       // box-name buttons go here
     private GameObject _boxesContentContainer;    // familiar-name buttons go here
     private bool _boxesShowingContents;
     private bool _boxesSubscribed;
+
+    // Two-click destruction-confirm state for switching active familiar.
+    // Bloodcraft's `.fam b` errors with "You already have an active familiar!
+    // Unbind that one first." when called with one bound, and `.fam t` (toggle/
+    // dismiss) does NOT free the bind slot - HasActiveFamiliar() only returns
+    // false once the entity is destroyed. So switching requires `.fam ub`
+    // (DESTROY current) → `.fam b N`. We never fire that silently: first click
+    // sets the pending-swap state and shows a warning banner; a second click
+    // on the SAME familiar within SWAP_CONFIRM_WINDOW seconds executes it.
+    private int   _pendingSwapIndex = -1;
+    private float _pendingSwapDeadline = -1f;
+    private const float SWAP_CONFIRM_WINDOW_SECONDS = 5f;
+
+    // Per-row edit mode for the box contents view. When ON, each familiar row
+    // gets a destructive Delete button next to the bind button. Two-click
+    // confirm on the Delete; first click changes its label to "Confirm?".
+    private bool _boxesEditMode = false;
+    private int  _pendingDeleteIndex = -1;
+    private float _pendingDeleteDeadline = -1f;
+    private const float DELETE_CONFIRM_WINDOW_SECONDS = 3f;
+    private Toggle _boxesEditModeToggle;
 
     // -------- Tab grouping (Phase 5c) ------------------------------------
     // The left rail is split into 3 collapsible groups. Each group has a
@@ -136,9 +178,11 @@ public partial class MainPanel : ResizeablePanelBase
                 (PanelType.BoxesTab,        "Boxes"),
                 (PanelType.ClassTab,        "Class"),
                 (PanelType.ExpertiseTab,    "Weapon Expertise"),
+                (PanelType.BloodLegacyTab,  "Blood Legacy"),
                 (PanelType.UnarmedShiftTab, "Unarmed + Shift"),
                 (PanelType.PrestigeTab,     "Prestige"),
                 (PanelType.LevelsTab,       "Levels"),
+                (PanelType.DailyQuestTab,   "Daily Quests"),
                 (PanelType.AdminTab,        "Admin"),
             },
         },
@@ -149,6 +193,7 @@ public partial class MainPanel : ResizeablePanelBase
             Tabs = new[]
             {
                 (PanelType.KindredLogisticsTab,      "Logistics"),
+                (PanelType.KindredLogisticsAdminTab, "Logistics: Admin"),
                 (PanelType.KindredCommandsPlayerTab, "Commands"),
                 (PanelType.KindredAdminPlayersTab,   "Admin: Players"),
                 (PanelType.KindredAdminServerTab,    "Admin: Server"),
@@ -161,7 +206,9 @@ public partial class MainPanel : ResizeablePanelBase
             StartExpanded = false,
             Tabs = new[]
             {
-                (PanelType.QuickStartTab, "Quick Start"),
+                (PanelType.QuickStartTab,    "Quick Start"),
+                (PanelType.VanillaAdminTab,  "Vanilla Admin"),
+                (PanelType.AboutTab,         "About"),
             },
         },
     };
@@ -182,6 +229,14 @@ public partial class MainPanel : ResizeablePanelBase
     private GameObject _tabStripGo;
 
     public MainPanel(UIBase owner) : base(owner) { }
+
+    // The "—" button in the title-bar's top-right used to be inert because we
+    // skip ResizeablePanelBase.ConstructPanelContent (which would hide the
+    // title bar entirely) — and PanelBase wires it to OnClosePanelClicked,
+    // which the base class no-ops. Hide the panel here so the button does
+    // what users expect: close the UI. The floating button stays visible so
+    // the user can re-open.
+    protected override void OnClosePanelClicked() => SetActive(false);
 
     protected override void ConstructPanelContent()
     {
@@ -217,11 +272,11 @@ public partial class MainPanel : ResizeablePanelBase
         lbl.TextMesh.enableWordWrapping = false;
         lbl.TextMesh.overflowMode = TextOverflowModes.Overflow;
 
-        // Wire the static Sink so the per-frame TooltipHover.TickAll updates this label,
-        // and register the tick with CoreUpdateBehavior (idempotent).
+        // Wire the static Sink so the per-frame TooltipHover.TickAll updates
+        // this label. The TickAll action itself is registered in Plugin.Load,
+        // so it's already running by the time we get here.
         TooltipHover.Sink = lbl.TextMesh;
-        TooltipHover.EnsureTicking();
-        LogUtils.LogInfo($"TooltipHover wired: Sink set, ticking={TooltipHover.IsTicking}, bindings={TooltipHover.BindingCount}");
+        LogUtils.LogInfo($"TooltipHover sink wired ({TooltipHover.BindingCount} bindings tracked).");
 
         // Subscribe AutoResizeIfEnabled to CollapsibleSection toggles so the
         // panel grows/shrinks when the user expands an admin/prestige form.
@@ -261,9 +316,16 @@ public partial class MainPanel : ResizeablePanelBase
     {
         _groupExpanded[group.Title] = group.StartExpanded;
 
-        // Header button - clicking toggles the group's content visibility.
+        // Resolve per-group availability. If the server doesn't have the
+        // backing mod, the group is rendered as collapsed-and-disabled with
+        // a "(unavailable)" suffix and grayed text — still visible so the
+        // user can see what BCH supports, but unable to expand or click in.
+        bool available = IsTabGroupAvailable(group.Title);
+        bool startExpanded = group.StartExpanded && available;
+
+        // Header button - clicking toggles the group's content visibility (when available).
         var header = UIFactory.CreateButton(parent, $"GroupHeader_{group.Title}",
-            FormatGroupHeader(group.Title, group.StartExpanded));
+            FormatGroupHeader(group.Title, startExpanded, available));
         UIFactory.SetLayoutElement(header.GameObject,
             minWidth: 140, preferredWidth: 144, flexibleWidth: 1,
             minHeight: 26, preferredHeight: 28, flexibleHeight: 0);
@@ -275,10 +337,14 @@ public partial class MainPanel : ResizeablePanelBase
             headerText.overflowMode = TextOverflowModes.Overflow;
             headerText.fontStyle = FontStyles.Bold;
             headerText.fontSize = 12;
+            if (!available) headerText.color = new Color(0.55f, 0.55f, 0.55f); // grayed
             _groupHeaderText[group.Title] = headerText;
         }
+        if (!available) header.Component.interactable = false;
         TooltipHover.Attach(header.GameObject,
-            $"Show / hide the {group.Title} tab list.");
+            available
+                ? $"Show / hide the {group.Title} tab list."
+                : $"{group.Title} is marked unavailable on this server (no backing mod detected). Adjust via .cfg: BloodcraftAvailability / KindredAvailability = On to force-enable.");
 
         // Sub-tabs container (slight left indent so the group structure reads).
         var content = UIFactory.CreateVerticalGroup(parent, $"GroupContent_{group.Title}",
@@ -323,8 +389,36 @@ public partial class MainPanel : ResizeablePanelBase
             }
         }
 
-        content.SetActive(group.StartExpanded);
-        header.OnClick = () => ToggleGroup(group.Title);
+        content.SetActive(startExpanded);
+        if (available) header.OnClick = () => ToggleGroup(group.Title);
+    }
+
+    /// <summary>
+    /// Resolves availability for a tab group ("Bloodcraft" / "Kindred" / "Help").
+    /// Auto = Bloodcraft uses the Eclipse handshake ACK, Kindred is currently
+    /// always-on (no probe wired). Help is always available.
+    /// </summary>
+    private static bool IsTabGroupAvailable(string title)
+    {
+        switch (title)
+        {
+            case "Bloodcraft":
+                return Settings.BloodcraftAvailability switch
+                {
+                    Settings.ModAvailability.On  => true,
+                    Settings.ModAvailability.Off => false,
+                    _ => Services.EclipseProtocolService.UserRegistered,
+                };
+            case "Kindred":
+                return Settings.KindredAvailability switch
+                {
+                    Settings.ModAvailability.On   => true,
+                    Settings.ModAvailability.Off  => false,
+                    _ => true, // no probe wired - assume present
+                };
+            default:
+                return true; // Help, future groups
+        }
     }
 
     private void ToggleGroup(string title)
@@ -339,8 +433,12 @@ public partial class MainPanel : ResizeablePanelBase
         AutoResizeIfEnabled();
     }
 
-    private static string FormatGroupHeader(string title, bool expanded) =>
-        expanded ? $"▼  {title.ToUpper()}" : $"▶  {title.ToUpper()}";
+    private static string FormatGroupHeader(string title, bool expanded, bool available = true)
+    {
+        var t = title.ToUpper();
+        if (!available) return $"–  {t}  (unavailable)";
+        return expanded ? $"▼  {t}" : $"▶  {t}";
+    }
 
     // -----------------------------------------------------------------------
     // Tab content area (right side) - dispatches per-tab builders
@@ -375,6 +473,9 @@ public partial class MainPanel : ResizeablePanelBase
                 case PanelType.ExpertiseTab:
                     BuildExpertiseTab(page);
                     break;
+                case PanelType.BloodLegacyTab:
+                    BuildBloodLegacyTab(page);
+                    break;
                 case PanelType.UnarmedShiftTab:
                     BuildUnarmedShiftTab(page);
                     break;
@@ -390,6 +491,12 @@ public partial class MainPanel : ResizeablePanelBase
                 case PanelType.KindredLogisticsTab:
                     BuildKindredLogisticsTab(page);
                     break;
+                case PanelType.KindredLogisticsAdminTab:
+                    BuildKindredLogisticsAdminTab(page);
+                    break;
+                case PanelType.DailyQuestTab:
+                    BuildDailyQuestTab(page);
+                    break;
                 case PanelType.KindredCommandsPlayerTab:
                     BuildKindredCommandsPlayerTab(page);
                     break;
@@ -404,6 +511,12 @@ public partial class MainPanel : ResizeablePanelBase
                     break;
                 case PanelType.QuickStartTab:
                     BuildQuickStartTab(page);
+                    break;
+                case PanelType.AboutTab:
+                    BuildAboutTab(page);
+                    break;
+                case PanelType.VanillaAdminTab:
+                    BuildVanillaAdminTab(page);
                     break;
                 default:
                     AddComingSoonBody(page, label);
@@ -486,21 +599,37 @@ public partial class MainPanel : ResizeablePanelBase
         AddSpacer(page, 4);
         AddSectionHeading(page, "Actions");
 
-        var actions = UIFactory.CreateHorizontalGroup(page, "FamActions",
+        // Row 1 — common, safe actions.
+        var row1 = UIFactory.CreateHorizontalGroup(page, "FamActionsRow1",
             forceExpandWidth: true, forceExpandHeight: false,
             childControlWidth: true, childControlHeight: true,
             spacing: 6, padding: new Vector4(0, 0, 0, 0));
-        UIFactory.SetLayoutElement(actions,
+        UIFactory.SetLayoutElement(row1,
             minWidth: 360, preferredWidth: 400, flexibleWidth: 1,
             minHeight: 32, preferredHeight: 32, flexibleHeight: 0);
-        AddCommandButton(actions, "Unbind",   MessageService.BCCOM_FAM_UNBIND,
-            "Dismiss the currently bound familiar (.fam u). Your familiar returns to its box.");
-        AddCommandButton(actions, "Toggle",   MessageService.BCCOM_FAM_TOGGLE,
-            "Toggle the familiar visibility on/off (.fam toggle). Hidden familiars stop following you.");
-        AddCommandButton(actions, "Combat",   MessageService.BCCOM_FAM_COMBAT,
-            "Toggle combat mode for the active familiar (.fam combat). Off = passive, won't engage enemies.");
-        AddCommandButton(actions, "Prestige", MessageService.BCCOM_FAM_PRESTIGE,
+        AddCommandButton(row1, "Recall / Dismiss", MessageService.BCCOM_FAM_TOGGLE,
+            "Calls or dismisses your active familiar (.fam t). Recallable — does NOT destroy the familiar.");
+        AddCommandButton(row1, "Toggle Combat", MessageService.BCCOM_FAM_COMBAT,
+            "Toggle combat mode for the active familiar (.fam c). Off = passive, won't engage enemies.");
+        AddCommandButton(row1, "Toggle Emotes", MessageService.BCCOM_FAM_TOGGLE_EMOTES,
+            "Enable/disable emote-action bindings (.fam e). When OFF, emoting (e.g. clap) won't open the familiar's inventory or trigger other actions.");
+        AddCommandButton(row1, "List Emotes", MessageService.BCCOM_FAM_LIST_EMOTES,
+            "List the current emote→action bindings (.fam actions). Tells you which emote does what (e.g. clap = open inventory).");
+
+        AddSpacer(page, 4);
+
+        // Row 2 — irreversible actions. Destroy is red and requires a second click.
+        var row2 = UIFactory.CreateHorizontalGroup(page, "FamActionsRow2",
+            forceExpandWidth: true, forceExpandHeight: false,
+            childControlWidth: true, childControlHeight: true,
+            spacing: 6, padding: new Vector4(0, 0, 0, 0));
+        UIFactory.SetLayoutElement(row2,
+            minWidth: 360, preferredWidth: 400, flexibleWidth: 1,
+            minHeight: 32, preferredHeight: 32, flexibleHeight: 0);
+        AddCommandButton(row2, "Prestige", MessageService.BCCOM_FAM_PRESTIGE,
             "Prestige the active familiar (.fam pr). Requires max level; resets level and grants permanent bonuses.");
+        AddCommandButton(row2, "Unbind", MessageService.BCCOM_FAM_UNBIND,
+            "Unbind the active familiar (.fam ub). The in-world entity is released but the familiar STAYS in your box — you can re-bind it from the Boxes tab any time. Use this to free the bind slot so you can summon a different familiar. To permanently delete a familiar from your collection, use the Boxes tab → Permanently Delete form.");
 
         AddSpacer(page, 4);
         var note = UIFactory.CreateLabel(page, "FamNote",
@@ -511,6 +640,169 @@ public partial class MainPanel : ResizeablePanelBase
             minHeight: 24, preferredHeight: 28, flexibleHeight: 0);
         note.TextMesh.enableWordWrapping = true;
         note.TextMesh.overflowMode = TextOverflowModes.Overflow;
+
+        AddSpacer(page, 6);
+        AddSectionHeading(page, "Emote Bindings (perform these in-world)");
+        var emoteRef = UIFactory.CreateLabel(page, "FamEmoteRef",
+            "Bloodcraft binds these emotes to familiar actions. Trigger by performing the emote in-world (e.g. /clap), NOT via this UI — there's no chat command to invoke an emote programmatically. Toggle Emotes (above) enables/disables the whole system.\n\n" +
+            "  • Wave   →  Recall / Dismiss\n" +
+            "  • Salute →  Toggle Combat Mode\n" +
+            "  • Clap   →  Bind / Unbind active familiar\n" +
+            "  • Beckon →  Interact (opens familiar's inventory, equipment, name & settings)",
+            TextAlignmentOptions.TopLeft, color: null, fontSize: 12);
+        UIFactory.SetLayoutElement(emoteRef.GameObject,
+            minWidth: 360, preferredWidth: 400, flexibleWidth: 1,
+            minHeight: 110, preferredHeight: 130, flexibleHeight: 0);
+        emoteRef.TextMesh.enableWordWrapping = true;
+        emoteRef.TextMesh.overflowMode = TextOverflowModes.Overflow;
+
+        // ---- 0.6.0: extra .fam commands the audit caught ----
+        AddSpacer(page, 6);
+        AddSectionHeading(page, "More Familiar Actions");
+
+        CollapsibleSection.Build(page,
+            title: "Search boxes by name (.fam s)",
+            startExpanded: false,
+            tooltip: "Search across ALL your boxes for familiars whose name matches the text. Reply appears in chat.",
+            buildContent: c => FormBuilder.Build(c,
+                title: "Search familiars",
+                commandTemplate: ".fam s {name}",
+                new TextField("name", "Name (substring)", placeholder: "Wolf",
+                    tooltip: "Substring of the familiar's display name. Bloodcraft does case-insensitive matching across boxes.")));
+
+        CollapsibleSection.Build(page,
+            title: "Smart bind by name (.fam sb)",
+            startExpanded: false,
+            tooltip: "Search + bind in one step. If multiple matches are found Bloodcraft returns the list for clarification (no destructive action). Will fail if you already have a familiar bound.",
+            buildContent: c => FormBuilder.Build(c,
+                title: "Smart bind",
+                commandTemplate: ".fam sb {name}",
+                new TextField("name", "Name (substring)", placeholder: "Wolf",
+                    tooltip: "Substring of the familiar's display name to bind.")));
+
+        CollapsibleSection.Build(page,
+            title: "Make active familiar shiny (.fam shiny)",
+            startExpanded: false,
+            tooltip: "Spends vampiric dust to permanently mark your CURRENT active familiar with a shiny buff of the chosen school. Requires an active familiar bound first.",
+            buildContent: c => FormBuilder.Build(c,
+                title: "Apply shiny",
+                commandTemplate: ".fam shiny {school}",
+                new EnumField<PlayerStateService.FamiliarShinySchoolChoice>("school", "Spell school",
+                    defaultValue: PlayerStateService.FamiliarShinySchoolChoice.Storm,
+                    tooltip: "The shiny element to apply. Each school has a flavour (Storm = stun, Blood = leech, etc.).")));
+
+        CollapsibleSection.Build(page,
+            title: "Toggle a familiar setting (.fam option)",
+            startExpanded: false,
+            tooltip: "Flips one of Bloodcraft's per-player familiar settings. Common settings: 'shiny' (apply shiny visuals), 'vbloodemotes' (familiar plays VBlood emotes). Bloodcraft's reply tells you what's now on/off.",
+            buildContent: c => FormBuilder.Build(c,
+                title: "Toggle option",
+                commandTemplate: ".fam option {setting}",
+                new TextField("setting", "Setting name", placeholder: "shiny",
+                    tooltip: "Name of the setting to toggle. Server replies with the new state in chat.")));
+
+        CollapsibleSection.Build(page,
+            title: "Buy V-Blood echoes (.fam echoes)",
+            startExpanded: false,
+            tooltip: "Spend V-Blood essence to purchase the exo reward tied to the named V-Blood unit. Cost scales with unit tier.",
+            buildContent: c => FormBuilder.Build(c,
+                title: "Buy echoes",
+                commandTemplate: ".fam echoes {vblood}",
+                new TextField("vblood", "V-Blood name", placeholder: "Quincey the Bandit King",
+                    tooltip: "Exact display name of the V-Blood whose echo reward you want.")));
+
+        CollapsibleSection.Build(page,
+            title: "Reset all familiar entities (.fam reset) — DESTRUCTIVE",
+            startExpanded: false,
+            tooltip: "Destroys every entity in your follower buffer and clears your familiar-actives state. Use to recover from a bugged or stuck familiar bind. Required confirm checkbox.",
+            buildContent: c => FormBuilder.Build(c,
+                title: "Reset familiars",
+                commandTemplate: ".fam reset",
+                new BoolField("confirm", "Yes, destroy active follower entities",
+                    tooltip: "Required. Box records and unlock data are NOT touched — this only clears in-world entities + active state. Re-bind from a box to summon again.",
+                    requireTrue: true)));
+
+        // ---- 0.6.0: battle group system ----
+        AddSpacer(page, 6);
+        AddSectionHeading(page, "Battle Groups");
+        var bgIntro = UIFactory.CreateLabel(page, "FamBgIntro",
+            "Battle groups are pre-built lineups of familiars for PvP challenges. List shows the groups you've made; create one, slot familiars into it, then challenge another player.",
+            TextAlignmentOptions.TopLeft, color: null, fontSize: 11);
+        UIFactory.SetLayoutElement(bgIntro.GameObject,
+            minWidth: 360, preferredWidth: 400, flexibleWidth: 1,
+            minHeight: 32, preferredHeight: 40, flexibleHeight: 0);
+        bgIntro.TextMesh.fontStyle = FontStyles.Italic;
+        bgIntro.TextMesh.enableWordWrapping = true;
+        bgIntro.TextMesh.overflowMode = TextOverflowModes.Overflow;
+
+        var bgRow1 = UIFactory.CreateHorizontalGroup(page, "FamBgRow1",
+            forceExpandWidth: true, forceExpandHeight: false,
+            childControlWidth: true, childControlHeight: true,
+            spacing: 6, padding: new Vector4(0, 0, 0, 0));
+        UIFactory.SetLayoutElement(bgRow1,
+            minWidth: 360, preferredWidth: 400, flexibleWidth: 1,
+            minHeight: 32, preferredHeight: 32, flexibleHeight: 0);
+        AddCommandButton(bgRow1, "List Groups", MessageService.BCCOM_FAM_BG_LIST,
+            "List your battle groups (.fam bgs).");
+
+        CollapsibleSection.Build(page,
+            title: "Show battle group details (.fam bg)",
+            startExpanded: false,
+            tooltip: "Show the contents of a battle group. Leave blank to inspect your active group.",
+            buildContent: c => FormBuilder.Build(c,
+                title: "Show battle group",
+                commandTemplate: ".fam bg {group}",
+                new TextField("group", "Group name (blank = active)")));
+
+        CollapsibleSection.Build(page,
+            title: "Choose active battle group (.fam cbg)",
+            startExpanded: false,
+            tooltip: "Sets which battle group is your active one (used by .fam challenge).",
+            buildContent: c => FormBuilder.Build(c,
+                title: "Choose battle group",
+                commandTemplate: ".fam cbg {group}",
+                new TextField("group", "Group name", placeholder: "MyTeam")));
+
+        CollapsibleSection.Build(page,
+            title: "Create battle group (.fam abg)",
+            startExpanded: false,
+            tooltip: "Create a new (empty) battle group. Use Slot Familiar below to fill it.",
+            buildContent: c => FormBuilder.Build(c,
+                title: "Create battle group",
+                commandTemplate: ".fam abg {group}",
+                new TextField("group", "New group name", placeholder: "MyTeam")));
+
+        CollapsibleSection.Build(page,
+            title: "Slot active familiar into group (.fam sbg)",
+            startExpanded: false,
+            tooltip: "Assigns your CURRENTLY-bound familiar to a slot in the named group. Bind the familiar you want to slot first.",
+            buildContent: c => FormBuilder.Build(c,
+                title: "Slot familiar",
+                commandTemplate: ".fam sbg {group} {slot}",
+                new TextField("group", "Group name", placeholder: "MyTeam"),
+                new IntField("slot", "Slot (1-3)", min: 1, max: 3,
+                    tooltip: "Which slot in the group to put the familiar.")));
+
+        CollapsibleSection.Build(page,
+            title: "Delete battle group (.fam dbg) — DESTRUCTIVE",
+            startExpanded: false,
+            tooltip: "Permanently removes the battle group. The slotted familiars themselves are NOT destroyed (only the grouping). Required confirm checkbox.",
+            buildContent: c => FormBuilder.Build(c,
+                title: "Delete battle group",
+                commandTemplate: ".fam dbg {group}",
+                new TextField("group", "Group name"),
+                new BoolField("confirm", "Yes, delete this group",
+                    tooltip: "Required. The slotted familiars stay in your boxes; only the group definition is removed.",
+                    requireTrue: true)));
+
+        CollapsibleSection.Build(page,
+            title: "Challenge a player (.fam challenge)",
+            startExpanded: false,
+            tooltip: "Initiate (or accept/queue) a battle-group fight against another player. Leave blank to view the current queue.",
+            buildContent: c => FormBuilder.Build(c,
+                title: "Challenge",
+                commandTemplate: ".fam challenge {player}",
+                new PlayerNameField("player", "Player (blank = view queue)")));
 
         RenderFamiliar(PlayerStateService.Familiar);
         if (!_famSubscribed)
@@ -533,19 +825,34 @@ public partial class MainPanel : ResizeablePanelBase
             "Active Box: (none selected)",
             FontStyles.Bold, fontSize: 14);
 
+        // Hint text near the top so it can never be overlapped by a long box
+        // list further down. Phrased as a one-liner so it doesn't dominate.
+        var note = UIFactory.CreateLabel(page, "BoxesNote",
+            "Tip: click Refresh to pull your box list, click a box to see its familiars, click a familiar to bind it. Use ← Back to return.",
+            TextAlignmentOptions.TopLeft, color: null, fontSize: 11);
+        UIFactory.SetLayoutElement(note.GameObject,
+            minWidth: 360, preferredWidth: 400, flexibleWidth: 1,
+            minHeight: 22, preferredHeight: 32, flexibleHeight: 0);
+        note.TextMesh.enableWordWrapping = true;
+        note.TextMesh.overflowMode = TextOverflowModes.Overflow;
+        note.TextMesh.fontStyle = FontStyles.Italic;
+
         AddSpacer(page, 4);
 
         // ---------------- Picker section (visible when no box selected) ----------------
         // childControlHeight: true is crucial here - without it the layout group
         // does NOT enforce children's heights, so the action row, section heading,
         // and list container all draw at their default (0) sizeDelta and overlap.
+        // flexibleHeight: 0 (was 1) so the section takes only its natural height.
+        // The tab-page ScrollView (added in Phase 5j) handles overflow when the
+        // box list is long, and AutoResize grows the panel before that point.
         _boxesPickerSection = UIFactory.CreateVerticalGroup(page, "BoxPickerSection",
             forceWidth: true, forceHeight: false,
             childControlWidth: true, childControlHeight: true,
             spacing: 4, padding: new Vector4(0, 0, 0, 0));
         UIFactory.SetLayoutElement(_boxesPickerSection,
             minWidth: 360, preferredWidth: 400, flexibleWidth: 1,
-            minHeight: 80, preferredHeight: 200, flexibleHeight: 1);
+            minHeight: 80, flexibleHeight: 0);
 
         var pickerActions = UIFactory.CreateHorizontalGroup(_boxesPickerSection, "PickerActions",
             forceExpandWidth: true, forceExpandHeight: false,
@@ -589,14 +896,58 @@ public partial class MainPanel : ResizeablePanelBase
             minWidth: 360, preferredWidth: 400, flexibleWidth: 1,
             minHeight: 60, flexibleHeight: 0);
 
+        // ---- Box management (collapsed by default) ----
+        AddSpacer(_boxesPickerSection, 4);
+        AddSectionHeading(_boxesPickerSection, "Manage Boxes");
+
+        // Each of the box-management forms re-pulls the box list after submit
+        // so the picker reflects the new state without a manual Refresh click.
+        Action refreshBoxes = () => EnqueueOrWarn(MessageService.BCCOM_FAM_BOXES);
+
+        CollapsibleSection.Build(_boxesPickerSection,
+            title: "Create new box (.fam ab)",
+            startExpanded: false,
+            tooltip: "Adds an empty box you can move familiars into.",
+            buildContent: content => FormBuilder.Build(content,
+                title: "Create box",
+                commandTemplate: ".fam ab {boxName}",
+                onSubmitted: refreshBoxes,
+                new TextField("boxName", "Box name", placeholder: "MyBox",
+                    tooltip: "Name for the new box. Avoid spaces if possible — Bloodcraft can be picky.")));
+
+        CollapsibleSection.Build(_boxesPickerSection,
+            title: "Delete empty box (.fam db)",
+            startExpanded: false,
+            tooltip: "Removes a box. Bloodcraft only allows deleting boxes that are already empty — move familiars out first.",
+            buildContent: content => FormBuilder.Build(content,
+                title: "Delete empty box",
+                commandTemplate: ".fam db {boxName}",
+                onSubmitted: refreshBoxes,
+                new TextField("boxName", "Box name", placeholder: "MyBox",
+                    tooltip: "Name of the box to delete. Server will reject if it's not empty.")));
+
+        CollapsibleSection.Build(_boxesPickerSection,
+            title: "Rename box (.fam rb)",
+            startExpanded: false,
+            tooltip: "Renames an existing box.",
+            buildContent: content => FormBuilder.Build(content,
+                title: "Rename box",
+                commandTemplate: ".fam rb {current} {newName}",
+                onSubmitted: refreshBoxes,
+                new TextField("current", "Current name", placeholder: "OldName",
+                    tooltip: "The box's current name."),
+                new TextField("newName", "New name", placeholder: "NewName",
+                    tooltip: "What to rename it to.")));
+
         // ---------------- Content section (visible when a box is selected) ----------------
+        // flexibleHeight: 0 - same reasoning as the picker section above.
         _boxesContentSection = UIFactory.CreateVerticalGroup(page, "BoxContentSection",
             forceWidth: true, forceHeight: false,
             childControlWidth: true, childControlHeight: true,
             spacing: 4, padding: new Vector4(0, 0, 0, 0));
         UIFactory.SetLayoutElement(_boxesContentSection,
             minWidth: 360, preferredWidth: 400, flexibleWidth: 1,
-            minHeight: 80, preferredHeight: 200, flexibleHeight: 1);
+            minHeight: 80, flexibleHeight: 0);
 
         var contentActions = UIFactory.CreateHorizontalGroup(_boxesContentSection, "ContentActions",
             forceExpandWidth: true, forceExpandHeight: false,
@@ -625,8 +976,46 @@ public partial class MainPanel : ResizeablePanelBase
         AddCommandButton(contentActions, "Reload", MessageService.BCCOM_FAM_LIST_CURRENT_BOX,
             "Re-fetch the familiars in the currently-active box (sends .fam l).");
 
+        // Edit mode toggle. When ON, each familiar row sprouts a destructive
+        // Delete button (two-click confirm). Off by default so accidental
+        // clicks can't trigger destruction.
+        var editToggle = UIFactory.CreateToggle(contentActions, "BoxEditMode");
+        UIFactory.SetLayoutElement(editToggle.GameObject,
+            minWidth: 110, preferredWidth: 120, flexibleWidth: 0,
+            minHeight: 26, preferredHeight: 28, flexibleHeight: 0);
+        editToggle.Text.text = "Edit mode";
+        editToggle.Text.fontSize = 12;
+        editToggle.Text.alignment = TextAlignmentOptions.MidlineLeft;
+        UIFactory.SetLayoutElement(editToggle.Text.gameObject,
+            minWidth: 80, preferredWidth: 90, flexibleWidth: 1,
+            minHeight: 24, preferredHeight: 26, flexibleHeight: 0);
+        editToggle.Toggle.isOn = _boxesEditMode;
+        TooltipHover.Attach(editToggle.GameObject,
+            "When ON, each familiar row gets a Delete button (red, two-click confirm) for permanent removal. Move stays as the form below — Bloodcraft's .fam mb only acts on the bound familiar, so the Move workflow is multi-step.");
+        editToggle.OnValueChanged += value =>
+        {
+            _boxesEditMode = value;
+            ClearPendingDelete();
+            RenderBoxContents();
+            AutoResizeIfEnabled();
+        };
+        _boxesEditModeToggle = editToggle.Toggle;
+
         _boxesContentHeading = AddInfoLabel(_boxesContentSection, "ContentHeading",
             "Familiars in (none)", FontStyles.Italic, fontSize: 13);
+
+        // Stays in the layout always (text empty when idle) so showing/hiding
+        // the swap-confirm warning doesn't shift the familiar list and yank
+        // your click target out from under your cursor. ~38px reserves room
+        // for ~2 lines of wrapped text at fontSize 12.
+        _boxesSwapWarning = UIFactory.CreateLabel(_boxesContentSection, "SwapWarning",
+            "", TextAlignmentOptions.MidlineLeft, color: null, fontSize: 12);
+        UIFactory.SetLayoutElement(_boxesSwapWarning.GameObject,
+            minWidth: 360, preferredWidth: 400, flexibleWidth: 1,
+            minHeight: 38, preferredHeight: 38, flexibleHeight: 0);
+        _boxesSwapWarning.TextMesh.color = new Color(1f, 0.65f, 0.45f); // warm orange
+        _boxesSwapWarning.TextMesh.enableWordWrapping = true;
+        _boxesSwapWarning.TextMesh.overflowMode = TextOverflowModes.Overflow;
 
         _boxesContentContainer = UIFactory.CreateVerticalGroup(_boxesContentSection, "BoxContentContainer",
             forceWidth: true, forceHeight: false,
@@ -638,15 +1027,46 @@ public partial class MainPanel : ResizeablePanelBase
             minWidth: 360, preferredWidth: 400, flexibleWidth: 1,
             minHeight: 60, flexibleHeight: 0);
 
-        AddSpacer(page, 4);
-        var note = UIFactory.CreateLabel(page, "BoxesNote",
-            "Click Refresh to pull your box list. Click a box to see its familiars; click a familiar to bind it. Use ← Back to return to the box list.",
-            TextAlignmentOptions.TopLeft, color: null, fontSize: 11);
-        UIFactory.SetLayoutElement(note.GameObject,
-            minWidth: 360, preferredWidth: 400, flexibleWidth: 1,
-            minHeight: 22, preferredHeight: 32, flexibleHeight: 0);
-        note.TextMesh.enableWordWrapping = true;
-        note.TextMesh.overflowMode = TextOverflowModes.Overflow;
+        // ---- Edit-familiar forms (visible only when viewing a box's contents) ----
+        AddSpacer(_boxesContentSection, 6);
+        AddSectionHeading(_boxesContentSection, "Edit Familiar (advanced)");
+
+        CollapsibleSection.Build(_boxesContentSection,
+            title: "Move active familiar to box (.fam mb)",
+            startExpanded: false,
+            tooltip: "Moves your CURRENTLY-BOUND familiar to the named box. You must bind a familiar first (click it in the list above). The active familiar stays bound after the move; use Unbind on the Familiars tab to release it.",
+            buildContent: c => FormBuilder.Build(c,
+                title: "Move active familiar",
+                commandTemplate: ".fam mb {boxName}",
+                onSubmitted: () =>
+                {
+                    // Re-pull the source box's familiar list so the moved
+                    // familiar disappears from the visible list immediately.
+                    EnqueueOrWarn(MessageService.BCCOM_FAM_LIST_CURRENT_BOX);
+                },
+                new TextField("boxName", "Destination box", placeholder: "TargetBox",
+                    tooltip: "Name of the box to move the active familiar into. Must already exist; create one with the box management form on the picker view.")));
+
+        CollapsibleSection.Build(_boxesContentSection,
+            title: "Permanently delete familiar from box (.fam r)",
+            startExpanded: false,
+            tooltip: "DESTRUCTIVE — permanently removes a familiar from your collection. The level/prestige/shiny are gone forever; only re-unlockable via gameplay drop. Two-click the Submit button (and check the box) so you don't fire it by accident.",
+            buildContent: c => FormBuilder.Build(c,
+                title: "Permanently delete familiar",
+                commandTemplate: ".fam r {index}",
+                onSubmitted: () =>
+                {
+                    // Re-pull the box's familiar list after a delete so the UI
+                    // reflects the new contents without the user having to
+                    // hit Reload manually. The intercept timeout (~600ms)
+                    // covers any server-side delay between commands.
+                    EnqueueOrWarn(MessageService.BCCOM_FAM_LIST_CURRENT_BOX);
+                },
+                new IntField("index", "Familiar index", min: 1, max: 999,
+                    tooltip: "The 1-based index from the list above (the leading '01', '02', etc.)."),
+                new BoolField("confirm", "Yes, permanently delete",
+                    tooltip: "Required. Check this box to confirm the deletion is intentional.",
+                    requireTrue: true)));
 
         UpdateBoxesSectionVisibility();
         RenderBoxList();
@@ -669,6 +1089,8 @@ public partial class MainPanel : ResizeablePanelBase
 
     private void OnBackToBoxesClicked()
     {
+        ClearPendingSwap();
+        ClearPendingDelete();
         _boxesShowingContents = false;
         PlayerStateService.SetActiveBox(null);
         UpdateBoxesSectionVisibility();
@@ -754,17 +1176,91 @@ public partial class MainPanel : ResizeablePanelBase
         foreach (var entry in entries)
         {
             var idx = entry.Index;
-            var label = $"{entry.Index:00}  —  {entry.Name}";
-            var b = UIFactory.CreateButton(_boxesContentContainer, $"FamBtn_{entry.Index}", label);
-            UIFactory.SetLayoutElement(b.GameObject,
-                minWidth: 340, preferredWidth: 380, flexibleWidth: 1,
-                minHeight: 24, preferredHeight: 26, flexibleHeight: 0);
-            b.OnClick = () => OnFamiliarClicked(idx);
+
+            // Compose the label with level / prestige / shiny inline so the
+            // user can see at a glance which familiar to bind. Format:
+            //   "01  —  RoyalRavager  Lv 12  P3  ★ Storm"
+            string label = $"{entry.Index:00}  —  {entry.Name}";
+            if (entry.Level > 0) label += $"   Lv {entry.Level}";
+            if (entry.Prestige > 0) label += $"  P{entry.Prestige}";
+            if (entry.IsShiny)
+            {
+                label += "  ★";
+                var school = entry.ShinySchool;
+                if (!string.IsNullOrEmpty(school)) label += $" {school}";
+            }
+
+            if (_boxesEditMode)
+            {
+                // Edit-mode row: bind button + red two-click Delete button.
+                var row = UIFactory.CreateHorizontalGroup(_boxesContentContainer, $"FamRow_{entry.Index}",
+                    forceExpandWidth: true, forceExpandHeight: false,
+                    childControlWidth: true, childControlHeight: true,
+                    spacing: 4, padding: new Vector4(0, 0, 0, 0));
+                UIFactory.SetLayoutElement(row,
+                    minWidth: 340, preferredWidth: 380, flexibleWidth: 1,
+                    minHeight: 26, preferredHeight: 28, flexibleHeight: 0);
+
+                var bindBtn = UIFactory.CreateButton(row, $"FamBtn_{entry.Index}", label);
+                UIFactory.SetLayoutElement(bindBtn.GameObject,
+                    minWidth: 240, preferredWidth: 280, flexibleWidth: 1,
+                    minHeight: 24, preferredHeight: 26, flexibleHeight: 0);
+                bindBtn.OnClick = () => OnFamiliarClicked(idx);
+
+                var delBtn = UIFactory.CreateButton(row, $"FamDel_{entry.Index}", "Delete",
+                    new Color(0.55f, 0.18f, 0.18f));
+                UIFactory.SetLayoutElement(delBtn.GameObject,
+                    minWidth: 70, preferredWidth: 80, flexibleWidth: 0,
+                    minHeight: 24, preferredHeight: 26, flexibleHeight: 0);
+                var delText = delBtn.Component.GetComponentInChildren<TextMeshProUGUI>();
+                if (delText != null) delText.fontSize = 12;
+                TooltipHover.Attach(delBtn.GameObject,
+                    "PERMANENTLY delete this familiar (.fam r). Two-click confirm — first click changes the label to 'Confirm?' and waits 3 seconds. Box record is gone forever.");
+                int capturedIdx = idx;
+                delBtn.OnClick = () => OnDeleteClicked(capturedIdx, delBtn, "Delete");
+            }
+            else
+            {
+                var b = UIFactory.CreateButton(_boxesContentContainer, $"FamBtn_{entry.Index}", label);
+                UIFactory.SetLayoutElement(b.GameObject,
+                    minWidth: 340, preferredWidth: 380, flexibleWidth: 1,
+                    minHeight: 24, preferredHeight: 26, flexibleHeight: 0);
+                b.OnClick = () => OnFamiliarClicked(idx);
+            }
         }
+    }
+
+    private void OnDeleteClicked(int index, BloodCraftHub.UI.Framework.UniverseLib.UI.Models.ButtonRef btn, string originalLabel)
+    {
+        float now = Time.realtimeSinceStartup;
+        bool armed = _pendingDeleteIndex == index && now <= _pendingDeleteDeadline;
+        if (armed)
+        {
+            ClearPendingDelete();
+            var label = btn.Component.GetComponentInChildren<TextMeshProUGUI>();
+            if (label != null) label.text = originalLabel;
+            EnqueueOrWarn(string.Format(MessageService.BCCOM_FAM_REMOVE_FORMAT, index));
+            // Refresh after deletion so the row vanishes without a manual reload.
+            EnqueueOrWarn(MessageService.BCCOM_FAM_LIST_CURRENT_BOX);
+            return;
+        }
+
+        _pendingDeleteIndex = index;
+        _pendingDeleteDeadline = now + DELETE_CONFIRM_WINDOW_SECONDS;
+        var lbl = btn.Component.GetComponentInChildren<TextMeshProUGUI>();
+        if (lbl != null) lbl.text = "Confirm?";
+    }
+
+    private void ClearPendingDelete()
+    {
+        _pendingDeleteIndex = -1;
+        _pendingDeleteDeadline = -1f;
     }
 
     private void OnBoxClicked(string boxName)
     {
+        ClearPendingSwap();
+        ClearPendingDelete();
         PlayerStateService.SetActiveBox(boxName);
         // .fam cb selects the box server-side, .fam l lists its contents.
         // Both fire immediately (no queue throttle) so the user sees the
@@ -776,9 +1272,61 @@ public partial class MainPanel : ResizeablePanelBase
         UpdateBoxesSectionVisibility();
     }
 
-    private static void OnFamiliarClicked(int index)
+    private void OnFamiliarClicked(int index)
     {
-        EnqueueOrWarn(string.Format(MessageService.BCCOM_FAM_BIND_BY_INDEX_FORMAT, index));
+        // No active familiar → straight bind. (Familiar.Name is empty when
+        // PlayerStateService has no active familiar yet.)
+        bool hasActive = !string.IsNullOrEmpty(PlayerStateService.Familiar.Name);
+        if (!hasActive)
+        {
+            ClearPendingSwap();
+            EnqueueOrWarn(string.Format(MessageService.BCCOM_FAM_BIND_BY_INDEX_FORMAT, index));
+            return;
+        }
+
+        // Active familiar: Bloodcraft requires destruction to switch. Two-click
+        // confirm — first click arms, second click on the SAME index within
+        // the window executes destroy → bind.
+        float now = Time.realtimeSinceStartup;
+        bool armed = _pendingSwapIndex == index && now <= _pendingSwapDeadline;
+        if (armed)
+        {
+            ClearPendingSwap();
+            // Send destroy first, then the new bind. Both are immediate
+            // (MessageService.EnqueueMessage is throttle-free), so the server
+            // sees them in order on the next frame's chat-message processing.
+            EnqueueOrWarn(MessageService.BCCOM_FAM_UNBIND);
+            EnqueueOrWarn(string.Format(MessageService.BCCOM_FAM_BIND_BY_INDEX_FORMAT, index));
+            return;
+        }
+
+        // Arm pending swap. Find the entry to put its name in the warning.
+        string targetName = $"#{index}";
+        var active = PlayerStateService.ActiveBox;
+        if (!string.IsNullOrEmpty(active)
+            && PlayerStateService.BoxContents.TryGetValue(active, out var entries))
+        {
+            foreach (var e in entries) if (e.Index == index) { targetName = e.Name; break; }
+        }
+
+        _pendingSwapIndex = index;
+        _pendingSwapDeadline = now + SWAP_CONFIRM_WINDOW_SECONDS;
+        ShowSwapWarning($"Active: {PlayerStateService.Familiar.Name}. Click {targetName} again within {(int)SWAP_CONFIRM_WINDOW_SECONDS}s to unbind current and bind it. The current familiar returns to its box (level/prestige preserved); use Permanently Delete below to actually remove it from your collection.");
+    }
+
+    private void ClearPendingSwap()
+    {
+        _pendingSwapIndex = -1;
+        _pendingSwapDeadline = -1f;
+        // Empty text rather than SetActive(false) — the label stays in the
+        // layout so showing/hiding the warning doesn't shift the box list.
+        if (_boxesSwapWarning != null) _boxesSwapWarning.TextMesh.text = "";
+    }
+
+    private void ShowSwapWarning(string msg)
+    {
+        if (_boxesSwapWarning == null) return;
+        _boxesSwapWarning.TextMesh.text = msg;
     }
 
     private static void ClearChildren(GameObject parent)
@@ -821,13 +1369,38 @@ public partial class MainPanel : ResizeablePanelBase
         AddCommandButton(actions, "Toggle Shift",  MessageService.BCCOM_CLASS_TOGGLE_SHIFT,
             "Toggle whether the class spell occupies your shift-slot (.class shift).");
 
-        AddSpacer(page, 4);
+        AddSpacer(page, 6);
+        AddSectionHeading(page, "Change Class");
+
+        CollapsibleSection.Build(page,
+            title: "Select / change your class (.class s)",
+            startExpanded: false,
+            tooltip: "Pick a class from the dropdown and Submit. Some servers may rate-limit class changes or require a cost — Bloodcraft replies in chat with success or the rejection reason.",
+            buildContent: c => FormBuilder.Build(c,
+                title: "Select class",
+                commandTemplate: ".class s {class}",
+                new EnumField<PlayerStateService.BloodcraftClassChoice>("class", "Class",
+                    defaultValue: PlayerStateService.BloodcraftClassChoice.BloodKnight,
+                    tooltip: "The class you want active. Bloodcraft's six built-in classes are listed.")));
+
+        CollapsibleSection.Build(page,
+            title: "Choose class shift spell (.class csp)",
+            startExpanded: false,
+            tooltip: "Set which of your class's spells occupies your shift slot. Use 'List Spells' above to see the available spells (numbered) for your current class, then enter the spell's 1-based index here.",
+            buildContent: c => FormBuilder.Build(c,
+                title: "Choose shift spell",
+                commandTemplate: ".class csp {index}",
+                new IntField("index", "Spell #", min: 1, max: 32,
+                    tooltip: "1-based index of the class spell. Run 'List Spells' to see what each number maps to before submitting.")));
+
+        AddSpacer(page, 2);
         var note = UIFactory.CreateLabel(page, "ClassNote",
-            "Class info responses appear in chat. Selecting/changing classes by argument arrives later — use `.class s <Class>` or `.class c <Class>` in chat for now.",
-            TextAlignmentOptions.TopLeft, color: null, fontSize: 12);
+            "Tip: List Spells / List Stats above describe what each class grants before you commit.",
+            TextAlignmentOptions.TopLeft, color: null, fontSize: 11);
         UIFactory.SetLayoutElement(note.GameObject,
             minWidth: 360, preferredWidth: 400, flexibleWidth: 1,
-            minHeight: 40, preferredHeight: 50, flexibleHeight: 0);
+            minHeight: 22, preferredHeight: 26, flexibleHeight: 0);
+        note.TextMesh.fontStyle = FontStyles.Italic;
         note.TextMesh.enableWordWrapping = true;
         note.TextMesh.overflowMode = TextOverflowModes.Overflow;
 
@@ -885,13 +1458,32 @@ public partial class MainPanel : ResizeablePanelBase
         AddCommandButton(actions, "Lock Spells", MessageService.BCCOM_WEP_LOCK_SPELLS,
             "Lock in the next spells you equip to use as your unarmed slot spells (.wep locksp).");
 
+        AddSpacer(page, 6);
+        AddSectionHeading(page, "Choose Bonus Stat");
+
+        CollapsibleSection.Build(page,
+            title: "Set bonus stat for a weapon (.wep cst)",
+            startExpanded: false,
+            tooltip: "Pick the weapon type AND the bonus stat you want to lock in for it. Bloodcraft applies the chosen stat scaled by your expertise level for that weapon. Each weapon tracks up to 3 chosen stats; submit again to add more (or use Reset Stats to clear).",
+            buildContent: c => FormBuilder.Build(c,
+                title: "Set bonus stat",
+                commandTemplate: ".wep cst {weapon} {stat}",
+                onSubmitted: () => EnqueueOrWarn(MessageService.BCCOM_WEP_GET),
+                new EnumField<PlayerStateService.WeaponType>("weapon", "Weapon",
+                    defaultValue: PlayerStateService.WeaponType.Sword,
+                    tooltip: "Which weapon type the chosen bonus stat applies to."),
+                new EnumIndexField<PlayerStateService.WeaponBonusStat>("stat", "Bonus stat",
+                    defaultValue: PlayerStateService.WeaponBonusStat.PhysicalPower,
+                    tooltip: "The stat to enhance. Bloodcraft expects a 1-12 index; the dropdown sends it for you.")));
+
         AddSpacer(page, 4);
         var note = UIFactory.CreateLabel(page, "WepNote",
-            "Choosing a specific bonus stat (`.wep cst <Weapon> <Stat>`) takes arguments — for now use chat. A stat picker arrives in a later phase.",
-            TextAlignmentOptions.TopLeft, color: null, fontSize: 12);
+            "Bloodcraft only streams the EQUIPPED weapon's expertise to the client — there's no command to query stats for weapons you're not currently holding. Switch weapons to see each one's level + chosen stats above.",
+            TextAlignmentOptions.TopLeft, color: null, fontSize: 11);
         UIFactory.SetLayoutElement(note.GameObject,
             minWidth: 360, preferredWidth: 400, flexibleWidth: 1,
-            minHeight: 32, preferredHeight: 40, flexibleHeight: 0);
+            minHeight: 32, preferredHeight: 44, flexibleHeight: 0);
+        note.TextMesh.fontStyle = FontStyles.Italic;
         note.TextMesh.enableWordWrapping = true;
         note.TextMesh.overflowMode = TextOverflowModes.Overflow;
 
@@ -904,6 +1496,176 @@ public partial class MainPanel : ResizeablePanelBase
     }
 
     private void OnExpertiseChanged() => RenderExpertise(PlayerStateService.Expertise);
+
+    // -----------------------------------------------------------------------
+    // Blood Legacy tab
+    //
+    // Mirrors the Weapon Expertise tab structure: a live "current blood" panel
+    // up top fed by PlayerStateService.Legacy (already streamed via Eclipse),
+    // chat-action buttons in the middle, and forms at the bottom for setting
+    // the bonus stat per blood type and querying any blood's current state.
+    //
+    // Unlike .wep get (equipped-weapon-only), .bl get [BloodType] accepts an
+    // explicit type argument server-side, so we expose a "Show info for blood"
+    // form that lets you query a non-current blood's level + chosen stats.
+    // -----------------------------------------------------------------------
+
+    private void BuildBloodLegacyTab(GameObject page)
+    {
+        AddSectionHeading(page, "Current Blood Legacy");
+
+        _blTypeLabel     = AddInfoLabel(page, "BlType",     "—",                  FontStyles.Bold,   fontSize: 18);
+        _blTypeLabel.color = new Color(1f, 0.4f, 0.4f); // Bloodcraft uses red for blood headings
+        _blProgressLabel = AddInfoLabel(page, "BlProgress", "Level —",            FontStyles.Normal, fontSize: 14);
+        _blBonusLabel    = AddInfoLabel(page, "BlBonus",    "Bonus Stats: —",     FontStyles.Normal, fontSize: 13);
+
+        AddSpacer(page, 4);
+        AddSectionHeading(page, "Actions");
+
+        var actions = UIFactory.CreateHorizontalGroup(page, "BlActions",
+            forceExpandWidth: true, forceExpandHeight: false,
+            childControlWidth: true, childControlHeight: true,
+            spacing: 6, padding: new Vector4(0, 0, 0, 0));
+        UIFactory.SetLayoutElement(actions,
+            minWidth: 360, preferredWidth: 400, flexibleWidth: 1,
+            minHeight: 32, preferredHeight: 32, flexibleHeight: 0);
+        AddCommandButton(actions, "Refresh",     MessageService.BCCOM_BL_GET,
+            "Display your current blood legacy details in chat (.bl get).");
+        AddCommandButton(actions, "List Bloods", MessageService.BCCOM_BL_LIST,
+            "List all blood legacy types tracked by Bloodcraft (.bl l).");
+        AddCommandButton(actions, "List Stats",  MessageService.BCCOM_BL_LIST_STATS,
+            "List the blood-stat bonuses you can choose between (.bl lst).");
+        AddCommandButton(actions, "Reset Stats", MessageService.BCCOM_BL_RESET_STATS,
+            "Reset your chosen bonus stats for the current blood (.bl rst).");
+
+        AddSpacer(page, 6);
+        AddSectionHeading(page, "Choose Bonus Stat");
+
+        CollapsibleSection.Build(page,
+            title: "Set bonus stat for a blood type (.bl cst)",
+            startExpanded: false,
+            tooltip: "Pick a blood type AND the bonus stat you want to lock in for it. Bloodcraft applies the chosen stat scaled by your legacy level for that blood. Each blood tracks up to 3 chosen stats; submit again to add more (or use Reset Stats to clear the current blood).",
+            buildContent: c => FormBuilder.Build(c,
+                title: "Set bonus stat",
+                commandTemplate: ".bl cst {blood} {stat}",
+                onSubmitted: () => EnqueueOrWarn(MessageService.BCCOM_BL_GET),
+                new EnumField<PlayerStateService.BloodTypeChoice>("blood", "Blood",
+                    defaultValue: PlayerStateService.BloodTypeChoice.Warrior,
+                    tooltip: "Which blood type the chosen bonus stat applies to."),
+                new EnumIndexField<PlayerStateService.BloodBonusStat>("stat", "Bonus stat",
+                    defaultValue: PlayerStateService.BloodBonusStat.PhysicalResistance,
+                    tooltip: "The stat to enhance. Bloodcraft expects a 1-12 index; the dropdown sends it for you.")));
+
+        CollapsibleSection.Build(page,
+            title: "Show info for a specific blood (.bl get [Blood])",
+            startExpanded: false,
+            tooltip: "Query any blood type's level + chosen stats — not just the one you currently have. Result is parsed and shown in the panel below; chat is also updated unless you've enabled 'Clear server messages'.",
+            buildContent: c => FormBuilder.Build(c,
+                title: "Show blood info",
+                commandTemplate: ".bl get {blood}",
+                new EnumField<PlayerStateService.BloodTypeChoice>("blood", "Blood",
+                    defaultValue: PlayerStateService.BloodTypeChoice.Warrior,
+                    tooltip: "Which blood type to inspect.")));
+
+        AddSpacer(page, 4);
+        BuildBloodInfoDisplay(page);
+
+        AddSpacer(page, 4);
+        var note = UIFactory.CreateLabel(page, "BlNote",
+            "Unlike weapon expertise, .bl get accepts a blood-type argument — so the 'Show info for a specific blood' form above can inspect ANY blood you've leveled, not just your current one.",
+            TextAlignmentOptions.TopLeft, color: null, fontSize: 11);
+        UIFactory.SetLayoutElement(note.GameObject,
+            minWidth: 360, preferredWidth: 400, flexibleWidth: 1,
+            minHeight: 32, preferredHeight: 44, flexibleHeight: 0);
+        note.TextMesh.fontStyle = FontStyles.Italic;
+        note.TextMesh.enableWordWrapping = true;
+        note.TextMesh.overflowMode = TextOverflowModes.Overflow;
+
+        RenderBloodLegacy(PlayerStateService.Legacy);
+        if (!_blSubscribed)
+        {
+            PlayerStateService.LegacyChanged += OnLegacyChanged;
+            _blSubscribed = true;
+        }
+        if (!_blInfoSubscribed)
+        {
+            PlayerStateService.BloodInfoChanged += OnBloodInfoChanged;
+            _blInfoSubscribed = true;
+        }
+        RenderBloodInfo();
+    }
+
+    private void BuildBloodInfoDisplay(GameObject page)
+    {
+        var section = UIFactory.CreateVerticalGroup(page, "BloodInfoDisplay",
+            forceWidth: true, forceHeight: false,
+            childControlWidth: true, childControlHeight: true,
+            spacing: 2, padding: new Vector4(6, 6, 6, 6));
+        UIFactory.SetLayoutElement(section,
+            minWidth: 360, preferredWidth: 400, flexibleWidth: 1,
+            minHeight: 80, flexibleHeight: 0);
+
+        _blInfoTitleLabel = AddInfoLabel(section, "BloodInfoTitle",
+            "Blood Info", FontStyles.Bold | FontStyles.Italic, fontSize: 14);
+        _blInfoTitleLabel.color = new Color(1f, 0.4f, 0.4f); // Bloodcraft red
+
+        _blInfoLevelLabel = AddInfoLabel(section, "BloodInfoLevel",
+            "(submit Show info above to populate)", FontStyles.Italic, fontSize: 12);
+
+        _blInfoStatsLabel = AddInfoLabel(section, "BloodInfoStats",
+            "", FontStyles.Normal, fontSize: 12);
+        var fitter = _blInfoStatsLabel.gameObject.AddComponent<UnityEngine.UI.ContentSizeFitter>();
+        fitter.horizontalFit = UnityEngine.UI.ContentSizeFitter.FitMode.Unconstrained;
+        fitter.verticalFit   = UnityEngine.UI.ContentSizeFitter.FitMode.PreferredSize;
+        _blInfoStatsLabel.enableWordWrapping = true;
+        _blInfoStatsLabel.overflowMode = TextOverflowModes.Overflow;
+    }
+
+    private void OnBloodInfoChanged()
+    {
+        RenderBloodInfo();
+        AutoResizeIfEnabled();
+    }
+
+    private void RenderBloodInfo()
+    {
+        if (_blInfoTitleLabel == null) return;
+        var info = PlayerStateService.BloodInfoLatest;
+        if (string.IsNullOrEmpty(info.BloodType))
+        {
+            _blInfoTitleLabel.text  = "Blood Info";
+            _blInfoLevelLabel.text  = "(submit Show info above to populate)";
+            _blInfoStatsLabel.text  = "";
+            return;
+        }
+        _blInfoTitleLabel.text = $"{info.BloodType} Blood Info";
+        _blInfoLevelLabel.text = info.Prestige > 0
+            ? $"Level {info.Level}  Prestige {info.Prestige}   Essence {info.Essence}  ({info.ProgressPct}%)"
+            : $"Level {info.Level}   Essence {info.Essence}  ({info.ProgressPct}%)";
+        if (info.StatLines != null && info.StatLines.Count > 0)
+            _blInfoStatsLabel.text = "• " + string.Join("\n• ", info.StatLines);
+        else
+            _blInfoStatsLabel.text = "(no stat lines parsed — Bloodcraft may not have sent any)";
+    }
+
+    private void OnLegacyChanged() => RenderBloodLegacy(PlayerStateService.Legacy);
+
+    private void RenderBloodLegacy(PlayerStateService.LegacyState s)
+    {
+        if (_blTypeLabel == null) return;
+        _blTypeLabel.text = s.Type.ToString();
+        _blProgressLabel.text = s.Prestige > 0
+            ? $"Level {s.Level}  ({s.Progress * 100f:0.#}%)   Prestige {s.Prestige}"
+            : $"Level {s.Level}  ({s.Progress * 100f:0.#}%)";
+
+        var stats = PlayerStateService.DecodeBloodBonusStats(s.BonusStatsRaw);
+        var named = new System.Collections.Generic.List<string>();
+        foreach (var st in stats)
+            if (st != PlayerStateService.BloodStatType.None) named.Add(st.ToString());
+        _blBonusLabel.text = named.Count > 0
+            ? $"Bonus Stats: {string.Join(", ", named)}"
+            : "Bonus Stats: (none yet — use the form below to choose)";
+    }
 
     // -----------------------------------------------------------------------
     // Unarmed + Shift Skill tab
@@ -1051,12 +1813,15 @@ public partial class MainPanel : ResizeablePanelBase
         CollapsibleSection.Build(page,
             title: "Show prestige info (.prestige get)",
             startExpanded: false,
-            tooltip: "Expand to display detailed info about your prestige in a specific system. Chat receives the response.",
+            tooltip: "Expand, pick a system, Submit. The reply is parsed and rendered in-panel below — chat is also updated unless you've enabled 'Clear server messages' in settings.",
             buildContent: c => FormBuilder.Build(c,
                 title: "Show prestige info",
                 commandTemplate: ".prestige get {type}",
                 new EnumField<PlayerStateService.PrestigeType>("type", "Prestige type",
                     defaultValue: PlayerStateService.PrestigeType.Experience)));
+
+        AddSpacer(page, 4);
+        BuildPrestigeInfoDisplay(page);
 
         CollapsibleSection.Build(page,
             title: "Leaderboard (.prestige lb)",
@@ -1088,6 +1853,71 @@ public partial class MainPanel : ResizeablePanelBase
             PlayerStateService.FamiliarChanged   += OnAnyForPrestige;
             _prestigeSubscribed = true;
         }
+
+        if (!_prestigeInfoSubscribed)
+        {
+            PlayerStateService.PrestigeInfoChanged += OnPrestigeInfoChanged;
+            _prestigeInfoSubscribed = true;
+        }
+        RenderPrestigeInfo();
+    }
+
+    private void BuildPrestigeInfoDisplay(GameObject page)
+    {
+        _prestigeInfoSection = UIFactory.CreateVerticalGroup(page, "PrestigeInfoDisplay",
+            forceWidth: true, forceHeight: false,
+            childControlWidth: true, childControlHeight: true,
+            spacing: 2, padding: new Vector4(6, 6, 6, 6));
+        UIFactory.SetLayoutElement(_prestigeInfoSection,
+            minWidth: 360, preferredWidth: 400, flexibleWidth: 1,
+            minHeight: 100, flexibleHeight: 0);
+
+        _prestigeInfoTitleLabel = AddInfoLabel(_prestigeInfoSection, "PrestigeInfoTitle",
+            "Prestige Info", FontStyles.Bold | FontStyles.Italic, fontSize: 14);
+        _prestigeInfoTitleLabel.color = new Color(0.6f, 0.95f, 0.6f); // Bloodcraft #90EE90
+
+        _prestigeInfoLevelLabel = AddInfoLabel(_prestigeInfoSection, "PrestigeInfoLevel",
+            "(submit Show prestige info above to populate)", FontStyles.Italic, fontSize: 12);
+
+        // Multi-line "effects" label. Using ContentSizeFitter so however many
+        // lines the server sends back render flush together — the parser emits
+        // one effect per inbound chat line (color tags stripped).
+        _prestigeInfoEffectsLabel = AddInfoLabel(_prestigeInfoSection, "PrestigeInfoEffects",
+            "", FontStyles.Normal, fontSize: 12);
+        var fitter = _prestigeInfoEffectsLabel.gameObject.AddComponent<UnityEngine.UI.ContentSizeFitter>();
+        fitter.horizontalFit = UnityEngine.UI.ContentSizeFitter.FitMode.Unconstrained;
+        fitter.verticalFit   = UnityEngine.UI.ContentSizeFitter.FitMode.PreferredSize;
+        _prestigeInfoEffectsLabel.enableWordWrapping = true;
+        _prestigeInfoEffectsLabel.overflowMode = TextOverflowModes.Overflow;
+    }
+
+    private void OnPrestigeInfoChanged()
+    {
+        RenderPrestigeInfo();
+        AutoResizeIfEnabled();
+    }
+
+    private void RenderPrestigeInfo()
+    {
+        if (_prestigeInfoTitleLabel == null) return;
+        var info = PlayerStateService.PrestigeInfoLatest;
+        if (string.IsNullOrEmpty(info.TypeName))
+        {
+            _prestigeInfoTitleLabel.text  = "Prestige Info";
+            _prestigeInfoLevelLabel.text  = "(submit Show prestige info above to populate)";
+            _prestigeInfoEffectsLabel.text = "";
+            return;
+        }
+
+        _prestigeInfoTitleLabel.text = $"{info.TypeName} Prestige Info";
+        _prestigeInfoLevelLabel.text = info.MaxLevel > 0
+            ? $"Current Prestige Level: {info.Level} / {info.MaxLevel}"
+            : $"Current Prestige Level: {info.Level}";
+
+        if (info.EffectLines != null && info.EffectLines.Count > 0)
+            _prestigeInfoEffectsLabel.text = "• " + string.Join("\n• ", info.EffectLines);
+        else
+            _prestigeInfoEffectsLabel.text = "(no additional effect lines parsed)";
     }
 
     private void OnAnyForPrestige() => RenderPrestige();
@@ -1115,9 +1945,25 @@ public partial class MainPanel : ResizeablePanelBase
         _lvlLegacyLabel = AddInfoLabel(page, "LvlLegacy", "—", FontStyles.Normal, fontSize: 13);
 
         AddSpacer(page, 4);
-        AddSectionHeading(page, "Weapon Expertise");
+        AddSectionHeading(page, "Weapon Expertise (active weapon)");
         _lvlExpertiseLabel      = AddInfoLabel(page, "LvlExpertise",      "—", FontStyles.Normal, fontSize: 13);
         _lvlExpertiseBonusLabel = AddInfoLabel(page, "LvlExpertiseBonus", "Bonus stats: —", FontStyles.Italic, fontSize: 12);
+
+        // Bloodcraft's Eclipse protocol only streams the currently-equipped
+        // weapon's expertise level - no per-weapon snapshot. So the in-panel
+        // "all weapons" view the user asked for needs server-side support we
+        // don't have yet. Surface a "List Weapons" button (sends .wep l, reply
+        // appears in chat) and a one-liner explaining the gap, so the user
+        // isn't left wondering why the UI only shows one weapon.
+        var allWepRow = UIFactory.CreateHorizontalGroup(page, "AllWepRow",
+            forceExpandWidth: true, forceExpandHeight: false,
+            childControlWidth: true, childControlHeight: true,
+            spacing: 6, padding: new Vector4(0, 0, 0, 0));
+        UIFactory.SetLayoutElement(allWepRow,
+            minWidth: 360, preferredWidth: 400, flexibleWidth: 1,
+            minHeight: 28, preferredHeight: 30, flexibleHeight: 0);
+        AddCommandButton(allWepRow, "List Weapon Types (chat)", MessageService.BCCOM_WEP_LIST,
+            "Sends .wep l. Bloodcraft replies in chat with the list of weapon types you can level. Per-weapon levels for all weapons aren't streamed by the server, so they can't be shown in this panel — switch weapons and the active level above updates.");
 
         AddSpacer(page, 4);
         AddSectionHeading(page, "Familiar (active)");
@@ -1130,6 +1976,86 @@ public partial class MainPanel : ResizeablePanelBase
         _lvlProfessions2Label = AddInfoLabel(page, "LvlProf2", "—", FontStyles.Normal, fontSize: 12);
         _lvlProfessions3Label = AddInfoLabel(page, "LvlProf3", "—", FontStyles.Normal, fontSize: 12);
         _lvlProfessions4Label = AddInfoLabel(page, "LvlProf4", "—", FontStyles.Normal, fontSize: 12);
+
+        // ---- 0.7.0: profession (.prof) commands the re-audit caught ----
+        AddSpacer(page, 8);
+        AddSectionHeading(page, "Profession Tools");
+        var profRow = UIFactory.CreateHorizontalGroup(page, "ProfRow",
+            forceExpandWidth: true, forceExpandHeight: false,
+            childControlWidth: true, childControlHeight: true,
+            spacing: 6, padding: new Vector4(0, 0, 0, 0));
+        UIFactory.SetLayoutElement(profRow,
+            minWidth: 360, preferredWidth: 400, flexibleWidth: 1,
+            minHeight: 32, preferredHeight: 32, flexibleHeight: 0);
+        AddCommandButton(profRow, "List Professions", MessageService.BCCOM_PROF_LIST,
+            "List the professions Bloodcraft tracks (.prof l). Reply in chat.");
+        AddCommandButton(profRow, "Toggle Prof Log",  MessageService.BCCOM_PROF_LOG_TOGGLE,
+            "Toggle in-chat profession-progress logging (.prof log). SERVER-side toggle.");
+
+        AddSpacer(page, 4);
+        CollapsibleSection.Build(page,
+            title: "Show profession progress (.prof get)",
+            startExpanded: false,
+            tooltip: "Displays your current level + progress for the chosen profession in chat.",
+            buildContent: c => FormBuilder.Build(c,
+                title: "Show profession",
+                commandTemplate: ".prof get {profession}",
+                new EnumField<PlayerStateService.BloodcraftProfession>("profession", "Profession",
+                    defaultValue: PlayerStateService.BloodcraftProfession.Enchanting,
+                    tooltip: "Which profession to inspect.")));
+
+        // ---- 0.6.0: .lvl + .misc utilities the audit caught ----
+        AddSpacer(page, 8);
+        AddSectionHeading(page, "Player Tools");
+        var toolsRow1 = UIFactory.CreateHorizontalGroup(page, "PlayerToolsRow1",
+            forceExpandWidth: true, forceExpandHeight: false,
+            childControlWidth: true, childControlHeight: true,
+            spacing: 6, padding: new Vector4(0, 0, 0, 0));
+        UIFactory.SetLayoutElement(toolsRow1,
+            minWidth: 360, preferredWidth: 400, flexibleWidth: 1,
+            minHeight: 32, preferredHeight: 32, flexibleHeight: 0);
+        AddCommandButton(toolsRow1, "User Stats",     MessageService.BCCOM_MISC_USER_STATS,
+            "Print a summary of player stats in chat (.misc userstats).");
+        AddCommandButton(toolsRow1, "Toggle XP Log",  MessageService.BCCOM_LVL_LOG_TOGGLE,
+            "Toggle in-chat logging of leveling-progress messages (.lvl log). SERVER-side toggle — Bloodcraft replies with the new state in chat.");
+        AddCommandButton(toolsRow1, "Reminders",      MessageService.BCCOM_MISC_REMINDERS,
+            "Toggle general feature reminders (.misc remindme). SERVER-side toggle.");
+        AddCommandButton(toolsRow1, "Silence Music",  MessageService.BCCOM_MISC_SILENCE,
+            "Reset stuck combat music if it won't stop (.misc silence).");
+
+        var toolsRow2 = UIFactory.CreateHorizontalGroup(page, "PlayerToolsRow2",
+            forceExpandWidth: true, forceExpandHeight: false,
+            childControlWidth: true, childControlHeight: true,
+            spacing: 6, padding: new Vector4(0, 0, 0, 0));
+        UIFactory.SetLayoutElement(toolsRow2,
+            minWidth: 360, preferredWidth: 400, flexibleWidth: 1,
+            minHeight: 32, preferredHeight: 32, flexibleHeight: 0);
+        AddCommandButton(toolsRow2, "Starter Kit",    MessageService.BCCOM_MISC_KIT_ME,
+            "Claim the server's starter kit (.misc kitme). One-time on most servers.");
+        AddCommandButton(toolsRow2, "Prepare Hunt",   MessageService.BCCOM_MISC_PREPARE,
+            "Auto-complete the GettingReadyForTheHunt quest if it's stuck (.misc prepare).");
+
+        AddSpacer(page, 4);
+        CollapsibleSection.Build(page,
+            title: "Toggle scrolling combat text (.misc sct)",
+            startExpanded: false,
+            tooltip: "Enable or disable a specific scrolling-combat-text element. Bloodcraft replies with the new state in chat.",
+            buildContent: c => FormBuilder.Build(c,
+                title: "Toggle SCT",
+                commandTemplate: ".misc sct {type}",
+                new TextField("type", "SCT element type",
+                    tooltip: "Element name (e.g. 'damage', 'heal'). Bloodcraft's reply tells you the new state.")));
+
+        AddSpacer(page, 4);
+        var toolsNote = UIFactory.CreateLabel(page, "PlayerToolsNote",
+            "Heads up: most of these are server-side TOGGLES — Bloodcraft flips a flag and reports the new state in chat. The client can't 'remember' the new state across sessions because the server is the source of truth (same with Toggle Emotes / Toggle Shift / etc. on other tabs).",
+            TextAlignmentOptions.TopLeft, color: null, fontSize: 11);
+        UIFactory.SetLayoutElement(toolsNote.GameObject,
+            minWidth: 360, preferredWidth: 400, flexibleWidth: 1,
+            minHeight: 32, preferredHeight: 50, flexibleHeight: 0);
+        toolsNote.TextMesh.fontStyle = FontStyles.Italic;
+        toolsNote.TextMesh.enableWordWrapping = true;
+        toolsNote.TextMesh.overflowMode = TextOverflowModes.Overflow;
 
         RenderLevels();
         if (!_lvlSubscribed)
@@ -1191,11 +2117,183 @@ public partial class MainPanel : ResizeablePanelBase
     }
 
     // -----------------------------------------------------------------------
+    // Daily Quest tab
+    // -----------------------------------------------------------------------
+
+    private TextMeshProUGUI _dqDailyTargetLabel;
+    private TextMeshProUGUI _dqDailyProgressLabel;
+    private TextMeshProUGUI _dqWeeklyTargetLabel;
+    private TextMeshProUGUI _dqWeeklyProgressLabel;
+    private bool _dqSubscribed;
+
+    private void BuildDailyQuestTab(GameObject page)
+    {
+        AddSectionHeading(page, "Daily Quest");
+        _dqDailyTargetLabel   = AddInfoLabel(page, "DQDailyTarget",   "—", FontStyles.Bold,   fontSize: 15);
+        _dqDailyTargetLabel.color = new Color(0f, 1f, 1f); // Bloodcraft cyan #00FFFF
+        _dqDailyProgressLabel = AddInfoLabel(page, "DQDailyProgress", "—", FontStyles.Italic, fontSize: 13);
+
+        AddSpacer(page, 4);
+        var dailyRow = UIFactory.CreateHorizontalGroup(page, "DQDailyActions",
+            forceExpandWidth: true, forceExpandHeight: false,
+            childControlWidth: true, childControlHeight: true,
+            spacing: 6, padding: new Vector4(0, 0, 0, 0));
+        UIFactory.SetLayoutElement(dailyRow,
+            minWidth: 360, preferredWidth: 400, flexibleWidth: 1,
+            minHeight: 32, preferredHeight: 32, flexibleHeight: 0);
+        AddCommandButton(dailyRow, "Refresh",  MessageService.BCCOM_QUEST_PROGRESS_DAILY,
+            "Print the daily quest objective into chat (.quest p d). The UI updates automatically when Bloodcraft pushes new state via the Eclipse protocol; this is for an explicit poll.");
+        AddCommandButton(dailyRow, "Track",    MessageService.BCCOM_QUEST_TRACK_DAILY,
+            "Print the location/direction to your daily target (.quest t d). Reply appears in chat.");
+        AddCommandButton(dailyRow, "Reroll",   MessageService.BCCOM_QUEST_REROLL_DAILY,
+            "Reroll the daily quest (.quest r d). Costs the server-configured reroll item; only works once the daily is complete OR if the server allows mid-quest rerolls.");
+
+        AddSpacer(page, 8);
+        AddSectionHeading(page, "Weekly Quest");
+        _dqWeeklyTargetLabel   = AddInfoLabel(page, "DQWeeklyTarget",   "—", FontStyles.Bold,   fontSize: 15);
+        _dqWeeklyTargetLabel.color = new Color(0.75f, 0.25f, 0.75f); // Bloodcraft #BF40BF
+        _dqWeeklyProgressLabel = AddInfoLabel(page, "DQWeeklyProgress", "—", FontStyles.Italic, fontSize: 13);
+
+        AddSpacer(page, 4);
+        var weeklyRow = UIFactory.CreateHorizontalGroup(page, "DQWeeklyActions",
+            forceExpandWidth: true, forceExpandHeight: false,
+            childControlWidth: true, childControlHeight: true,
+            spacing: 6, padding: new Vector4(0, 0, 0, 0));
+        UIFactory.SetLayoutElement(weeklyRow,
+            minWidth: 360, preferredWidth: 400, flexibleWidth: 1,
+            minHeight: 32, preferredHeight: 32, flexibleHeight: 0);
+        AddCommandButton(weeklyRow, "Refresh", MessageService.BCCOM_QUEST_PROGRESS_WEEKLY,
+            "Print the weekly quest objective into chat (.quest p w).");
+        AddCommandButton(weeklyRow, "Track",   MessageService.BCCOM_QUEST_TRACK_WEEKLY,
+            "Print the location/direction to your weekly target (.quest t w).");
+        AddCommandButton(weeklyRow, "Reroll",  MessageService.BCCOM_QUEST_REROLL_WEEKLY,
+            "Reroll the weekly quest (.quest r w). Costs the server-configured reroll item.");
+
+        AddSpacer(page, 8);
+        AddSectionHeading(page, "Settings");
+        var setRow = UIFactory.CreateHorizontalGroup(page, "DQSettings",
+            forceExpandWidth: true, forceExpandHeight: false,
+            childControlWidth: true, childControlHeight: true,
+            spacing: 6, padding: new Vector4(0, 0, 0, 0));
+        UIFactory.SetLayoutElement(setRow,
+            minWidth: 360, preferredWidth: 400, flexibleWidth: 1,
+            minHeight: 32, preferredHeight: 32, flexibleHeight: 0);
+        AddCommandButton(setRow, "Toggle Quest Log", MessageService.BCCOM_QUEST_LOG_TOGGLE,
+            "Toggle in-chat progress logging (.quest log). When on, Bloodcraft prints a message each time you progress an objective.");
+
+        AddSpacer(page, 6);
+        var note = UIFactory.CreateLabel(page, "DQNote",
+            "Toggle the Daily Quest overlay from the panel footer to track progress in a small movable HUD.",
+            TextAlignmentOptions.TopLeft, color: null, fontSize: 11);
+        UIFactory.SetLayoutElement(note.GameObject,
+            minWidth: 360, preferredWidth: 400, flexibleWidth: 1,
+            minHeight: 22, preferredHeight: 26, flexibleHeight: 0);
+        note.TextMesh.fontStyle = FontStyles.Italic;
+        note.TextMesh.enableWordWrapping = true;
+        note.TextMesh.overflowMode = TextOverflowModes.Overflow;
+
+        RenderDailyQuestTab();
+        if (!_dqSubscribed)
+        {
+            PlayerStateService.QuestChanged += OnQuestChangedForTab;
+            _dqSubscribed = true;
+        }
+    }
+
+    private void OnQuestChangedForTab() => RenderDailyQuestTab();
+
+    private void RenderDailyQuestTab()
+    {
+        if (_dqDailyTargetLabel == null) return;
+        var d = PlayerStateService.DailyQuest;
+        var w = PlayerStateService.WeeklyQuest;
+        FormatQuestRow(_dqDailyTargetLabel,  _dqDailyProgressLabel,  d, "(no daily quest yet — check back after the next refresh)");
+        FormatQuestRow(_dqWeeklyTargetLabel, _dqWeeklyProgressLabel, w, "(no weekly quest yet — check back after the next refresh)");
+    }
+
+    private static void FormatQuestRow(TextMeshProUGUI target, TextMeshProUGUI progress,
+        PlayerStateService.QuestState s, string emptyHint)
+    {
+        bool hasQuest = !string.IsNullOrEmpty(s.TargetName) || s.Goal > 0;
+        if (!hasQuest)
+        {
+            target.text   = emptyHint;
+            progress.text = "";
+            return;
+        }
+        target.text = s.IsVBlood
+            ? $"⚔  {s.TargetName}  (V Blood)"
+            : $"⚔  {s.TargetName}";
+        if (s.Goal > 0 && s.Progress >= s.Goal)
+        {
+            progress.text  = "Complete!  Reroll for the next one.";
+            progress.color = new Color(0.6f, 1f, 0.6f);
+        }
+        else
+        {
+            progress.text  = $"Progress: {s.Progress} / {s.Goal}";
+            progress.color = Color.white;
+        }
+    }
+
+    // -----------------------------------------------------------------------
     // Admin tab
     // -----------------------------------------------------------------------
 
+    /// <summary>
+    /// Returns true if the user has self-asserted admin status. Otherwise
+    /// renders a placeholder explaining the gate (with a toggle to flip it)
+    /// into <paramref name="page"/> and returns false. Wrap each admin Build
+    /// method in `if (!RenderAdminGate(page, "...")) return;` so non-admin
+    /// players don't see commands the server will reject anyway.
+    /// </summary>
+    private bool RenderAdminGate(GameObject page, string contextLabel)
+    {
+        if (Settings.IsAdmin) return true;
+
+        AddSectionHeading(page, "Admin only");
+        var msg = UIFactory.CreateLabel(page, "AdminGateMsg",
+            $"{contextLabel} commands are hidden because you haven't marked yourself as a server admin. " +
+            "If you actually have admin privileges on this server, toggle the box below to surface the commands. " +
+            "Non-admins running these would just get 'permission denied' from the server.",
+            TextAlignmentOptions.TopLeft, color: null, fontSize: 12);
+        UIFactory.SetLayoutElement(msg.GameObject,
+            minWidth: 360, preferredWidth: 400, flexibleWidth: 1,
+            minHeight: 60, preferredHeight: 80, flexibleHeight: 0);
+        msg.TextMesh.enableWordWrapping = true;
+        msg.TextMesh.overflowMode = TextOverflowModes.Overflow;
+
+        AddSpacer(page, 4);
+
+        var t = UIFactory.CreateToggle(page, "AdminGateToggle");
+        UIFactory.SetLayoutElement(t.GameObject,
+            minWidth: 360, preferredWidth: 400, flexibleWidth: 1,
+            minHeight: 28, preferredHeight: 28, flexibleHeight: 0);
+        t.Text.text = "I am a server admin (show admin commands)";
+        t.Text.fontSize = 13;
+        t.Text.alignment = TextAlignmentOptions.MidlineLeft;
+        UIFactory.SetLayoutElement(t.Text.gameObject,
+            minWidth: 320, preferredWidth: 360, flexibleWidth: 1,
+            minHeight: 24, preferredHeight: 24, flexibleHeight: 0);
+        t.Toggle.isOn = false;
+        t.OnValueChanged += value =>
+        {
+            Settings.SetIsAdmin(value);
+            // Rebuild every admin tab the user has already opened so the gate
+            // disappears immediately. Cheap: empty pages just rebuild on next
+            // ShowTab; built pages we clear and re-dispatch via BuildContentArea
+            // is overkill here - the user can switch away/back to refresh.
+            // The simplest UX: re-show the current tab.
+            ShowTab(ActiveTab);
+        };
+
+        return false;
+    }
+
     private void BuildAdminTab(GameObject page)
     {
+        if (!RenderAdminGate(page, "Bloodcraft admin")) return;
+
         AddSectionHeading(page, "Server Diagnostics");
 
         var diagRow = UIFactory.CreateHorizontalGroup(page, "AdminDiag",
@@ -1226,6 +2324,30 @@ public partial class MainPanel : ResizeablePanelBase
                 new IntField("level", "Level", min: 1, max: 200,
                     tooltip: "Target character level. Bloodcraft default cap is 90.")));
 
+        CollapsibleSection.Build(page,
+            title: "Toggle shared-XP exclusion (.lvl ignore)",
+            startExpanded: false,
+            tooltip: "Adds (or removes) a player from the list of those NOT eligible to receive shared experience. Toggle — Bloodcraft replies with the new state in chat.",
+            buildContent: content => FormBuilder.Build(content,
+                title: "Toggle shared-XP ignore",
+                commandTemplate: ".lvl ignore {player}",
+                new PlayerNameField("player", "Player",
+                    tooltip: "Target player. The flip is reversible — call again to remove from the ignore list.")));
+
+        // ---- 0.7.0 admin profession setter ----
+        CollapsibleSection.Build(page,
+            title: "Set player profession level (.prof set)",
+            startExpanded: false,
+            tooltip: "Set a player's profession level for the named profession.",
+            buildContent: content => FormBuilder.Build(content,
+                title: "Set profession",
+                commandTemplate: ".prof set {player} {profession} {level}",
+                new PlayerNameField("player", "Player"),
+                new EnumField<PlayerStateService.BloodcraftProfession>("profession", "Profession",
+                    defaultValue: PlayerStateService.BloodcraftProfession.Enchanting),
+                new IntField("level", "Level", min: 0, max: 100,
+                    tooltip: "Target level. 0 resets.")));
+
         // Set prestige
         CollapsibleSection.Build(page,
             title: "Set player prestige (.prestige set)",
@@ -1254,6 +2376,41 @@ public partial class MainPanel : ResizeablePanelBase
                 new EnumField<PlayerStateService.PrestigeType>("type", "Prestige type",
                     defaultValue: PlayerStateService.PrestigeType.Experience,
                     tooltip: "Which prestige system to reset.")));
+
+        // ---- 0.7.0 prestige audit additions ----
+        CollapsibleSection.Build(page,
+            title: "Toggle prestige-leaderboard exclusion (.prestige ignore)",
+            startExpanded: false,
+            tooltip: "Adds (or removes) the player from the list of those who are HIDDEN from prestige leaderboards. Intended for admin/staff accounts.",
+            buildContent: c => FormBuilder.Build(c,
+                title: "Toggle leaderboard exclusion",
+                commandTemplate: ".prestige ignore {player}",
+                new PlayerNameField("player", "Player",
+                    tooltip: "Toggle — calling again removes them from the exclusion list.")));
+
+        CollapsibleSection.Build(page,
+            title: "GLOBAL prestige-buff purge — DESTRUCTIVE",
+            startExpanded: false,
+            tooltip: "Removes prestige buffs from EVERY player on the server, so config-changed buffs can be re-applied cleanly. Cannot be undone in one click — every player would need to re-apply via .prestige sb. Required confirm.",
+            buildContent: c => FormBuilder.Build(c,
+                title: "Global prestige-buff purge",
+                commandTemplate: MessageService.BCCOM_PRESTIGE_GLOBAL_BUFF_PURGE,
+                new BoolField("confirm", "Yes, purge prestige buffs from EVERY player",
+                    tooltip: "Required. Affects every player on the server — they each need to .prestige sb to re-apply.",
+                    requireTrue: true)));
+
+        // ---- 0.7.0 quest audit addition ----
+        CollapsibleSection.Build(page,
+            title: "Force-complete a player's quest (.quest c)",
+            startExpanded: false,
+            tooltip: "Marks a Daily or Weekly quest as complete for the named player without them having to fulfil the objective.",
+            buildContent: c => FormBuilder.Build(c,
+                title: "Force-complete quest",
+                commandTemplate: ".quest c {player} {type}",
+                new PlayerNameField("player", "Player"),
+                new EnumField<PlayerStateService.BloodcraftQuestType>("type", "Quest type",
+                    defaultValue: PlayerStateService.BloodcraftQuestType.Daily,
+                    tooltip: "Daily or Weekly.")));
 
         // Set blood legacy
         CollapsibleSection.Build(page,
@@ -1433,58 +2590,69 @@ public partial class MainPanel : ResizeablePanelBase
                 new TextField("name", "Chest name",
                     tooltip: "The custom name written on the chest's sign (e.g. 'salvage', 'spawner', 'brazier').")));
 
-        // ---- Admin globals (.lg ...) -------------------------------------
-        // Wrapped in a single CollapsibleSection so non-admins can hide it.
+        // Admin globals (.lg ...) live on the dedicated KindredLogisticsAdminTab,
+        // gated behind Settings.IsAdmin. Pointer left here so anyone reading
+        // BuildKindredLogisticsTab knows where the rest of the surface went.
+    }
+
+    private void BuildKindredLogisticsAdminTab(GameObject page)
+    {
+        if (!RenderAdminGate(page, "Kindred Logistics admin")) return;
+
+        var intro = UIFactory.CreateLabel(page, "KLAdminIntro",
+            "Server-wide toggles for the KindredLogistics features. These affect every player on the server. Requires admin permission server-side.",
+            TextAlignmentOptions.TopLeft, color: null, fontSize: 12);
+        UIFactory.SetLayoutElement(intro.GameObject,
+            minWidth: 360, preferredWidth: 400, flexibleWidth: 1,
+            minHeight: 32, preferredHeight: 36, flexibleHeight: 0);
+        intro.TextMesh.enableWordWrapping = true;
+        intro.TextMesh.overflowMode = TextOverflowModes.Overflow;
+
+        AddSpacer(page, 4);
+        AddSectionHeading(page, "Admin Globals (.lg)");
+
+        var ar1 = AddKLRow(page, "KLAdmin1");
+        AddCommandButton(ar1, "Sort Stash",      MessageService.BCCOM_KL_ADMIN_SORT_STASH,
+            "Server-wide: enable auto-stash on sort double-click (.lg ss).");
+        AddCommandButton(ar1, "Pull",            MessageService.BCCOM_KL_ADMIN_PULL,
+            "Server-wide: enable the .pull command for all players (.lg p).");
+        AddCommandButton(ar1, "Craft Pull",      MessageService.BCCOM_KL_ADMIN_CRAFT_PULL,
+            "Server-wide: enable right-click-recipe ingredient pulling (.lg cr).");
+        AddCommandButton(ar1, "Servant Stash",   MessageService.BCCOM_KL_ADMIN_AUTOSTASH_MISSION,
+            "Server-wide: enable auto-stash for servant mission rewards (.lg asm).");
+
+        var ar2 = AddKLRow(page, "KLAdmin2");
+        AddCommandButton(ar2, "Conveyor",        MessageService.BCCOM_KL_ADMIN_CONVEYOR,
+            "Server-wide: enable sender/receiver conveyor chests (.lg co).");
+        AddCommandButton(ar2, "Salvage",         MessageService.BCCOM_KL_ADMIN_SALVAGE,
+            "Server-wide: enable 'salvage' chests (.lg sal).");
+        AddCommandButton(ar2, "Unit Spawner",    MessageService.BCCOM_KL_ADMIN_UNIT_SPAWNER,
+            "Server-wide: enable 'spawner' chests filling unit stations (.lg us).");
+        AddCommandButton(ar2, "Brazier",         MessageService.BCCOM_KL_ADMIN_BRAZIER,
+            "Server-wide: enable 'brazier' chests auto-fueling braziers (.lg bz).");
+
+        var ar3 = AddKLRow(page, "KLAdmin3");
+        AddCommandButton(ar3, "Named Brazier",   MessageService.BCCOM_KL_ADMIN_NAMED_BRAZIER,
+            "Server-wide: enable night/proximity-controlled named braziers (.lg nam).");
+        AddCommandButton(ar3, "Trash",           MessageService.BCCOM_KL_ADMIN_TRASH,
+            "Server-wide: allow 'trash' chests to delete their contents (.lg trash).");
+        AddCommandButton(ar3, "Show Settings",   MessageService.BCCOM_KL_ADMIN_SETTINGS,
+            "Print the current server-wide Logistics settings into chat (.lg s).");
+        AddCommandButton(ar3, "Empty Trash",     MessageService.BCCOM_KL_ADMIN_EMPTY_TRASH,
+            "Empty all trash containers in your current territory (.emptytrash).");
+
         AddSpacer(page, 6);
         CollapsibleSection.Build(page,
-            title: "Admin Globals (.lg) - admin only",
+            title: "Spawn item to territory stash (.adminstash)",
             startExpanded: false,
-            tooltip: "Server-wide toggles for the KindredLogistics features. Admin permission required.",
-            buildContent: c =>
-            {
-                var ar1 = AddKLRow(c, "KLAdmin1");
-                AddCommandButton(ar1, "Sort Stash",      MessageService.BCCOM_KL_ADMIN_SORT_STASH,
-                    "Server-wide: enable auto-stash on sort double-click (.lg ss).");
-                AddCommandButton(ar1, "Pull",            MessageService.BCCOM_KL_ADMIN_PULL,
-                    "Server-wide: enable the .pull command for all players (.lg p).");
-                AddCommandButton(ar1, "Craft Pull",      MessageService.BCCOM_KL_ADMIN_CRAFT_PULL,
-                    "Server-wide: enable right-click-recipe ingredient pulling (.lg cr).");
-                AddCommandButton(ar1, "Servant Stash",   MessageService.BCCOM_KL_ADMIN_AUTOSTASH_MISSION,
-                    "Server-wide: enable auto-stash for servant mission rewards (.lg asm).");
-
-                var ar2 = AddKLRow(c, "KLAdmin2");
-                AddCommandButton(ar2, "Conveyor",        MessageService.BCCOM_KL_ADMIN_CONVEYOR,
-                    "Server-wide: enable sender/receiver conveyor chests (.lg co).");
-                AddCommandButton(ar2, "Salvage",         MessageService.BCCOM_KL_ADMIN_SALVAGE,
-                    "Server-wide: enable 'salvage' chests (.lg sal).");
-                AddCommandButton(ar2, "Unit Spawner",    MessageService.BCCOM_KL_ADMIN_UNIT_SPAWNER,
-                    "Server-wide: enable 'spawner' chests filling unit stations (.lg us).");
-                AddCommandButton(ar2, "Brazier",         MessageService.BCCOM_KL_ADMIN_BRAZIER,
-                    "Server-wide: enable 'brazier' chests auto-fueling braziers (.lg bz).");
-
-                var ar3 = AddKLRow(c, "KLAdmin3");
-                AddCommandButton(ar3, "Named Brazier",   MessageService.BCCOM_KL_ADMIN_NAMED_BRAZIER,
-                    "Server-wide: enable night/proximity-controlled named braziers (.lg nam).");
-                AddCommandButton(ar3, "Trash",           MessageService.BCCOM_KL_ADMIN_TRASH,
-                    "Server-wide: allow 'trash' chests to delete their contents (.lg trash).");
-                AddCommandButton(ar3, "Show Settings",   MessageService.BCCOM_KL_ADMIN_SETTINGS,
-                    "Print the current server-wide Logistics settings into chat (.lg s).");
-                AddCommandButton(ar3, "Empty Trash",     MessageService.BCCOM_KL_ADMIN_EMPTY_TRASH,
-                    "Empty all trash containers in your current territory (.emptytrash).");
-
-                AddSpacer(c, 4);
-                CollapsibleSection.Build(c,
-                    title: "Spawn item to territory stash (.adminstash)",
-                    startExpanded: false,
-                    tooltip: "Spawns a quantity of an item directly into the current territory's stash containers.",
-                    buildContent: cc => FormBuilder.Build(cc,
-                        title: "Admin stash spawn",
-                        commandTemplate: ".adminstash {item} {quantity}",
-                        new TextField("item", "Item name",
-                            tooltip: "Item prefab name to spawn (e.g. 'Iron Ingot', 'Blood Essence')."),
-                        new IntField("quantity", "Quantity", min: 1, max: 9999,
-                            tooltip: "How many to spawn.")));
-            });
+            tooltip: "Spawns a quantity of an item directly into the current territory's stash containers.",
+            buildContent: c => FormBuilder.Build(c,
+                title: "Admin stash spawn",
+                commandTemplate: ".adminstash {item} {quantity}",
+                new TextField("item", "Item name",
+                    tooltip: "Item prefab name to spawn (e.g. 'Iron Ingot', 'Blood Essence')."),
+                new IntField("quantity", "Quantity", min: 1, max: 9999,
+                    tooltip: "How many to spawn.")));
     }
 
     // Action row matching the look used by other tabs (Familiars, Class, etc.):
@@ -1542,7 +2710,7 @@ public partial class MainPanel : ResizeablePanelBase
         AddCommandButton(infoRow1, "Online Staff", MessageService.BCCOM_KC_STAFF,
             "List staff members currently online (.staff).");
         AddCommandButton(infoRow1, "Open Plots",   MessageService.BCCOM_KC_CASTLE_OPEN_PLOTS,
-            "Report territories with open or decaying castle plots (.castle openplots).");
+            "Report territories with open or decaying castle plots (.openplots — alias .op). Reply appears in chat.");
         AddCommandButton(infoRow1, "Soulshards",   MessageService.BCCOM_KC_GEAR_SOULSHARD_STATUS,
             "Print the status of soulshards on the server (.gear soulshardstatus).");
 
@@ -1632,6 +2800,161 @@ public partial class MainPanel : ResizeablePanelBase
     // -----------------------------------------------------------------------
     // Quick Start Guide tab (Help group)
     // -----------------------------------------------------------------------
+
+    // -----------------------------------------------------------------------
+    // Vanilla Admin Reference tab (Help group) — documents the in-game console
+    // commands BCH cannot trigger directly, plus the chat-command equivalents
+    // we DO surface elsewhere.
+    // -----------------------------------------------------------------------
+
+    private void BuildVanillaAdminTab(GameObject page)
+    {
+        AddGuideSection(page,
+            "Why this is reference, not action",
+            "V Rising's vanilla admin commands (the ones the game ships with — " +
+            "no mods needed) are CONSOLE commands, typed into the in-game " +
+            "console (default key F1) — NOT chat commands. They use a different " +
+            "input pipeline than mod commands like .fam or .lvl. BloodCraftHub " +
+            "is a CLIENT mod that sends CHAT messages, so it can't trigger " +
+            "console commands directly.\n\n" +
+            "The good news: KindredCommands re-implements most of the " +
+            "common admin actions (kick / ban / give / spawn / teleport / etc.) " +
+            "as CHAT commands — and BCH wires every one of those into the " +
+            "KINDRED → Admin: Players / Server / World tabs. So the actions " +
+            "you want to take are already covered there. This tab is a " +
+            "reference for the underlying vanilla console commands in case " +
+            "you need to type them yourself (open the console with F1).");
+
+        AddGuideSection(page,
+            "Authentication",
+            "  • adminauth                — grant yourself admin powers (needed before any other vanilla admin command)\n" +
+            "  • adminderegister          — drop admin powers for the current session");
+
+        AddGuideSection(page,
+            "Player management",
+            "  • Kick <CharacterName>     — kick a player by name\n" +
+            "  • BanUser <SteamID>        — ban a player by SteamID\n" +
+            "  • Banhammer <SteamID>      — ban + delete the player's characters\n" +
+            "  • Unban <UserIndex>        — unban (use BanList to find the index)\n" +
+            "  • BanList                  — list current bans\n" +
+            "  • Connectinfo              — print connection info for diagnostics\n" +
+            "  • Mute <SteamID> <minutes> — silence a player (vanilla)\n\n" +
+            "Chat-command equivalents already in BCH (KINDRED → Admin: Players):\n" +
+            "  → .kick, .ban (via Kindred or vanilla), .unban, etc.");
+
+        AddGuideSection(page,
+            "Item / character spawning",
+            "  • give <PrefabName>          — give yourself an item by prefab name\n" +
+            "  • giveset                    — open the giveset menu (sets of armor/weapons)\n" +
+            "  • SpawnUnit <PrefabName>     — spawn an NPC at your position\n" +
+            "  • teleporttowaypoint <name>  — teleport to a waypoint\n\n" +
+            "Chat-command equivalents already in BCH (KINDRED → Admin: World):\n" +
+            "  → .give {item} {qty}\n" +
+            "  → .spawnnpc / .customspawn / .customspawnat\n" +
+            "  → .teleport {x} {y} {z} {player}\n" +
+            "Use the Lookups section on the same tab to find prefab names.");
+
+        AddGuideSection(page,
+            "Server",
+            "  • List                  — list every console command\n" +
+            "  • Help <command>        — detailed help for a command\n" +
+            "  • Save                  — force a server save\n" +
+            "  • Disconnect            — disconnect yourself from the server\n" +
+            "  • Quit                  — close the V Rising client");
+
+        AddGuideSection(page,
+            "How to use the in-game console",
+            "  1. Press F1 while in-game (or whatever your bound console key is)\n" +
+            "  2. Type the command exactly as written (case can matter for some)\n" +
+            "  3. Press Enter\n\n" +
+            "If F1 doesn't open the console, check your keybindings in the V " +
+            "Rising settings or run with `-console` on the command line.\n\n" +
+            "If a command says 'access denied' you haven't run adminauth yet, " +
+            "OR your SteamID isn't in the server's adminlist (server-side config).");
+    }
+
+    // -----------------------------------------------------------------------
+    // About tab (Help group) — credits + community links
+    // -----------------------------------------------------------------------
+
+    private void BuildAboutTab(GameObject page)
+    {
+        AddGuideSection(page,
+            "Server-side mods this UI talks to",
+            "BloodCraftHub is a CLIENT mod — it doesn't change the server. " +
+            "Everything you see here is wrapping the chat-command surface of " +
+            "two server-side mods made by other developers. Big thanks to:");
+
+        AddGuideSection(page,
+            "Bloodcraft  —  by zfolmt",
+            "Leveling, expertise, legacies, professions, familiars, classes, quests! " +
+            "The bulk of what BloodCraftHub surfaces (every BLOODCRAFT-group tab) " +
+            "would not exist without zfolmt's mod.");
+        AddLinkRow(page, "Bloodcraft on Thunderstore",
+            "https://thunderstore.io/c/v-rising/p/zfolmt/Bloodcraft/");
+
+        AddGuideSection(page,
+            "KindredCommands  —  by odjit",
+            "Commands to expand administration efforts and provide information. " +
+            "The KINDRED admin tabs (Players / Server / World) and the Logistics " +
+            "section all call into odjit's mods.");
+        AddLinkRow(page, "KindredCommands on Thunderstore",
+            "https://thunderstore.io/c/v-rising/p/odjit/KindredCommands/");
+
+        AddGuideSection(page,
+            "About me",
+            "Player Name: Chaos\n" +
+            "V Rising Server: The Shadow Realm  (Brutal, PvE)\n\n" +
+            "Want to support development? Use the Open buttons below.");
+
+        AddLinkRow(page, "Server Discord",   "https://discord.gg/usC9QgBrXK");
+        AddLinkRow(page, "PayPal (support)", "https://www.paypal.com/paypalme/KrisPenland");
+        AddLinkRow(page, "SkillEra.IO",      "https://SkillEra.IO");
+
+        AddGuideSection(page,
+            "About this UI",
+            "BloodCraftHub is open source (MIT). Bug reports, feature ideas, " +
+            "and pull requests welcome:");
+
+        AddLinkRow(page, "GitHub repo", "https://github.com/KDavidP1987/BloodCraftHub");
+    }
+
+    /// <summary>One row showing a label, the URL, and an "Open" button that
+    /// hands the URL to <see cref="UnityEngine.Application.OpenURL"/> so the
+    /// system browser opens it. Cleaner than wiring TMPro &lt;link&gt; click
+    /// handlers under IL2CPP.</summary>
+    private static void AddLinkRow(GameObject parent, string label, string url)
+    {
+        var row = UIFactory.CreateHorizontalGroup(parent, $"LinkRow_{label}",
+            forceExpandWidth: true, forceExpandHeight: false,
+            childControlWidth: true, childControlHeight: true,
+            spacing: 6, padding: new Vector4(2, 2, 1, 1));
+        UIFactory.SetLayoutElement(row,
+            minWidth: 360, preferredWidth: 400, flexibleWidth: 1,
+            minHeight: 24, preferredHeight: 26, flexibleHeight: 0);
+
+        var lbl = UIFactory.CreateLabel(row, "LinkLbl",
+            $"{label}:  {url}",
+            TextAlignmentOptions.MidlineLeft, color: null, fontSize: 12);
+        UIFactory.SetLayoutElement(lbl.GameObject,
+            minWidth: 240, preferredWidth: 320, flexibleWidth: 1,
+            minHeight: 22, preferredHeight: 24, flexibleHeight: 0);
+        lbl.TextMesh.enableWordWrapping = false;
+        lbl.TextMesh.overflowMode = TextOverflowModes.Ellipsis;
+
+        var btn = UIFactory.CreateButton(row, "OpenBtn", "Open");
+        UIFactory.SetLayoutElement(btn.GameObject,
+            minWidth: 56, preferredWidth: 64, flexibleWidth: 0,
+            minHeight: 22, preferredHeight: 24, flexibleHeight: 0);
+        var btnText = btn.Component.GetComponentInChildren<TextMeshProUGUI>();
+        if (btnText != null) btnText.fontSize = 12;
+        btn.OnClick = () =>
+        {
+            try { UnityEngine.Application.OpenURL(url); }
+            catch (System.Exception ex) { LogUtils.LogWarning($"OpenURL('{url}') threw: {ex.Message}"); }
+        };
+        TooltipHover.Attach(btn.GameObject, $"Open {url} in your default browser.");
+    }
 
     private void BuildQuickStartTab(GameObject page)
     {
@@ -1731,25 +3054,20 @@ public partial class MainPanel : ResizeablePanelBase
 
         var lbl = UIFactory.CreateLabel(parent, $"Guide_{title}", body,
             TextAlignmentOptions.TopLeft, color: null, fontSize: 12);
-        // Guide body: word-wrap on, generous min height so the parent layout
-        // reserves enough room. Actual rendered height will exceed this for
-        // longer paragraphs; the page's VerticalLayoutGroup auto-flows.
+        // Guide body sized by TMP's actual rendered preferredHeight via a
+        // ContentSizeFitter. Earlier versions estimated lines × 16 which
+        // consistently over-shot, producing visible empty gaps between
+        // sections. preferredWidth is fixed (panel content area) so wrap
+        // is deterministic.
         UIFactory.SetLayoutElement(lbl.GameObject,
             minWidth: 360, preferredWidth: 400, flexibleWidth: 1,
-            minHeight: 40, preferredHeight: EstimateHeight(body, 56), flexibleHeight: 0);
+            minHeight: 20, flexibleHeight: 0);
         lbl.TextMesh.enableWordWrapping = true;
         lbl.TextMesh.overflowMode = TextOverflowModes.Overflow;
         lbl.TextMesh.fontStyle = FontStyles.Normal;
-    }
-
-    /// <summary>Cheap line-count estimate for guide body text so its preferredHeight reflects content.</summary>
-    private static int EstimateHeight(string body, int charsPerLine)
-    {
-        if (string.IsNullOrEmpty(body)) return 40;
-        // One line per ~charsPerLine columns, plus one extra line per "\n".
-        int lines = 1 + body.Length / charsPerLine;
-        foreach (var ch in body) if (ch == '\n') lines++;
-        return Math.Max(40, lines * 16);
+        var fitter = lbl.GameObject.AddComponent<UnityEngine.UI.ContentSizeFitter>();
+        fitter.horizontalFit = UnityEngine.UI.ContentSizeFitter.FitMode.Unconstrained;
+        fitter.verticalFit   = UnityEngine.UI.ContentSizeFitter.FitMode.PreferredSize;
     }
 
     private static void AddAdminRefLine(GameObject parent, string command, string summary)
@@ -1856,9 +3174,10 @@ public partial class MainPanel : ResizeablePanelBase
         UIFactory.SetLayoutElement(spacer, minHeight: height, preferredHeight: height, flexibleHeight: 0, flexibleWidth: 1);
     }
 
-    private static void AddCommandButton(GameObject parent, string label, string command, string tooltip = null)
+    private static void AddCommandButton(GameObject parent, string label, string command,
+        string tooltip = null, Color? color = null, bool confirm = false)
     {
-        var b = UIFactory.CreateButton(parent, $"Cmd_{label}", label);
+        var b = UIFactory.CreateButton(parent, $"Cmd_{label}", label, color);
         UIFactory.SetLayoutElement(b.GameObject,
             minWidth: 70, preferredWidth: 110, flexibleWidth: 1,
             minHeight: 28, preferredHeight: 30, flexibleHeight: 0);
@@ -1874,7 +3193,36 @@ public partial class MainPanel : ResizeablePanelBase
             t.alignment = TextAlignmentOptions.Center;
             t.fontSize = 13;
         }
-        b.OnClick = () => EnqueueOrWarn(command);
+
+        if (confirm && t != null)
+        {
+            // Two-click confirm: first click arms the button for 3s and changes
+            // its text to "Confirm?". A second click within the window sends.
+            // Outside the window, it reverts to the original label silently.
+            // This avoids a modal dialog system for the one or two destructive
+            // commands we expose (e.g. .fam ub permanently destroys familiar).
+            float armUntil = -1f;
+            string originalLabel = label;
+            b.OnClick = () =>
+            {
+                float now = Time.realtimeSinceStartup;
+                if (armUntil > 0 && now <= armUntil)
+                {
+                    armUntil = -1f;
+                    t.text = originalLabel;
+                    EnqueueOrWarn(command);
+                }
+                else
+                {
+                    armUntil = now + 3f;
+                    t.text = "Confirm?";
+                }
+            };
+        }
+        else
+        {
+            b.OnClick = () => EnqueueOrWarn(command);
+        }
 
         // Hover tooltip: default to the literal command text so even un-described
         // buttons surface what they'll send; per-call site can pass a richer
@@ -1899,25 +3247,48 @@ public partial class MainPanel : ResizeablePanelBase
 
     private void BuildOverlayFooter(GameObject parent)
     {
-        var footer = UIFactory.CreateHorizontalGroup(parent, "OverlayFooter",
+        // Two-row layout so toggles never overflow when the panel is narrow.
+        // Earlier 0.4.1 added a 6th toggle (Familiar Browser) that, plus the
+        // long "Suspend game input when typing" label, made the row spill off
+        // the right edge at the panel's MinWidth=600.
+        var footerWrap = UIFactory.CreateVerticalGroup(parent, "OverlayFooterWrap",
+            forceWidth: true, forceHeight: false,
+            childControlWidth: true, childControlHeight: true,
+            spacing: 2, padding: new Vector4(8, 8, 4, 4));
+        UIFactory.SetLayoutElement(footerWrap, minHeight: 56, flexibleHeight: 0, flexibleWidth: 1);
+
+        var row1 = UIFactory.CreateHorizontalGroup(footerWrap, "OverlayFooterRow1",
             forceExpandWidth: true, forceExpandHeight: false,
             childControlWidth: false, childControlHeight: false,
-            spacing: 12, padding: new Vector4(8, 8, 4, 4));
-        UIFactory.SetLayoutElement(footer, minHeight: 32, flexibleHeight: 0, flexibleWidth: 1);
+            spacing: 12, padding: new Vector4(0, 0, 0, 0));
+        UIFactory.SetLayoutElement(row1, minHeight: 26, flexibleHeight: 0, flexibleWidth: 1);
 
-        _xpOverlayToggle  = AddOverlayToggle(footer, "XP overlay",       PanelType.ExperienceOverlay);
-        _famOverlayToggle = AddOverlayToggle(footer, "Familiar overlay", PanelType.FamiliarOverlay);
-        AddAutoResizeToggle(footer);
-        AddInputBlockToggle(footer);
+        var row2 = UIFactory.CreateHorizontalGroup(footerWrap, "OverlayFooterRow2",
+            forceExpandWidth: true, forceExpandHeight: false,
+            childControlWidth: false, childControlHeight: false,
+            spacing: 12, padding: new Vector4(0, 0, 0, 0));
+        UIFactory.SetLayoutElement(row2, minHeight: 26, flexibleHeight: 0, flexibleWidth: 1);
+
+        // Row 1 — overlay toggles
+        _xpOverlayToggle  = AddOverlayToggle(row1, "XP overlay",        PanelType.ExperienceOverlay);
+        _famOverlayToggle = AddOverlayToggle(row1, "Familiar overlay",  PanelType.FamiliarOverlay);
+        _famBrowserToggle = AddOverlayToggle(row1, "Familiar Browser",  PanelType.FamiliarBrowserOverlay);
+        _dqOverlayToggle  = AddOverlayToggle(row1, "Daily quest",       PanelType.DailyQuestOverlay);
+
+        // Row 2 — panel behavior toggles
+        AddAutoResizeToggle(row2);
+        AddInputBlockToggle(row2);
+        // The "Suspend game input while UI open" toggle was removed in 0.1.2;
+        // its implementation wedged the UI-input pipeline. See InputActionSystemPatch.cs.
     }
 
     private void AddInputBlockToggle(GameObject parent)
     {
         var t = UIFactory.CreateToggle(parent, "InputBlockToggle");
         UIFactory.SetLayoutElement(t.GameObject,
-            minWidth: 200, preferredWidth: 220, flexibleWidth: 0,
+            minWidth: 240, preferredWidth: 270, flexibleWidth: 1,
             minHeight: 24, preferredHeight: 24, flexibleHeight: 0);
-        t.Text.text = "Suspend game input when typing";
+        t.Text.text = "Suspend game input on type (experimental)";
         t.Text.fontSize = 13;
         t.Text.enableWordWrapping = false;
         t.Text.overflowMode = TextOverflowModes.Overflow;
@@ -1928,8 +3299,10 @@ public partial class MainPanel : ResizeablePanelBase
 
         t.Toggle.isOn = Settings.SuspendGameInputWhileTyping;
         TooltipHover.Attach(t.GameObject,
-            "When on: WASD typed into UI fields stays in the form (game input paused). Off: " +
-            "game keeps reading input even while a field is focused (typing also moves your character).");
+            "EXPERIMENTAL (default OFF). When on, WASD typed into a BCH field stays in the form. " +
+            "WARNING: the underlying mechanism can also lock UI clicks — if the panel becomes " +
+            "unresponsive after clicking a field, this is why. Mash Escape / quit V Rising if it freezes. " +
+            "Off is safe; your character will move when you type WASD.");
         t.OnValueChanged += value =>
         {
             Plugin.Instance.Config.Bind(Settings.UI_SETTINGS_GROUP,
@@ -1988,8 +3361,11 @@ public partial class MainPanel : ResizeablePanelBase
             float pageHeight  = ComputeChildrenSumHeight(measureGo);
             float stripHeight = _tabStripGo != null ? ComputeChildrenSumHeight(_tabStripGo) : 0f;
             float contentHeight = Math.Max(pageHeight, stripHeight);
-            // Chrome budget: OverlayFooter (32) + TooltipFooter (22) + spacing/margins (~22) ≈ 76px.
-            float chrome = 76f;
+            // Chrome budget: panel title bar (~24) + OverlayFooter (32) + TooltipFooter (22) +
+            // spacing/margins/safety buffer (~32) ≈ 110px. The earlier 76 was missing the title-
+            // bar height, which manifested as the panel coming up short by a row or two when
+            // switching to a long box-content view.
+            float chrome = 110f;
             float desired = contentHeight + chrome;
             float screenCap = UnityEngine.Screen.height * 0.9f;
             float clamped = Math.Min(Math.Max(desired, MinHeight), screenCap);
@@ -2046,17 +3422,19 @@ public partial class MainPanel : ResizeablePanelBase
     private Toggle AddOverlayToggle(GameObject parent, string label, PanelType overlay)
     {
         var t = UIFactory.CreateToggle(parent, $"OverlayToggle_{overlay}");
+        // Compact widths so 4 toggles fit in row 1 of the footer at the panel's
+        // MinWidth=600 without spilling off the right edge.
         UIFactory.SetLayoutElement(t.GameObject,
-            minWidth: 200, preferredWidth: 220, flexibleWidth: 0,
+            minWidth: 130, preferredWidth: 150, flexibleWidth: 0,
             minHeight: 24, preferredHeight: 24, flexibleHeight: 0);
 
         t.Text.text = label;
-        t.Text.fontSize = 14;
+        t.Text.fontSize = 13;
         t.Text.enableWordWrapping = false;
         t.Text.overflowMode = TextOverflowModes.Overflow;
         t.Text.alignment = TextAlignmentOptions.MidlineLeft;
         UIFactory.SetLayoutElement(t.Text.gameObject,
-            minWidth: 160, preferredWidth: 180, flexibleWidth: 1,
+            minWidth: 100, preferredWidth: 120, flexibleWidth: 1,
             minHeight: 24, preferredHeight: 24, flexibleHeight: 0);
 
         t.Toggle.isOn = Plugin.UIManager.IsOverlayOpen(overlay);
@@ -2073,6 +3451,20 @@ public partial class MainPanel : ResizeablePanelBase
         if (!_tabContent.ContainsKey(tab)) return;
         foreach (var kv in _tabContent) kv.Value.SetActive(kv.Key == tab);
         ActiveTab = tab;
+
+        // First-open auto-pull for tabs whose body depends on a server reply.
+        // Boxes tab: send .fam boxes if we don't have any yet, so the user
+        // doesn't have to click Refresh on every cold open. Cheap and idempotent
+        // (the existing intercept-flag logic handles re-arming if pressed twice).
+        if (tab == PanelType.BoxesTab
+            && PlayerStateService.BoxList != null
+            && PlayerStateService.BoxList.Count == 0
+            && MessageService.IsInitialized)
+        {
+            if (_boxesStatusLabel != null) _boxesStatusLabel.text = "Loading boxes from the server…";
+            EnqueueOrWarn(MessageService.BCCOM_FAM_BOXES);
+        }
+
         AutoResizeIfEnabled();
     }
 
@@ -2122,6 +3514,26 @@ public partial class MainPanel : ResizeablePanelBase
             PlayerStateService.FamiliarChanged   -= OnAnyForLevels;
             PlayerStateService.ProfessionChanged -= OnAnyForLevels;
             _lvlSubscribed = false;
+        }
+        if (_dqSubscribed)
+        {
+            PlayerStateService.QuestChanged -= OnQuestChangedForTab;
+            _dqSubscribed = false;
+        }
+        if (_blSubscribed)
+        {
+            PlayerStateService.LegacyChanged -= OnLegacyChanged;
+            _blSubscribed = false;
+        }
+        if (_blInfoSubscribed)
+        {
+            PlayerStateService.BloodInfoChanged -= OnBloodInfoChanged;
+            _blInfoSubscribed = false;
+        }
+        if (_prestigeInfoSubscribed)
+        {
+            PlayerStateService.PrestigeInfoChanged -= OnPrestigeInfoChanged;
+            _prestigeInfoSubscribed = false;
         }
         if (_collapsibleSubscribed)
         {

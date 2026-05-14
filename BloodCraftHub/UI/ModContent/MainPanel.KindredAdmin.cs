@@ -26,6 +26,7 @@ public partial class MainPanel
 
     private void BuildKindredAdminPlayersTab(GameObject page)
     {
+        if (!RenderAdminGate(page, "Kindred admin (Players)")) return;
         AddAdminWarningIntro(page,
             "Player-targeting admin commands. Most accept a player name; leave " +
             "the player field blank to target yourself. Requires KindredCommands " +
@@ -314,6 +315,76 @@ public partial class MainPanel
                 new PlayerNameField("player", "Player"),
                 new TextField("role", "Role",
                     tooltip: "Role name (e.g. Member, Officer, Leader). Match what KindredCommands expects.")));
+
+        // ---- Player info / lookup (0.5.0 audit gaps) ---------------------
+        AddSpacer(page, 6);
+        AddSectionHeading(page, "Lookup");
+        CollapsibleSection.Build(page,
+            title: "Player info (.playerinfo)",
+            startExpanded: false,
+            tooltip: "Display detailed info about a specific player. Reply appears in chat.",
+            buildContent: c => FormBuilder.Build(c,
+                title: "Player info",
+                commandTemplate: ".playerinfo {player}",
+                new PlayerNameField("player", "Player")));
+        CollapsibleSection.Build(page,
+            title: "Search player by SteamID (.idcheck)",
+            startExpanded: false,
+            tooltip: "Look up which character is associated with a given SteamID.",
+            buildContent: c => FormBuilder.Build(c,
+                title: "ID check",
+                commandTemplate: ".idcheck {steamId}",
+                new TextField("steamId", "SteamID", placeholder: "76561198…")));
+        CollapsibleSection.Build(page,
+            title: "Assign SteamID to player (.assignsteamID)",
+            startExpanded: false,
+            tooltip: "Link a player record to a different SteamID. Recovery use — most servers will never need this.",
+            buildContent: c => FormBuilder.Build(c,
+                title: "Assign SteamID",
+                commandTemplate: ".assignsteamID {player} {steamId}",
+                new PlayerNameField("player", "Player"),
+                new TextField("steamId", "SteamID", placeholder: "76561198…")));
+
+        // ---- Cosmetic / convenience -------------------------------------
+        AddSpacer(page, 6);
+        AddSectionHeading(page, "Cosmetic / Convenience");
+        CollapsibleSection.Build(page,
+            title: "Toggle hair visibility (.showhair)",
+            startExpanded: false,
+            tooltip: "Toggle hair rendering on a player (or yourself if blank).",
+            buildContent: c => FormBuilder.Build(c,
+                title: "Show hair",
+                commandTemplate: ".showhair {player}",
+                new PlayerNameField("player", "Player (blank for self)")));
+
+        // ---- Prisoner config readouts (paired with the .prisoner setters) -
+        AddSpacer(page, 6);
+        AddSectionHeading(page, "Prisoner config (read)");
+        var diagRow = UIFactory.CreateHorizontalGroup(page, "PrisonerDiag",
+            forceExpandWidth: true, forceExpandHeight: false,
+            childControlWidth: true, childControlHeight: true,
+            spacing: 6, padding: new Vector4(0, 0, 0, 0));
+        UIFactory.SetLayoutElement(diagRow,
+            minWidth: 360, preferredWidth: 400, flexibleWidth: 1,
+            minHeight: 32, preferredHeight: 32, flexibleHeight: 0);
+        AddCommandButton(diagRow, "Gruel Settings", MessageService.BCCOM_KCA_GRUEL_SETTINGS,
+            "Print current gruel-conversion config (.gruelsettings).");
+        AddCommandButton(diagRow, "Feed Settings",  MessageService.BCCOM_KCA_FEED_SETTINGS,
+            "Print current feed-prisoner config (.feedsettings).");
+
+        // ---- Mass destructive (extra-careful) ---------------------------
+        AddSpacer(page, 6);
+        AddSectionHeading(page, "Mass action (DESTRUCTIVE)");
+        CollapsibleSection.Build(page,
+            title: "Unbind every player (.unbindall) — DESTRUCTIVE",
+            startExpanded: false,
+            tooltip: "Renames EVERY player to OLD##### and unbinds them from their SteamIDs. There is no undo. Used for fresh-start prep. Requires the confirm checkbox.",
+            buildContent: c => FormBuilder.Build(c,
+                title: "Unbind ALL players",
+                commandTemplate: ".unbindall",
+                new BoolField("confirm", "Yes, rename + unbind everyone",
+                    tooltip: "Required. Even with this checked, double-check before clicking Submit.",
+                    requireTrue: true)));
     }
 
     // Helper: build a CollapsibleSection wrapping a 1-field form for the very
@@ -402,6 +473,7 @@ public partial class MainPanel
 
     private void BuildKindredAdminServerTab(GameObject page)
     {
+        if (!RenderAdminGate(page, "Kindred admin (Server)")) return;
         AddAdminWarningIntro(page,
             "Server-wide admin commands. These affect global config, all " +
             "players, or persistent server state. Requires KindredCommands + " +
@@ -713,6 +785,48 @@ public partial class MainPanel
                 title: "Toggle admin",
                 commandTemplate: ".staff toggleadmin {player}",
                 new PlayerNameField("player", "Player")));
+
+        // ---- Server wipe (DESTRUCTIVE 3-step flow) ----------------------
+        AddSpacer(page, 6);
+        AddSectionHeading(page, "Server wipe (DESTRUCTIVE)");
+        var wipeNote = UIFactory.CreateLabel(page, "WipeNote",
+            "Wipe is a 3-step flow: (1) .wipe sets up the exclusion list (territories that survive), (2) .commencewipe ACTUALLY wipes, (3) .cancelwipe aborts before commence. There is no undo once you commence.",
+            TMPro.TextAlignmentOptions.TopLeft, color: null, fontSize: 11);
+        UIFactory.SetLayoutElement(wipeNote.GameObject,
+            minWidth: 360, preferredWidth: 400, flexibleWidth: 1,
+            minHeight: 36, preferredHeight: 48, flexibleHeight: 0);
+        wipeNote.TextMesh.fontStyle = TMPro.FontStyles.Italic;
+        wipeNote.TextMesh.enableWordWrapping = true;
+        wipeNote.TextMesh.overflowMode = TMPro.TextOverflowModes.Overflow;
+
+        CollapsibleSection.Build(page,
+            title: "Step 1: prepare wipe (.wipe)",
+            startExpanded: false,
+            tooltip: "Queue the wipe and tell the server which territory IDs to EXCLUDE (those keep their owners). Run .commencewipe afterwards to actually fire.",
+            buildContent: c => FormBuilder.Build(c,
+                title: "Prepare wipe",
+                commandTemplate: ".wipe {territories}",
+                new TextField("territories", "Excluded territory IDs", placeholder: "12,34,56",
+                    tooltip: "Comma-separated territory IDs that should NOT be wiped.")));
+        CollapsibleSection.Build(page,
+            title: "Step 2: commence wipe (.commencewipe) — DESTRUCTIVE",
+            startExpanded: false,
+            tooltip: "Actually performs the wipe queued by .wipe. There is no undo. Requires the confirm checkbox.",
+            buildContent: c => FormBuilder.Build(c,
+                title: "Commence wipe",
+                commandTemplate: ".commencewipe",
+                new BoolField("confirm", "Yes, perform the wipe NOW",
+                    tooltip: "Required. The confirm checkbox + Submit click is the only safety between you and a wiped server.",
+                    requireTrue: true)));
+        var wipeCancelRow = UIFactory.CreateHorizontalGroup(page, "WipeCancelRow",
+            forceExpandWidth: true, forceExpandHeight: false,
+            childControlWidth: true, childControlHeight: true,
+            spacing: 6, padding: new Vector4(0, 0, 0, 0));
+        UIFactory.SetLayoutElement(wipeCancelRow,
+            minWidth: 360, preferredWidth: 400, flexibleWidth: 1,
+            minHeight: 32, preferredHeight: 32, flexibleHeight: 0);
+        AddCommandButton(wipeCancelRow, "Cancel queued wipe", MessageService.BCCOM_KCA_CANCEL_WIPE,
+            "Aborts a wipe queued via .wipe before .commencewipe is called.");
     }
 
     // -----------------------------------------------------------------------
@@ -721,6 +835,7 @@ public partial class MainPanel
 
     private void BuildKindredAdminWorldTab(GameObject page)
     {
+        if (!RenderAdminGate(page, "Kindred admin (World)")) return;
         AddAdminWarningIntro(page,
             "World manipulation commands - spawn units, teleport, search " +
             "prefabs, manage servants and castles. Acts on the world around " +
@@ -744,26 +859,52 @@ public partial class MainPanel
                 new IntField("radius", "Radius", min: 1, max: 500,
                     tooltip: "Default 5.")));
 
-        // ---- Search -------------------------------------------------------
+        // ---- Lookups (find prefab IDs for spawn/give commands) -----------
         AddSpacer(page, 6);
-        AddSectionHeading(page, "Search");
+        AddSectionHeading(page, "Lookups (find IDs for spawn / give)");
+        var lookupsHint = UIFactory.CreateLabel(page, "LookupsHint",
+            "Use these to find the prefab name / ID for an item, NPC, or boss before using the Spawn or Give forms below. Replies appear in chat — V Rising's prefab registry isn't available client-side, so the search runs on the server and KindredCommands lists matching results.",
+            TMPro.TextAlignmentOptions.TopLeft, color: null, fontSize: 11);
+        UIFactory.SetLayoutElement(lookupsHint.GameObject,
+            minWidth: 360, preferredWidth: 400, flexibleWidth: 1,
+            minHeight: 40, preferredHeight: 56, flexibleHeight: 0);
+        lookupsHint.TextMesh.fontStyle = TMPro.FontStyles.Italic;
+        lookupsHint.TextMesh.enableWordWrapping = true;
+        lookupsHint.TextMesh.overflowMode = TMPro.TextOverflowModes.Overflow;
+
+        // Quick boss-list button (no args). Same data feed as the player-facing
+        // Boss List on the Kindred Commands tab; surfaced here so admins
+        // doing world-spawning have the lookup at hand.
+        var lookupsRow = UIFactory.CreateHorizontalGroup(page, "LookupsRow",
+            forceExpandWidth: true, forceExpandHeight: false,
+            childControlWidth: true, childControlHeight: true,
+            spacing: 6, padding: new Vector4(0, 0, 0, 0));
+        UIFactory.SetLayoutElement(lookupsRow,
+            minWidth: 360, preferredWidth: 400, flexibleWidth: 1,
+            minHeight: 32, preferredHeight: 32, flexibleHeight: 0);
+        AddCommandButton(lookupsRow, "List All Bosses", MessageService.BCCOM_KC_BOSS_LIST,
+            "List every boss prefab the server knows about (.boss list). Reply in chat. Use one of the names with the boss-modify / lock / teleportto forms or the spawn forms below.");
+
         CollapsibleSection.Build(page,
             title: "Search items (.search item)",
             startExpanded: false,
-            tooltip: "Search items by name fragment.",
+            tooltip: "Search items by name fragment. Reply lists every match with its prefab name — copy the name (e.g. 'Item_Ingredient_Iron') and paste into the .give form on the Players admin tab to spawn it. Page defaults to 1; KindredCommands paginates if there are many matches.",
             buildContent: c => FormBuilder.Build(c,
                 title: "Search items",
                 commandTemplate: ".search item {query} {page}",
-                new TextField("query", "Search text"),
-                new IntField("page", "Page", min: 1, max: 99)));
+                new TextField("query", "Search text", placeholder: "iron",
+                    tooltip: "Substring of the item name. Case-insensitive."),
+                new IntField("page", "Page", min: 1, max: 99,
+                    tooltip: "Pagination — start at 1, increment if results say there's more.")));
         CollapsibleSection.Build(page,
-            title: "Search NPCs (.search npc)",
+            title: "Search NPCs / creatures (.search npc)",
             startExpanded: false,
-            tooltip: "Search NPC prefabs by name fragment.",
+            tooltip: "Search NPC + creature prefabs by name fragment. Reply lists every match — copy a 'CHAR_'-prefixed name and use it with .spawnnpc / .customspawn / .customspawnat / .servant change / .despawnnpc.",
             buildContent: c => FormBuilder.Build(c,
                 title: "Search NPCs",
                 commandTemplate: ".search npc {query} {page}",
-                new TextField("query", "Search text"),
+                new TextField("query", "Search text", placeholder: "wolf",
+                    tooltip: "Substring of the unit name. Case-insensitive."),
                 new IntField("page", "Page", min: 1, max: 99)));
 
         // ---- Spawn --------------------------------------------------------
@@ -992,6 +1133,50 @@ public partial class MainPanel
                 commandTemplate: ".gear breakall {range}",
                 new IntField("range", "Range", min: 1, max: 200,
                     tooltip: "Default 10.")));
+
+        // ---- Castle / Clan world queries (0.5.0 audit gaps) -------------
+        AddSpacer(page, 6);
+        AddSectionHeading(page, "Castle & Clan");
+        var castleClanRow = UIFactory.CreateHorizontalGroup(page, "CastleClanRow",
+            forceExpandWidth: true, forceExpandHeight: false,
+            childControlWidth: true, childControlHeight: true,
+            spacing: 6, padding: new Vector4(0, 0, 0, 0));
+        UIFactory.SetLayoutElement(castleClanRow,
+            minWidth: 360, preferredWidth: 400, flexibleWidth: 1,
+            minHeight: 32, preferredHeight: 32, flexibleHeight: 0);
+        AddCommandButton(castleClanRow, "Longest offline",  MessageService.BCCOM_KCA_LONGEST_OFFLINE_CASTLES,
+            "List castles ranked by owner-last-online (.longestofflinecastles). Helps clean up dead bases.");
+        AddCommandButton(castleClanRow, "Repair clan data", MessageService.BCCOM_KCA_CLAN_FIX,
+            "Repair clan-data inconsistencies (.clan fix). Use if a player shows in a clan they're not actually in.");
+
+        CollapsibleSection.Build(page,
+            title: "List castles owned by a clan (.clan castles)",
+            startExpanded: false,
+            tooltip: "List the territories a specific clan owns. Reply appears in chat.",
+            buildContent: c => FormBuilder.Build(c,
+                title: "Clan castles",
+                commandTemplate: ".clan castles {clan}",
+                new TextField("clan", "Clan name")));
+
+        // ---- Bloodbound items -------------------------------------------
+        AddSpacer(page, 6);
+        AddSectionHeading(page, "Bloodbound items");
+        CollapsibleSection.Build(page,
+            title: "Add Bloodbound attribute (.bloodbound add)",
+            startExpanded: false,
+            tooltip: "Marks the named/prefab item as Bloodbound (drops only to its owner, etc.).",
+            buildContent: c => FormBuilder.Build(c,
+                title: "Add bloodbound",
+                commandTemplate: ".bloodbound add {item}",
+                new TextField("item", "Item prefab/name")));
+        CollapsibleSection.Build(page,
+            title: "Remove Bloodbound attribute (.bloodbound remove)",
+            startExpanded: false,
+            tooltip: "Removes the Bloodbound flag from the item.",
+            buildContent: c => FormBuilder.Build(c,
+                title: "Remove bloodbound",
+                commandTemplate: ".bloodbound remove {item}",
+                new TextField("item", "Item prefab/name")));
     }
 
     // -----------------------------------------------------------------------

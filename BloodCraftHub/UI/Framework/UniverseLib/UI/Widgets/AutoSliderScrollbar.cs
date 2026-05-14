@@ -1,9 +1,74 @@
 ﻿using System;
+using System.Collections.Generic;
 using BloodCraftHub.UI.Framework.UniverseLib.UI.Models;
 using UnityEngine;
 using UnityEngine.UI;
 
 namespace BloodCraftHub.UI.Framework.UniverseLib.UI.Widgets;
+
+/// <summary>
+/// Tracks every slider created by <see cref="UIFactory.CreateSliderScrollbar"/>
+/// so a per-frame click-on-track handler (registered with CoreUpdateBehavior in
+/// Plugin.Load) can jump the slider value when the user clicks anywhere on the
+/// track. Unity's built-in Slider.OnPointerDown should do this, but our
+/// canvas/scrollview hierarchy interferes (only the handle drag works, and the
+/// mouse wheel via ScrollRect — clicks on the empty bar area do nothing). This
+/// gives users back the standard scrollbar interaction.
+/// </summary>
+public static class SliderClickRegistry
+{
+    private static readonly List<Slider> _sliders = new();
+
+    internal static void Register(Slider slider)
+    {
+        if (slider != null) _sliders.Add(slider);
+    }
+
+    /// <summary>Per-frame: if the user just mouse-downed on a registered slider's
+    /// track (anywhere outside the handle), set its value to the click position.</summary>
+    public static void TickClickOnTrack()
+    {
+        if (!Input.GetMouseButtonDown(0)) return;
+        if (_sliders.Count == 0) return;
+
+        Vector2 mouse = Input.mousePosition;
+        for (int i = _sliders.Count - 1; i >= 0; i--)
+        {
+            var s = _sliders[i];
+            if (s == null) { _sliders.RemoveAt(i); continue; }
+            if (!s.IsInteractable() || !s.gameObject.activeInHierarchy) continue;
+
+            var sliderRt = s.transform as RectTransform;
+            if (sliderRt == null) continue;
+            if (!RectTransformUtility.RectangleContainsScreenPoint(sliderRt, mouse, null)) continue;
+
+            // Skip if click was on the handle itself — Unity's drag handler
+            // covers that case, and we don't want to jump the value AND start a
+            // drag at the same time.
+            var handleRt = s.handleRect;
+            if (handleRt != null && RectTransformUtility.RectangleContainsScreenPoint(handleRt, mouse, null))
+                continue;
+
+            // Convert mouse to slider-local space and lerp to a 0..1 value.
+            Vector2 local;
+            if (!RectTransformUtility.ScreenPointToLocalPointInRectangle(sliderRt, mouse, null, out local))
+                continue;
+
+            var rect = sliderRt.rect;
+            float t;
+            if (s.direction == Slider.Direction.TopToBottom)
+                t = Mathf.Clamp01(1f - Mathf.InverseLerp(rect.yMin, rect.yMax, local.y));
+            else if (s.direction == Slider.Direction.BottomToTop)
+                t = Mathf.Clamp01(Mathf.InverseLerp(rect.yMin, rect.yMax, local.y));
+            else if (s.direction == Slider.Direction.LeftToRight)
+                t = Mathf.Clamp01(Mathf.InverseLerp(rect.xMin, rect.xMax, local.x));
+            else
+                t = Mathf.Clamp01(1f - Mathf.InverseLerp(rect.xMin, rect.xMax, local.x));
+
+            s.value = Mathf.Lerp(s.minValue, s.maxValue, t);
+        }
+    }
+}
 
 /// <summary>
 /// A scrollbar which automatically resizes itself (and its handle) depending on the size of the content and viewport.

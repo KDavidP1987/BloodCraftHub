@@ -6,6 +6,7 @@ using BloodCraftHub.Behaviors;
 using BloodCraftHub.Config;
 using BloodCraftHub.Services;
 using BloodCraftHub.UI;
+using BloodCraftHub.UI.Forms;
 using BloodCraftHub.Utils;
 using HarmonyLib;
 using Unity.Entities;
@@ -51,6 +52,18 @@ public class Plugin : BasePlugin
         }
 
         Settings = new Settings().InitConfig();
+
+        // 0.1.3 one-time safety: force-disable SuspendGameInputWhileTyping if a
+        // pre-0.1.3 install left it on. The feature can wedge the UI when the
+        // user clicks into a form field (root cause not yet fixed), and a frozen
+        // user can't reach the toggle to turn it off. Anyone who genuinely
+        // wants the feature can re-enable via the footer toggle each session.
+        if (BloodCraftHub.Config.Settings.SuspendGameInputWhileTyping)
+        {
+            BloodCraftHub.Config.Settings.SetSuspendGameInputWhileTyping(false);
+            Log.LogWarning("Force-disabled SuspendGameInputWhileTyping (was on from a prior install). Re-enable via the panel footer if you want it; see the tooltip for the lockup caveat.");
+        }
+
         EclipseProtocolService.Initialize();
 
         UIManager = new BCHubUIManager();
@@ -61,6 +74,27 @@ public class Plugin : BasePlugin
         // until MessageService.SetCharacter/SetUser get called (by InitializationPatch
         // once the player is in-world), so this is safe at Load time.
         CoreUpdateBehavior.Actions.Add(MessageService.ProcessAllMessages);
+
+        // Per-frame timeout flush for the inbound intercept buffers (box list,
+        // box content). Without this the parsed list sits in a buffer until
+        // some other system message arrives to act as a terminator.
+        CoreUpdateBehavior.Actions.Add(MessageService.TickInterceptTimeouts);
+
+        // Tooltip hover loop. TickAll no-ops until the MainPanel sets
+        // TooltipHover.Sink (during BuildTooltipFooter), so this is safe at
+        // Load time. Registering here (not lazily on first MainPanel build)
+        // sidesteps a load-order bug where the lazy EnsureTicking saw a null
+        // CoreUpdateBehavior under some path and the loop never started.
+        CoreUpdateBehavior.Actions.Add(TooltipHover.TickAll);
+
+        // Outside-click closes any open EnumField dropdown. TMP_Dropdown's own
+        // Blocker doesn't fire in our canvas setup, so we close it ourselves.
+        CoreUpdateBehavior.Actions.Add(FormDropdownRegistry.TickCloseOnOutsideClick);
+
+        // Click-on-track handler for our scroll-view sliders. Unity's built-in
+        // Slider.OnPointerDown only fires on the handle in our hierarchy; this
+        // adds the standard "click anywhere on the track to jump there" UX.
+        CoreUpdateBehavior.Actions.Add(UI.Framework.UniverseLib.UI.Widgets.SliderClickRegistry.TickClickOnTrack);
 
         _harmony = Harmony.CreateAndPatchAll(Assembly.GetExecutingAssembly(), MyPluginInfo.PLUGIN_GUID);
 
@@ -84,6 +118,10 @@ public class Plugin : BasePlugin
     {
         if (UIManager.IsInitialized) return;
         UIManager.SetupAndShowUI();
+        // Bring back any overlays the user had visible at last logout. Wired
+        // in 0.6.0 — pre-0.6.0 every overlay defaulted to off on every login
+        // even if the user had toggled them on.
+        UIManager.RestoreOverlaysFromSettings();
         LogUtils.LogInfo("UI Manager initialized.");
     }
 

@@ -29,23 +29,9 @@ public static class TooltipHover
 
     public static string IdlePlaceholder = "Hint: hover any control for help.";
 
-    private static bool _ticking;
     private static bool _firstHitLogged;
 
-    public static bool IsTicking => _ticking;
-    public static int  BindingCount => _bindings.Count;
-
-    /// <summary>
-    /// One-time wiring: registers TickAll with the per-frame loop. Safe to call
-    /// multiple times (idempotent).
-    /// </summary>
-    public static void EnsureTicking()
-    {
-        if (_ticking) return;
-        if (Plugin.CoreUpdateBehavior == null) return;
-        Behaviors.CoreUpdateBehavior.Actions.Add(TickAll);
-        _ticking = true;
-    }
+    public static int BindingCount => _bindings.Count;
 
     /// <summary>Attach a tooltip to a UI GameObject. No-op if target lacks a RectTransform.</summary>
     public static void Attach(GameObject target, string text)
