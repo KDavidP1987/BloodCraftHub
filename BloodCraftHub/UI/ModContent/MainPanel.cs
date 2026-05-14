@@ -133,7 +133,10 @@ public class MainPanel : ResizeablePanelBase
         {
             Title = "Kindred",
             StartExpanded = false,
-            Tabs = System.Array.Empty<(PanelType, string)>(),
+            Tabs = new[]
+            {
+                (PanelType.KindredLogisticsTab, "Logistics"),
+            },
         },
         new TabGroupDef
         {
@@ -366,6 +369,9 @@ public class MainPanel : ResizeablePanelBase
                     break;
                 case PanelType.AdminTab:
                     BuildAdminTab(page);
+                    break;
+                case PanelType.KindredLogisticsTab:
+                    BuildKindredLogisticsTab(page);
                     break;
                 case PanelType.QuickStartTab:
                     BuildQuickStartTab(page);
@@ -1286,6 +1292,166 @@ public class MainPanel : ResizeablePanelBase
             minHeight: 22, preferredHeight: 32, flexibleHeight: 0);
         note.TextMesh.enableWordWrapping = true;
         note.TextMesh.overflowMode = TextOverflowModes.Overflow;
+    }
+
+    // -----------------------------------------------------------------------
+    // KindredLogistics tab (Kindred group)
+    //
+    // Surfaces the KindredLogistics server mod's 28 chat commands as buttons +
+    // forms. KindredLogistics returns no structured data, so every control here
+    // just fires-and-forgets - the server echoes confirmation/state into chat
+    // (which the player can read with `.l s` / `.lg s` settings buttons).
+    // -----------------------------------------------------------------------
+
+    private void BuildKindredLogisticsTab(GameObject page)
+    {
+        var intro = UIFactory.CreateLabel(page, "KLIntro",
+            "Requires the KindredLogistics server mod. Personal toggles affect only your character; admin globals affect the whole server (admin only).",
+            TextAlignmentOptions.TopLeft, color: null, fontSize: 12);
+        UIFactory.SetLayoutElement(intro.GameObject,
+            minWidth: 360, preferredWidth: 400, flexibleWidth: 1,
+            minHeight: 32, preferredHeight: 36, flexibleHeight: 0);
+        intro.TextMesh.enableWordWrapping = true;
+        intro.TextMesh.overflowMode = TextOverflowModes.Overflow;
+
+        // ---- Personal toggles (.l ...) -----------------------------------
+        AddSpacer(page, 4);
+        AddSectionHeading(page, "Personal Toggles (.l)");
+
+        var pr1 = AddKLRow(page, "KLPersonal1");
+        AddCommandButton(pr1, "Sort Stash",     MessageService.BCCOM_KL_SORT_STASH,
+            "Toggle auto-stash on double-click of the sort button (.l ss).");
+        AddCommandButton(pr1, "Craft Pull",     MessageService.BCCOM_KL_CRAFT_PULL,
+            "Toggle right-click on a recipe pulling missing ingredients (.l cr).");
+        AddCommandButton(pr1, "Don't Pull Last", MessageService.BCCOM_KL_DONT_PULL_LAST,
+            "Toggle never pulling the last item from a container (.l dpl).");
+        AddCommandButton(pr1, "Servant Stash",  MessageService.BCCOM_KL_AUTOSTASH_MISSION,
+            "Toggle auto-stash of servant mission rewards (.l asm).");
+
+        var pr2 = AddKLRow(page, "KLPersonal2");
+        AddCommandButton(pr2, "Conveyor",      MessageService.BCCOM_KL_CONVEYOR,
+            "Toggle named sender/receiver chests routing items between them (.l co).");
+        AddCommandButton(pr2, "Salvage",       MessageService.BCCOM_KL_SALVAGE,
+            "Toggle chests named 'salvage' auto-salvaging their contents (.l sal).");
+        AddCommandButton(pr2, "Unit Spawner",  MessageService.BCCOM_KL_UNIT_SPAWNER,
+            "Toggle chests named 'spawner' auto-filling unit stations (.l us).");
+        AddCommandButton(pr2, "Brazier",       MessageService.BCCOM_KL_BRAZIER,
+            "Toggle chests named 'brazier' auto-fueling braziers (.l bz).");
+
+        var pr3 = AddKLRow(page, "KLPersonal3");
+        AddCommandButton(pr3, "Silent Pull",   MessageService.BCCOM_KL_SILENT_PULL,
+            "Toggle suppressing chat messages when pulling items (.l sp).");
+        AddCommandButton(pr3, "Silent Stash",  MessageService.BCCOM_KL_SILENT_STASH,
+            "Toggle suppressing chat messages when stashing items (.l ssh).");
+        AddCommandButton(pr3, "Show Settings", MessageService.BCCOM_KL_SETTINGS,
+            "Print your current personal Logistics settings into chat (.l s).");
+
+        // ---- Utility -----------------------------------------------------
+        AddSpacer(page, 6);
+        AddSectionHeading(page, "Utility");
+
+        var util = AddKLRow(page, "KLUtility");
+        AddCommandButton(util, "Stash All",    MessageService.BCCOM_KL_STASH_ALL,
+            "Stash all items in your inventory into nearby chests (.stash).");
+
+        CollapsibleSection.Build(page,
+            title: "Pull item from containers (.pull)",
+            startExpanded: false,
+            tooltip: "Pulls a specific item (and quantity) from nearby chests into your inventory.",
+            buildContent: c => FormBuilder.Build(c,
+                title: "Pull item",
+                commandTemplate: ".pull {item} {quantity}",
+                new TextField("item", "Item name",
+                    tooltip: "Item to pull. Exact match against the item's prefab name (e.g. 'Iron Ingot')."),
+                new IntField("quantity", "Quantity", min: 1, max: 9999,
+                    tooltip: "How many to pull. KindredLogistics caps at what's available across all reachable chests.")));
+
+        CollapsibleSection.Build(page,
+            title: "Find item (.fi)",
+            startExpanded: false,
+            tooltip: "Locates the specified item in nearby chests and prints which chest holds it.",
+            buildContent: c => FormBuilder.Build(c,
+                title: "Find item",
+                commandTemplate: ".fi {item}",
+                new TextField("item", "Item name",
+                    tooltip: "Item to search for. Exact match against the item's prefab name.")));
+
+        CollapsibleSection.Build(page,
+            title: "Find chest by name (.fc)",
+            startExpanded: false,
+            tooltip: "Locates chests with the specified custom name.",
+            buildContent: c => FormBuilder.Build(c,
+                title: "Find chest",
+                commandTemplate: ".fc {name}",
+                new TextField("name", "Chest name",
+                    tooltip: "The custom name written on the chest's sign (e.g. 'salvage', 'spawner', 'brazier').")));
+
+        // ---- Admin globals (.lg ...) -------------------------------------
+        // Wrapped in a single CollapsibleSection so non-admins can hide it.
+        AddSpacer(page, 6);
+        CollapsibleSection.Build(page,
+            title: "Admin Globals (.lg) - admin only",
+            startExpanded: false,
+            tooltip: "Server-wide toggles for the KindredLogistics features. Admin permission required.",
+            buildContent: c =>
+            {
+                var ar1 = AddKLRow(c, "KLAdmin1");
+                AddCommandButton(ar1, "Sort Stash",      MessageService.BCCOM_KL_ADMIN_SORT_STASH,
+                    "Server-wide: enable auto-stash on sort double-click (.lg ss).");
+                AddCommandButton(ar1, "Pull",            MessageService.BCCOM_KL_ADMIN_PULL,
+                    "Server-wide: enable the .pull command for all players (.lg p).");
+                AddCommandButton(ar1, "Craft Pull",      MessageService.BCCOM_KL_ADMIN_CRAFT_PULL,
+                    "Server-wide: enable right-click-recipe ingredient pulling (.lg cr).");
+                AddCommandButton(ar1, "Servant Stash",   MessageService.BCCOM_KL_ADMIN_AUTOSTASH_MISSION,
+                    "Server-wide: enable auto-stash for servant mission rewards (.lg asm).");
+
+                var ar2 = AddKLRow(c, "KLAdmin2");
+                AddCommandButton(ar2, "Conveyor",        MessageService.BCCOM_KL_ADMIN_CONVEYOR,
+                    "Server-wide: enable sender/receiver conveyor chests (.lg co).");
+                AddCommandButton(ar2, "Salvage",         MessageService.BCCOM_KL_ADMIN_SALVAGE,
+                    "Server-wide: enable 'salvage' chests (.lg sal).");
+                AddCommandButton(ar2, "Unit Spawner",    MessageService.BCCOM_KL_ADMIN_UNIT_SPAWNER,
+                    "Server-wide: enable 'spawner' chests filling unit stations (.lg us).");
+                AddCommandButton(ar2, "Brazier",         MessageService.BCCOM_KL_ADMIN_BRAZIER,
+                    "Server-wide: enable 'brazier' chests auto-fueling braziers (.lg bz).");
+
+                var ar3 = AddKLRow(c, "KLAdmin3");
+                AddCommandButton(ar3, "Named Brazier",   MessageService.BCCOM_KL_ADMIN_NAMED_BRAZIER,
+                    "Server-wide: enable night/proximity-controlled named braziers (.lg nam).");
+                AddCommandButton(ar3, "Trash",           MessageService.BCCOM_KL_ADMIN_TRASH,
+                    "Server-wide: allow 'trash' chests to delete their contents (.lg trash).");
+                AddCommandButton(ar3, "Show Settings",   MessageService.BCCOM_KL_ADMIN_SETTINGS,
+                    "Print the current server-wide Logistics settings into chat (.lg s).");
+                AddCommandButton(ar3, "Empty Trash",     MessageService.BCCOM_KL_ADMIN_EMPTY_TRASH,
+                    "Empty all trash containers in your current territory (.emptytrash).");
+
+                AddSpacer(c, 4);
+                CollapsibleSection.Build(c,
+                    title: "Spawn item to territory stash (.adminstash)",
+                    startExpanded: false,
+                    tooltip: "Spawns a quantity of an item directly into the current territory's stash containers.",
+                    buildContent: cc => FormBuilder.Build(cc,
+                        title: "Admin stash spawn",
+                        commandTemplate: ".adminstash {item} {quantity}",
+                        new TextField("item", "Item name",
+                            tooltip: "Item prefab name to spawn (e.g. 'Iron Ingot', 'Blood Essence')."),
+                        new IntField("quantity", "Quantity", min: 1, max: 9999,
+                            tooltip: "How many to spawn.")));
+            });
+    }
+
+    // Action row matching the look used by other tabs (Familiars, Class, etc.):
+    // horizontal group, child controls expand, single-row layout.
+    private static GameObject AddKLRow(GameObject parent, string id)
+    {
+        var row = UIFactory.CreateHorizontalGroup(parent, id,
+            forceExpandWidth: true, forceExpandHeight: false,
+            childControlWidth: true, childControlHeight: true,
+            spacing: 6, padding: new Vector4(0, 0, 0, 0));
+        UIFactory.SetLayoutElement(row,
+            minWidth: 360, preferredWidth: 400, flexibleWidth: 1,
+            minHeight: 32, preferredHeight: 32, flexibleHeight: 0);
+        return row;
     }
 
     // -----------------------------------------------------------------------

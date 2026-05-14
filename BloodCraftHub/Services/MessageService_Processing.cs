@@ -71,6 +71,46 @@ public static partial class MessageService
     public const string BCCOM_WEP_LOCK_SPELLS    = ".wep locksp";
 
     // =========================================================================
+    // KindredLogistics commands (separate server mod, used in the KINDRED tab)
+    // =========================================================================
+
+    // ---------- Personal toggles (.l <flag>) — each toggles a per-player flag.
+    public const string BCCOM_KL_SORT_STASH        = ".l ss";
+    public const string BCCOM_KL_CRAFT_PULL        = ".l cr";
+    public const string BCCOM_KL_DONT_PULL_LAST    = ".l dpl";
+    public const string BCCOM_KL_AUTOSTASH_MISSION = ".l asm";
+    public const string BCCOM_KL_CONVEYOR          = ".l co";
+    public const string BCCOM_KL_SALVAGE           = ".l sal";
+    public const string BCCOM_KL_UNIT_SPAWNER      = ".l us";
+    public const string BCCOM_KL_BRAZIER           = ".l bz";
+    public const string BCCOM_KL_SILENT_PULL       = ".l sp";
+    public const string BCCOM_KL_SILENT_STASH      = ".l ssh";
+    public const string BCCOM_KL_SETTINGS          = ".l s";
+
+    // ---------- Utility commands (no group) — player-facing.
+    public const string BCCOM_KL_STASH_ALL              = ".stash";
+    public const string BCCOM_KL_PULL_ITEM_FORMAT       = ".pull {0} {1}";   // {0} = item name, {1} = qty
+    public const string BCCOM_KL_FIND_ITEM_FORMAT       = ".fi {0}";         // {0} = item name
+    public const string BCCOM_KL_FIND_CHEST_FORMAT      = ".fc {0}";         // {0} = chest name
+
+    // ---------- Admin globals (.lg <flag>) — server-wide.
+    public const string BCCOM_KL_ADMIN_SORT_STASH        = ".lg ss";
+    public const string BCCOM_KL_ADMIN_PULL              = ".lg p";
+    public const string BCCOM_KL_ADMIN_CRAFT_PULL        = ".lg cr";
+    public const string BCCOM_KL_ADMIN_AUTOSTASH_MISSION = ".lg asm";
+    public const string BCCOM_KL_ADMIN_CONVEYOR          = ".lg co";
+    public const string BCCOM_KL_ADMIN_SALVAGE           = ".lg sal";
+    public const string BCCOM_KL_ADMIN_UNIT_SPAWNER      = ".lg us";
+    public const string BCCOM_KL_ADMIN_BRAZIER           = ".lg bz";
+    public const string BCCOM_KL_ADMIN_NAMED_BRAZIER     = ".lg nam";
+    public const string BCCOM_KL_ADMIN_TRASH             = ".lg trash";
+    public const string BCCOM_KL_ADMIN_SETTINGS          = ".lg s";
+
+    // ---------- Admin utility (no group) — admin-only.
+    public const string BCCOM_KL_ADMIN_EMPTY_TRASH       = ".emptytrash";
+    public const string BCCOM_KL_ADMIN_STASH_SPAWN_FORMAT = ".adminstash {0} {1}";
+
+    // =========================================================================
     // Inbound regex pipeline (Phase 3b)
     // =========================================================================
 

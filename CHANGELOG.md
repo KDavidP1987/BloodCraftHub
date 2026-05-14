@@ -119,9 +119,22 @@ Round 2:
 
 Created public repo at https://github.com/KDavidP1987/BloodCraftHub via `gh repo create --public --source=. --remote=origin --push` after one-time `gh auth login` flow. Origin wired, main tracks origin/main, all 27 commits visible.
 
+### Phase 5g — KindredLogistics tab
+
+First KINDRED-group tab lands. Surveyed the KindredLogistics server mod (`LearningMods/KindredLogistics-main/`) and inventoried 28 chat commands across three command groups: 11 personal toggles (`.l <flag>`), 11 admin globals (`.lg <flag>`), and 6 un-grouped utilities (`.stash`, `.pull`, `.fi`, `.fc`, `.emptytrash`, `.adminstash`).
+
+- `Services/MessageService_Processing.cs` — new BCCOM_KL_* constant region with all 28 command strings (zero-arg constants + `_FORMAT` templates for the 3 utility forms and `.adminstash`). Kept in its own region so the Bloodcraft constants stay isolated.
+- `UI/ModContent/Data/PanelType.cs` — `KindredLogisticsTab` enum value, slotted between Bloodcraft tabs and Help.
+- `UI/ModContent/MainPanel.cs` — KINDRED group's `(coming soon)` placeholder replaced with `("Logistics" → KindredLogisticsTab)`; `BuildContentArea` switch dispatches to new `BuildKindredLogisticsTab`. New `AddKLRow` helper for action rows.
+- `BuildKindredLogisticsTab` layout:
+  - Intro paragraph clarifying KindredLogistics dependency + personal-vs-admin scope.
+  - "Personal Toggles (.l)" section — 3 rows × 4 buttons covering all 11 personal toggles + Show Settings.
+  - "Utility" section — `[Stash All]` button + 3 collapsible forms (`.pull` item+qty, `.fi` item, `.fc` name).
+  - "Admin Globals (.lg)" — wrapped in a single `CollapsibleSection` (collapsed by default) so non-admins can hide it. Contains 3 rows × 4 buttons covering all 11 admin toggles + Empty Trash, plus a nested collapsible `.adminstash` spawn form. Tooltips on every control.
+- KindredLogistics returns no structured data, so this tab is fire-and-forget: server echoes confirmation/state into chat and the player can read it with `.l s` / `.lg s` Show Settings buttons. No `PlayerStateService` extension or regex pipeline work needed.
+
 ## Phases remaining
 
-- **5g** — KindredLogistics tab under KINDRED. 18 commands.
 - **5h** — KindredCommands Player tab under KINDRED. ~12 commands.
 - **5i** — KindredCommands Admin sub-tabs (Players / Server / World). ~120 admin commands.
 - **5j** — Polish: prefab name lookup for shift spell, optional ScrollRect, name-cache autocomplete wired to chat-reply parsing.

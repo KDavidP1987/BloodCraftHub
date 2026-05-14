@@ -19,6 +19,9 @@ public enum PanelType
     LevelsTab,
     AdminTab,
 
+    // Kindred-suite tabs (companion server mods to Bloodcraft):
+    KindredLogisticsTab,
+
     // Help / Reference tabs:
     QuickStartTab,
 
