@@ -2,6 +2,7 @@ using System;
 using BloodCraftHub.UI.Framework.UniverseLib.UI;
 using TMPro;
 using UnityEngine;
+using UnityEngine.EventSystems;
 using UnityEngine.UI;
 
 namespace BloodCraftHub.UI.Forms;
@@ -87,6 +88,18 @@ public static class CollapsibleSection
             content.SetActive(expanded);
             if (headerText != null)
                 headerText.text = BuildHeaderText(title, expanded);
+
+            // If we just COLLAPSED, drop UI focus. Otherwise a previously-
+            // typed-into TMP_InputField stays as the EventSystem's selected
+            // GameObject even though its parent is now inactive - and the
+            // InputActionSystem patch then blocks gameplay input forever on
+            // a phantom focus. (Surfaced as "Boxes refresh hangs until I
+            // press Enter to open game chat.")
+            if (!expanded)
+            {
+                try { EventSystem.current?.SetSelectedGameObject(null); }
+                catch { /* harmless */ }
+            }
 
             // Force a layout rebuild at the panel root so the size change
             // cascades up through every nested VerticalLayoutGroup. Without

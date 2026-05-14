@@ -42,10 +42,18 @@ internal static class InputActionSystemPatch
         var sel = es.currentSelectedGameObject;
         if (sel == null) return true;
 
-        // Any focused text input suspends gameplay input.
-        if (sel.GetComponent<TMP_InputField>() != null)
-            return false;
+        // Defensive: a TMP_InputField can remain EventSystem.current.
+        // currentSelectedGameObject even after its parent (a collapsible
+        // form section) was deactivated. Without this check the patch
+        // blocks InputActionSystem.OnUpdate forever on a phantom focus,
+        // which in turn delays ChatMessageEvent processing - the user
+        // saw .fam boxes responses only arrive when they pressed Enter
+        // to open V Rising's chat (which reassigned focus and unstuck us).
+        if (!sel.activeInHierarchy) return true;
 
-        return true;
+        var input = sel.GetComponent<TMP_InputField>();
+        if (input == null) return true;
+        if (!input.interactable) return true;
+        return false;
     }
 }

@@ -156,6 +156,7 @@ public class MainPanel : ResizeablePanelBase
     private readonly System.Collections.Generic.Dictionary<string, bool>             _groupExpanded   = new();
     private readonly System.Collections.Generic.Dictionary<string, GameObject>       _groupContent    = new();
     private readonly System.Collections.Generic.Dictionary<string, TextMeshProUGUI>  _groupHeaderText = new();
+    private GameObject _tabStripGo;
 
     public MainPanel(UIBase owner) : base(owner) { }
 
@@ -227,6 +228,7 @@ public class MainPanel : ResizeablePanelBase
             childControlWidth: true, childControlHeight: true,
             spacing: 2, padding: new Vector4(2, 2, 2, 2));
         UIFactory.SetLayoutElement(strip, minWidth: 150, flexibleWidth: 0, flexibleHeight: 1);
+        _tabStripGo = strip;
 
         foreach (var group in TabGroups)
             BuildTabGroup(strip, group);
@@ -523,9 +525,12 @@ public class MainPanel : ResizeablePanelBase
             forceWidth: true, forceHeight: false,
             childControlWidth: true, childControlHeight: true,
             spacing: 2, padding: new Vector4(2, 2, 2, 2));
+        // No fixed preferredHeight - the VerticalLayoutGroup computes from
+        // its dynamic children (box buttons), so auto-resize picks up the
+        // actual list height after .fam boxes returns.
         UIFactory.SetLayoutElement(_boxesListContainer,
             minWidth: 360, preferredWidth: 400, flexibleWidth: 1,
-            minHeight: 60, preferredHeight: 200, flexibleHeight: 1);
+            minHeight: 60, flexibleHeight: 0);
 
         // ---------------- Content section (visible when a box is selected) ----------------
         _boxesContentSection = UIFactory.CreateVerticalGroup(page, "BoxContentSection",
@@ -570,9 +575,11 @@ public class MainPanel : ResizeablePanelBase
             forceWidth: true, forceHeight: false,
             childControlWidth: true, childControlHeight: true,
             spacing: 2, padding: new Vector4(2, 2, 2, 2));
+        // No fixed preferredHeight - auto-derives from the dynamic familiar
+        // button rows so auto-resize grows the panel for tall content.
         UIFactory.SetLayoutElement(_boxesContentContainer,
             minWidth: 360, preferredWidth: 400, flexibleWidth: 1,
-            minHeight: 60, preferredHeight: 200, flexibleHeight: 1);
+            minHeight: 60, flexibleHeight: 0);
 
         AddSpacer(page, 4);
         var note = UIFactory.CreateLabel(page, "BoxesNote",
@@ -1498,9 +1505,14 @@ public class MainPanel : ResizeablePanelBase
             // Force the layout to recalculate so preferredHeight is up to date.
             UnityEngine.UI.LayoutRebuilder.ForceRebuildLayoutImmediate(pageRt);
 
-            float contentHeight = ComputeChildrenSumHeight(pageGo);
-            // Chrome budget: tab strip is alongside (no vertical cost),
-            // OverlayFooter (32) + TooltipFooter (22) + spacing/margins (~22) ≈ 76px.
+            // Take the taller of the active page and the left tab strip - the
+            // tab strip can be taller than the active page when many tabs are
+            // expanded (BLOODCRAFT alone has 8 sub-tabs), and we don't want
+            // sub-tabs hidden below the panel border.
+            float pageHeight  = ComputeChildrenSumHeight(pageGo);
+            float stripHeight = _tabStripGo != null ? ComputeChildrenSumHeight(_tabStripGo) : 0f;
+            float contentHeight = Math.Max(pageHeight, stripHeight);
+            // Chrome budget: OverlayFooter (32) + TooltipFooter (22) + spacing/margins (~22) ≈ 76px.
             float chrome = 76f;
             float desired = contentHeight + chrome;
             float screenCap = UnityEngine.Screen.height * 0.9f;
