@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System;
 using BloodCraftHub.Config;
+using BloodCraftHub.Resources;
 using BloodCraftHub.Services;
 using BloodCraftHub.UI.Forms;
 using BloodCraftHub.UI.Framework.CustomLib.Panel;
@@ -42,6 +43,11 @@ public partial class MainPanel : ResizeablePanelBase
     public PanelType ActiveTab { get; private set; } = PanelType.FamiliarsTab;
 
     private readonly Dictionary<PanelType, GameObject> _tabContent = new();
+    // Inner-content GameObject *inside* the ScrollView wrapper for each tab.
+    // AutoResize walks this to compute the actual children-sum height; _tabContent
+    // points at the scroll wrapper whose own height tracks the viewport, not
+    // its overflow.
+    private readonly Dictionary<PanelType, GameObject> _tabInnerContent = new();
     private readonly Dictionary<PanelType, ButtonRef> _tabButtons = new();
     private Toggle _xpOverlayToggle;
     private Toggle _famOverlayToggle;
@@ -88,6 +94,13 @@ public partial class MainPanel : ResizeablePanelBase
     private TextMeshProUGUI _lvlProfessions3Label;
     private TextMeshProUGUI _lvlProfessions4Label;
     private bool _lvlSubscribed;
+
+    // Kindred Commands tab - stateful pager for .clan list. Page is 1-based;
+    // server defaults to page 1 when no arg is given. The label TMP is updated
+    // each time the user clicks Prev/Next so the row reflects the page number
+    // currently being requested.
+    private int _clanListPage = 1;
+    private TextMeshProUGUI _clanListPageLabel;
 
     // Boxes-tab live state
     private TextMeshProUGUI _boxesActiveBoxLabel;
@@ -345,7 +358,7 @@ public partial class MainPanel : ResizeablePanelBase
 
         foreach (var (tab, label) in AllTabs())
         {
-            var page = CreateTabPage(content);
+            var pageWrapper = CreateTabPage(content, out var page);
             AddTabHeading(page, label);
 
             switch (tab)
@@ -397,25 +410,41 @@ public partial class MainPanel : ResizeablePanelBase
                     break;
             }
 
-            page.SetActive(false);
-            _tabContent[tab] = page;
+            pageWrapper.SetActive(false);
+            _tabContent[tab] = pageWrapper;
+            _tabInnerContent[tab] = page;
         }
     }
 
-    private GameObject CreateTabPage(GameObject parent)
+    // Returns the ScrollView wrapper (used for SetActive + as the visible tab
+    // GameObject); out-param yields the inner content GameObject where the
+    // BuildXxxTab methods append children. AutoResize walks the inner so it
+    // sees the true children-sum height, not the viewport.
+    private GameObject CreateTabPage(GameObject parent, out GameObject content)
     {
-        // No fixed preferredHeight - let the VerticalLayoutGroup auto-compute
-        // from the children so AutoResizeIfEnabled's LayoutUtility query
-        // returns the ACTUAL content height (not a hardcoded 320 that ignored
-        // collapsible-section state).
-        var page = UIFactory.CreateVerticalGroup(parent, "TabPage",
-            forceWidth: true, forceHeight: false,
-            childControlWidth: true, childControlHeight: true,
-            spacing: 6, padding: new Vector4(8, 8, 8, 8));
-        UIFactory.SetLayoutElement(page,
+        var wrapper = UIFactory.CreateScrollView(parent, "TabPage",
+            out content, out _, color: new Color(0f, 0f, 0f, 0f));
+        UIFactory.SetLayoutElement(wrapper,
             minWidth: 380, preferredWidth: 420, flexibleWidth: 1,
             minHeight: 280, flexibleHeight: 1);
-        return page;
+
+        // Re-style the auto-created content VerticalLayoutGroup to match the
+        // old CreateTabPage layout (spacing 6, padding 8/8/8/8).
+        var vlg = content.GetComponent<VerticalLayoutGroup>();
+        if (vlg != null)
+        {
+            vlg.spacing = 6;
+            vlg.padding.left  = 8;
+            vlg.padding.right = 8;
+            vlg.padding.top   = 8;
+            vlg.padding.bottom = 8;
+            vlg.childControlWidth  = true;
+            vlg.childControlHeight = true;
+            vlg.childForceExpandWidth  = true;
+            vlg.childForceExpandHeight = false;
+            vlg.childAlignment = TextAnchor.UpperLeft;
+        }
+        return wrapper;
     }
 
     private static void AddTabHeading(GameObject page, string text)
@@ -946,7 +975,9 @@ public partial class MainPanel : ResizeablePanelBase
 
         _shiftSpellLabel.text = shift.SpellIndex == 0
             ? "Equipped: (none)"
-            : $"Equipped: PrefabGUID {shift.SpellIndex}";
+            : PrefabNameResolver.TryGet(shift.SpellIndex, out var spellName)
+                ? $"Equipped: {spellName}"
+                : $"Equipped: PrefabGUID {shift.SpellIndex}";
 
         bool unarmedEquipped = exp.Type == PlayerStateService.WeaponType.Unarmed;
         if (unarmedEquipped)
@@ -1520,8 +1551,10 @@ public partial class MainPanel : ResizeablePanelBase
             "List all locked bosses on the server (.boss list).");
         AddCommandButton(infoRow2, "Region List", MessageService.BCCOM_KC_REGION_LIST,
             "List all locked and gated regions on the server (.region list).");
-        AddCommandButton(infoRow2, "Clan List",   MessageService.BCCOM_KC_CLAN_LIST,
-            "List clans on the server, page 1 (.clan list). For deeper pages, type the command in chat with a page number.");
+
+        // Stateful clan-list pagination - prev/current-page/next replace the
+        // old static "Clan List" button so users can flip through pages.
+        BuildClanListPager(infoRow2);
 
         // ---- Lookups (forms) ---------------------------------------------
         AddSpacer(page, 6);
@@ -1537,6 +1570,9 @@ public partial class MainPanel : ResizeablePanelBase
                 new PlayerNameField("player", "Player",
                     tooltip: "Player whose level you want to look up. Exact character-name match.")));
 
+        // (clan list pagination state - lives on the panel instance so the
+        // current-page label keeps its value across re-renders.)
+
         CollapsibleSection.Build(page,
             title: "List clan members (.clan members)",
             startExpanded: false,
@@ -1545,7 +1581,52 @@ public partial class MainPanel : ResizeablePanelBase
                 title: "List clan members",
                 commandTemplate: ".clan members {clan}",
                 new TextField("clan", "Clan name",
-                    tooltip: "Exact clan name. Use the Clan List button above to find it.")));
+                    tooltip: "Exact clan name. Use the Clan List pager above to find it.")));
+    }
+
+    // Stateful pager for `.clan list <page>` - three buttons in a row plus a
+    // current-page label between Prev and Next. Page-1 is fired on click of
+    // any button; the label reflects which page the next press will request.
+    private void BuildClanListPager(GameObject parent)
+    {
+        var prev = UIFactory.CreateButton(parent, "ClanListPrev", "<");
+        UIFactory.SetLayoutElement(prev.GameObject,
+            minWidth: 32, preferredWidth: 36, flexibleWidth: 0,
+            minHeight: 28, preferredHeight: 30, flexibleHeight: 0);
+        TooltipHover.Attach(prev.GameObject, "Previous page of clans (.clan list <page-1>).");
+        prev.OnClick = () =>
+        {
+            if (_clanListPage > 1) _clanListPage--;
+            RefreshClanListPage(send: true);
+        };
+
+        _clanListPageLabel = UIFactory.CreateLabel(parent, "ClanListPage",
+            $"Clan List p{_clanListPage}",
+            TextAlignmentOptions.Center, color: null, fontSize: 12).TextMesh;
+        UIFactory.SetLayoutElement(_clanListPageLabel.gameObject,
+            minWidth: 90, preferredWidth: 100, flexibleWidth: 1,
+            minHeight: 28, preferredHeight: 30, flexibleHeight: 0);
+        _clanListPageLabel.enableWordWrapping = false;
+        _clanListPageLabel.overflowMode = TextOverflowModes.Overflow;
+
+        var next = UIFactory.CreateButton(parent, "ClanListNext", ">");
+        UIFactory.SetLayoutElement(next.GameObject,
+            minWidth: 32, preferredWidth: 36, flexibleWidth: 0,
+            minHeight: 28, preferredHeight: 30, flexibleHeight: 0);
+        TooltipHover.Attach(next.GameObject, "Next page of clans (.clan list <page+1>).");
+        next.OnClick = () =>
+        {
+            _clanListPage++;
+            RefreshClanListPage(send: true);
+        };
+    }
+
+    private void RefreshClanListPage(bool send)
+    {
+        if (_clanListPageLabel != null)
+            _clanListPageLabel.text = $"Clan List p{_clanListPage}";
+        if (send)
+            MessageService.EnqueueMessage($"{MessageService.BCCOM_KC_CLAN_LIST} {_clanListPage}");
     }
 
     // -----------------------------------------------------------------------
@@ -1886,6 +1967,12 @@ public partial class MainPanel : ResizeablePanelBase
         if (!Settings.IsPanelAutoResizeEnabled) return;
         if (!_tabContent.TryGetValue(ActiveTab, out var pageGo) || pageGo == null) return;
 
+        // The visible tab GameObject is the ScrollView wrapper, but the actual
+        // children live in the inner content. Walk the inner so AutoResize sees
+        // the true height; if missing (legacy path), fall back to the wrapper.
+        _tabInnerContent.TryGetValue(ActiveTab, out var innerGo);
+        var measureGo = innerGo != null ? innerGo : pageGo;
+
         try
         {
             var pageRt = pageGo.GetComponent<RectTransform>();
@@ -1898,7 +1985,7 @@ public partial class MainPanel : ResizeablePanelBase
             // tab strip can be taller than the active page when many tabs are
             // expanded (BLOODCRAFT alone has 8 sub-tabs), and we don't want
             // sub-tabs hidden below the panel border.
-            float pageHeight  = ComputeChildrenSumHeight(pageGo);
+            float pageHeight  = ComputeChildrenSumHeight(measureGo);
             float stripHeight = _tabStripGo != null ? ComputeChildrenSumHeight(_tabStripGo) : 0f;
             float contentHeight = Math.Max(pageHeight, stripHeight);
             // Chrome budget: OverlayFooter (32) + TooltipFooter (22) + spacing/margins (~22) ≈ 76px.

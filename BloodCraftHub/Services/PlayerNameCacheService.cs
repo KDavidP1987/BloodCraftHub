@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Text.RegularExpressions;
 using BloodCraftHub.Utils;
 
 namespace BloodCraftHub.Services;
@@ -46,6 +47,54 @@ public static class PlayerNameCacheService
         _names.Clear();
         try { NamesChanged?.Invoke(); }
         catch (Exception ex) { LogUtils.LogError($"PlayerNameCache NamesChanged threw: {ex}"); }
+    }
+
+    // ----- Passive harvesting from inbound chat (Phase 5j) ----------------
+    //
+    // Bloodcraft + KindredCommands print player names wrapped in colored TMP
+    // tags - e.g. `<color=#ffd700>SomeName</color>` or
+    // `<color=white>SomeName</color> joined`. The regex below targets those
+    // exact patterns; it's deliberately conservative (length 3-20, leading
+    // letter, no spaces inside) to avoid eating numbers, item names, or
+    // section headers.
+    //
+    // The denylist filters out tokens that look like player names but match
+    // recurring server-output words; this list is small on purpose - we'd
+    // rather over-cache (harmless, autocomplete dropdown can be filtered)
+    // than miss real names.
+    private static readonly Regex _colorTokenRegex = new(
+        @"<color=[^>]+>([A-Za-z][A-Za-z0-9_]{2,19})</color>",
+        RegexOptions.Compiled);
+    private static readonly HashSet<string> _denylist = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "Bloodcraft", "Eclipse", "Server", "Console", "System", "Admin", "Familiar",
+        "Familiars", "Boxes", "Box", "Selected", "Available", "None", "All",
+        "Online", "Offline", "Joined", "Left", "Kicked", "Banned", "Connected",
+        "True", "False", "Daily", "Weekly", "Active", "Inactive", "Combat",
+        "Class", "Classes", "Spell", "Spells", "Stats", "Level", "Prestige",
+    };
+
+    /// <summary>
+    /// Harvest plausible player-name tokens from an inbound chat message and
+    /// add them to the cache. Safe to call on every inbound message - no-op if
+    /// no candidates match. Heuristic: caller should pass already-trimmed text.
+    /// </summary>
+    internal static void TryHarvestNames(string text)
+    {
+        if (string.IsNullOrEmpty(text)) return;
+        try
+        {
+            foreach (Match m in _colorTokenRegex.Matches(text))
+            {
+                var candidate = m.Groups[1].Value;
+                if (_denylist.Contains(candidate)) continue;
+                Add(candidate);
+            }
+        }
+        catch (Exception ex)
+        {
+            LogUtils.LogDebug($"PlayerNameCache.TryHarvestNames: {ex.Message}");
+        }
     }
 
     /// <summary>

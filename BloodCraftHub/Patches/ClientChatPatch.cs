@@ -71,6 +71,11 @@ internal static class ClientChatPatch
                     continue;
                 }
 
+                // Passive: harvest plausible player names from colored chat
+                // tokens before the regex pipeline takes the text. Doesn't
+                // consume anything; just populates the autocomplete cache.
+                PlayerNameCacheService.TryHarvestNames(text);
+
                 // Fall through to the legacy regex pipeline for things Bloodcraft
                 // doesn't ship via the structured protocol (.fam boxes / .fam l).
                 if (MessageService.HandleInboundChat(text))

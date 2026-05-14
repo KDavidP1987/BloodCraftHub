@@ -159,6 +159,14 @@ The largest single phase by command count. KindredCommands' admin surface was in
 
 Player-facing equivalents from Phase 5h remain on the "Commands" tab. Phase 5h's 13 commands are not duplicated into the admin tabs.
 
+### Phase 5j — Polish
+
+Four targeted polish items before release-prep starts.
+
+- **ScrollRect on every tab page.** `CreateTabPage` now returns the `CreateScrollView` wrapper (the visible tab GameObject) and out-params the inner content where `BuildXxxTab` adds children. A parallel `_tabInnerContent[PanelType]` dict feeds `AutoResizeIfEnabled` the true children-sum height; the panel still grows to fit short content and caps at 90% screen, but tall admin tabs scroll instead of clipping. Scroll wheel is permanently-visible vertical, sensitivity 35.
+- **Passive player-name harvesting from chat.** `PlayerNameCacheService.TryHarvestNames` runs a conservative regex (`<color=...>([A-Za-z][A-Za-z0-9_]{2,19})</color>`) against every inbound chat line that Eclipse didn't consume. A small denylist filters recurring non-name tokens (Bloodcraft / Server / Online / Joined / etc.). `ClientChatPatch` calls it between the Eclipse handler and the regex pipeline.
+- **Shift-spell prefab name lookup.** New `Resources/PrefabNameResolver.cs` lazily builds a `Dictionary<int, string>` by inverting `PrefabCollectionSystem.SpawnableNameToPrefabGuidDictionary` on first call. `RenderUnarmedShift` now shows `Equipped: <name>` when the resolver knows the spell and falls back to `Equipped: PrefabGUID <hash>` when not yet built or unknown. Pattern ported from `LearningMods/Eclipse-main/Services/LocalizationService.cs`.
+- **`.clan list` pagination widget.** The static "Clan List" button on the Commands tab is replaced with a stateful pager: `[<]  Clan List p1  [>]`. Click Prev/Next to fire `.clan list <page>` with the new page number; the label tracks the page the next press will request. State (`_clanListPage`) lives on the panel instance.
+
 ## Phases remaining
-- **5j** — Polish: prefab name lookup for shift spell, optional ScrollRect, name-cache autocomplete wired to chat-reply parsing.
 - **6** — Release: license, README + screenshots, real icon, Thunderstore upload via `tcli`.

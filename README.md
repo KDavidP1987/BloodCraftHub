@@ -3,7 +3,7 @@
 Unified client-side V Rising UI mod that combines [BloodCraftUI](https://thunderstore.io/c/v-rising/p/panthernet/BloodCraftUI_OnlyFams/) and [Eclipse](https://thunderstore.io/c/v-rising/p/zfolmt/Eclipse/) into a single management UI for the [Bloodcraft](https://thunderstore.io/c/v-rising/p/zfolmt/Bloodcraft/) server mod.
 
 **Repo:** https://github.com/KDavidP1987/BloodCraftHub
-**Status:** v0.1.0 in development. All Bloodcraft tabs functional (8 tabs). KindredLogistics (5g), KindredCommands Player (5h), and KindredCommands Admin sub-tabs (5i: Players / Server / World — 146 commands) all live. Polish + release pending. Not yet published to Thunderstore.
+**Status:** v0.1.0 in development. All 13 tabs (8 Bloodcraft + 5 Kindred) functional. Polish round done (ScrollRect on every tab, prefab-name lookup for shift spell, passive player-name autocomplete, .clan list pagination). Release prep next. Not yet published to Thunderstore.
 
 ## What it does
 
