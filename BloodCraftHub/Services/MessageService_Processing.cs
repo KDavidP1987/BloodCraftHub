@@ -35,6 +35,9 @@ public static partial class MessageService
     // ---------- Blood legacy (.bl) ----------
     public const string BCCOM_BL_GET             = ".bl get";
 
+    // ---------- Misc (.misc) ----------
+    public const string BCCOM_MISC_HEALTH         = ".misc health";
+
     // ---------- Class (.class) ----------
     public const string BCCOM_CLASS_LIST          = ".class l";
     public const string BCCOM_CLASS_LIST_SPELLS   = ".class lsp";

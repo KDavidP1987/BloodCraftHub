@@ -61,6 +61,12 @@ public class MainPanel : ResizeablePanelBase
     private TextMeshProUGUI _wepBonusLabel;
     private bool _wepSubscribed;
 
+    // Unarmed+Shift-tab live labels
+    private TextMeshProUGUI _shiftSpellLabel;
+    private TextMeshProUGUI _unarmedStatusLabel;
+    private TextMeshProUGUI _unarmedBonusLabel;
+    private bool _shiftSubscribed;
+
     private static readonly (PanelType Tab, string Label)[] Tabs =
     {
         (PanelType.FamiliarsTab,    "Familiars"),
@@ -139,6 +145,12 @@ public class MainPanel : ResizeablePanelBase
                     break;
                 case PanelType.ExpertiseTab:
                     BuildExpertiseTab(page);
+                    break;
+                case PanelType.UnarmedShiftTab:
+                    BuildUnarmedShiftTab(page);
+                    break;
+                case PanelType.AdminTab:
+                    BuildAdminTab(page);
                     break;
                 default:
                     AddComingSoonBody(page, label);
@@ -347,6 +359,181 @@ public class MainPanel : ResizeablePanelBase
 
     private void OnExpertiseChanged() => RenderExpertise(PlayerStateService.Expertise);
 
+    // -----------------------------------------------------------------------
+    // Unarmed + Shift Skill tab
+    // -----------------------------------------------------------------------
+
+    private void BuildUnarmedShiftTab(GameObject page)
+    {
+        AddSectionHeading(page, "Shift Spell");
+
+        _shiftSpellLabel = AddInfoLabel(page, "ShiftSpell",
+            "Equipped: —", FontStyles.Normal, fontSize: 14);
+
+        AddSpacer(page, 4);
+        AddSectionHeading(page, "Unarmed Expertise");
+
+        _unarmedStatusLabel = AddInfoLabel(page, "UnarmedStatus",
+            "Equip your fists (no weapon) to inspect unarmed expertise.",
+            FontStyles.Normal, fontSize: 14);
+        _unarmedBonusLabel = AddInfoLabel(page, "UnarmedBonus",
+            "Bonus Stats: —", FontStyles.Normal, fontSize: 13);
+
+        AddSpacer(page, 4);
+        AddSectionHeading(page, "Actions");
+
+        var actions = UIFactory.CreateHorizontalGroup(page, "UnarmedShiftActions",
+            forceExpandWidth: true, forceExpandHeight: false,
+            childControlWidth: false, childControlHeight: true,
+            spacing: 6, padding: new Vector4(0, 0, 0, 0));
+        UIFactory.SetLayoutElement(actions,
+            minWidth: 360, preferredWidth: 400, flexibleWidth: 1,
+            minHeight: 32, preferredHeight: 32, flexibleHeight: 0);
+        AddCommandButton(actions, "Toggle Shift",  MessageService.BCCOM_CLASS_TOGGLE_SHIFT);
+        AddCommandButton(actions, "Lock Spells",   MessageService.BCCOM_WEP_LOCK_SPELLS);
+        AddCommandButton(actions, "Refresh",       MessageService.BCCOM_WEP_GET);
+
+        AddSpacer(page, 4);
+        var note = UIFactory.CreateLabel(page, "ShiftNote",
+            "Choosing which class spell goes in the shift slot takes a number (`.class csp <#>`). " +
+            "Use chat for now; a spell picker arrives in a later phase.",
+            TextAlignmentOptions.TopLeft, color: null, fontSize: 12);
+        UIFactory.SetLayoutElement(note.GameObject,
+            minWidth: 360, preferredWidth: 400, flexibleWidth: 1,
+            minHeight: 40, preferredHeight: 50, flexibleHeight: 0);
+        note.TextMesh.enableWordWrapping = true;
+        note.TextMesh.overflowMode = TextOverflowModes.Overflow;
+
+        RenderUnarmedShift(PlayerStateService.Expertise, PlayerStateService.ShiftSpell);
+        if (!_shiftSubscribed)
+        {
+            PlayerStateService.ExpertiseChanged  += OnExpertiseChangedForUnarmed;
+            PlayerStateService.ShiftSpellChanged += OnShiftSpellChanged;
+            _shiftSubscribed = true;
+        }
+    }
+
+    private void OnExpertiseChangedForUnarmed()
+        => RenderUnarmedShift(PlayerStateService.Expertise, PlayerStateService.ShiftSpell);
+    private void OnShiftSpellChanged()
+        => RenderUnarmedShift(PlayerStateService.Expertise, PlayerStateService.ShiftSpell);
+
+    private void RenderUnarmedShift(
+        PlayerStateService.ExpertiseState exp,
+        PlayerStateService.ShiftSpellState shift)
+    {
+        if (_shiftSpellLabel == null) return;
+
+        _shiftSpellLabel.text = shift.SpellIndex == 0
+            ? "Equipped: (none)"
+            : $"Equipped: PrefabGUID {shift.SpellIndex}";
+
+        bool unarmedEquipped = exp.Type == PlayerStateService.WeaponType.Unarmed;
+        if (unarmedEquipped)
+        {
+            _unarmedStatusLabel.text = exp.Prestige > 0
+                ? $"Level {exp.Level}   ({exp.Progress * 100f:0.#}%)   Prestige {exp.Prestige}"
+                : $"Level {exp.Level}   ({exp.Progress * 100f:0.#}%)";
+
+            var stats = PlayerStateService.DecodeWeaponBonusStats(exp.BonusStatsRaw);
+            var named = new System.Collections.Generic.List<string>();
+            foreach (var st in stats)
+                if (st != PlayerStateService.WeaponStatType.None) named.Add(st.ToString());
+            _unarmedBonusLabel.text = named.Count > 0
+                ? $"Bonus Stats: {string.Join(", ", named)}"
+                : "Bonus Stats: (none yet — pick one via .wep cst)";
+        }
+        else
+        {
+            _unarmedStatusLabel.text =
+                $"Currently equipped: {exp.Type}. Equip your fists (unarm) to inspect unarmed expertise.";
+            _unarmedBonusLabel.text = "Bonus Stats: —";
+        }
+    }
+
+    // -----------------------------------------------------------------------
+    // Admin tab
+    // -----------------------------------------------------------------------
+
+    private void BuildAdminTab(GameObject page)
+    {
+        AddSectionHeading(page, "Server Diagnostics");
+
+        var diagRow = UIFactory.CreateHorizontalGroup(page, "AdminDiag",
+            forceExpandWidth: true, forceExpandHeight: false,
+            childControlWidth: false, childControlHeight: true,
+            spacing: 6, padding: new Vector4(0, 0, 0, 0));
+        UIFactory.SetLayoutElement(diagRow,
+            minWidth: 360, preferredWidth: 400, flexibleWidth: 1,
+            minHeight: 32, preferredHeight: 32, flexibleHeight: 0);
+        var healthBtn = UIFactory.CreateButton(diagRow, "AdminHealthBtn", "Health (.misc health)");
+        UIFactory.SetLayoutElement(healthBtn.GameObject,
+            minWidth: 180, preferredWidth: 200, flexibleWidth: 0,
+            minHeight: 28, preferredHeight: 30, flexibleHeight: 0);
+        healthBtn.OnClick = () => EnqueueOrWarn(MessageService.BCCOM_MISC_HEALTH);
+
+        AddSpacer(page, 6);
+        AddSectionHeading(page, "Admin commands (use chat — args required)");
+
+        AddAdminRefLine(page, ".lvl set [Player] [Level]",
+            "Set a player's character level.");
+        AddAdminRefLine(page, ".prestige set [Player] [PrestigeType] [Level]",
+            "Set a player's prestige in a system. PrestigeType is e.g. Experience / Expertise / Legacy.");
+        AddAdminRefLine(page, ".prestige r [Player] [PrestigeType]",
+            "Reset a prestige for the player.");
+        AddAdminRefLine(page, ".bl set [Player] [Blood] [Level]",
+            "Set a player's blood legacy level.");
+        AddAdminRefLine(page, ".wep set [Player] [Weapon] [Level]",
+            "Set a player's weapon expertise level.");
+        AddAdminRefLine(page, ".prof set [Player] [Profession] [Level]",
+            "Set a player's profession level.");
+        AddAdminRefLine(page, ".fam sl [Player] [Level]",
+            "Set a player's familiar level.");
+        AddAdminRefLine(page, ".quest rf [Player]",
+            "Refresh daily/weekly quests for a player.");
+        AddAdminRefLine(page, ".quest c [Player] [QuestType]",
+            "Forcibly complete a quest for a player. QuestType is Daily or Weekly.");
+
+        AddSpacer(page, 6);
+        var note = UIFactory.CreateLabel(page, "AdminNote",
+            "Form-based admin tools (player name picker + numeric inputs) arrive in a later phase. " +
+            "If you aren't an admin on this server, these commands will return a permission error.",
+            TextAlignmentOptions.TopLeft, color: null, fontSize: 12);
+        UIFactory.SetLayoutElement(note.GameObject,
+            minWidth: 360, preferredWidth: 400, flexibleWidth: 1,
+            minHeight: 40, preferredHeight: 60, flexibleHeight: 0);
+        note.TextMesh.enableWordWrapping = true;
+        note.TextMesh.overflowMode = TextOverflowModes.Overflow;
+    }
+
+    private static void AddAdminRefLine(GameObject parent, string command, string summary)
+    {
+        var row = UIFactory.CreateHorizontalGroup(parent, $"AdminRef_{command}",
+            forceExpandWidth: true, forceExpandHeight: false,
+            childControlWidth: false, childControlHeight: true,
+            spacing: 8, padding: new Vector4(2, 2, 0, 0));
+        UIFactory.SetLayoutElement(row,
+            minWidth: 360, preferredWidth: 400, flexibleWidth: 1,
+            minHeight: 18, preferredHeight: 20, flexibleHeight: 0);
+
+        var cmd = UIFactory.CreateLabel(row, "Cmd", command,
+            TextAlignmentOptions.MidlineLeft, color: null, fontSize: 12);
+        UIFactory.SetLayoutElement(cmd.GameObject,
+            minWidth: 200, preferredWidth: 220, flexibleWidth: 0,
+            minHeight: 18, preferredHeight: 20, flexibleHeight: 0);
+        cmd.TextMesh.fontStyle = FontStyles.Bold;
+        cmd.TextMesh.enableWordWrapping = false;
+        cmd.TextMesh.overflowMode = TextOverflowModes.Overflow;
+
+        var desc = UIFactory.CreateLabel(row, "Desc", summary,
+            TextAlignmentOptions.MidlineLeft, color: null, fontSize: 12);
+        UIFactory.SetLayoutElement(desc.GameObject,
+            minWidth: 160, preferredWidth: 180, flexibleWidth: 1,
+            minHeight: 18, preferredHeight: 20, flexibleHeight: 0);
+        desc.TextMesh.enableWordWrapping = false;
+        desc.TextMesh.overflowMode = TextOverflowModes.Overflow;
+    }
+
     private void RenderExpertise(PlayerStateService.ExpertiseState s)
     {
         if (_wepTypeLabel == null) return;
@@ -507,6 +694,12 @@ public class MainPanel : ResizeablePanelBase
         {
             PlayerStateService.ExpertiseChanged -= OnExpertiseChanged;
             _wepSubscribed = false;
+        }
+        if (_shiftSubscribed)
+        {
+            PlayerStateService.ExpertiseChanged  -= OnExpertiseChangedForUnarmed;
+            PlayerStateService.ShiftSpellChanged -= OnShiftSpellChanged;
+            _shiftSubscribed = false;
         }
     }
 }
