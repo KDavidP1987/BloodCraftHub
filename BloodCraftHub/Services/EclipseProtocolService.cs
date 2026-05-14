@@ -4,9 +4,7 @@ using System.Text;
 using System.Text.RegularExpressions;
 using BloodCraftHub.Resources;
 using BloodCraftHub.Utils;
-using Il2CppInterop.Runtime;
 using ProjectM.Network;
-using Unity.Entities;
 
 namespace BloodCraftHub.Services;
 
@@ -44,20 +42,16 @@ public static class EclipseProtocolService
     private static readonly Regex _regexEventPrefix = new(@"^\[(\d+)\]:", RegexOptions.Compiled);
     private static readonly Regex _regexMacSuffix   = new(@";mac([^;]+)$", RegexOptions.Compiled);
 
-    private static readonly ComponentType[] _networkEventComponents =
-    {
-        ComponentType.ReadOnly(Il2CppType.Of<FromCharacter>()),
-        ComponentType.ReadOnly(Il2CppType.Of<NetworkEventType>()),
-        ComponentType.ReadOnly(Il2CppType.Of<SendNetworkEventTag>()),
-        ComponentType.ReadOnly(Il2CppType.Of<ChatMessageEvent>()),
-    };
-
-    private static readonly NetworkEventType _networkEventType = new()
-    {
-        IsAdminEvent = false,
-        EventId      = NetworkEvents.EventId_ChatMessageEvent,
-        IsDebugEvent = false,
-    };
+    // NOTE: do NOT add static ComponentType[] / NetworkEventType fields here.
+    // Plugin.Load triggers this class's cctor (via Initialize -> set_SharedKey),
+    // which runs BEFORE V Rising creates its ECS World. At that point
+    // Unity.Entities.TypeManager isn't initialized, so any static-field
+    // initializer that calls ComponentType.ReadOnly(...) NREs inside
+    // TypeManager.FindTypeIndex and aborts plugin load entirely.
+    //
+    // Outbound protocol messages reuse MessageService.SendRaw, whose ECS-
+    // related fields are only touched at first invocation (per-frame loop,
+    // after the world exists), so they're safe there.
 
     public static bool   UserRegistered { get; private set; }
     public static bool   RegistrationPending { get; private set; }
