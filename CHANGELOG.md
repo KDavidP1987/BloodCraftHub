@@ -144,8 +144,21 @@ Second KINDRED tab. Surveyed `LearningMods/KindredCommands-main/` for non-admin 
 - `.clan list` is wired as a zero-arg button (server defaults to page 1). Deeper pages still require typing in chat — pagination UI is Phase 5j polish.
 - KindredCommands player replies are plain chat strings; no structured-protocol parsing needed.
 
-## Phases remaining
+### Phase 5i — KindredCommands admin sub-tabs
 
-- **5i** — KindredCommands Admin sub-tabs (Players / Server / World). ~120 admin commands.
+The largest single phase by command count. KindredCommands' admin surface was inventoried at **~146 commands** and split into three sibling tabs under KINDRED.
+
+- `Services/MessageService_Processing.cs` — new BCCOM_KCA_* region (`KCA` = KindredCommands Admin). Constants are grouped per sub-tab (Players / Server / World) and per CommandGroup within, with `_FORMAT` templates for arg-taking commands.
+- `UI/ModContent/Data/PanelType.cs` — three new enum values: `KindredAdminPlayersTab`, `KindredAdminServerTab`, `KindredAdminWorldTab`. KINDRED rail group now hosts 5 tabs (Logistics, Commands, Admin: Players, Admin: Server, Admin: World).
+- `MainPanel` made `partial`. The admin Build methods live in a new file `UI/ModContent/MainPanel.KindredAdmin.cs` so the main `MainPanel.cs` stays digestible. Dispatch in `BuildContentArea` switches to the three new methods.
+- **Admin: Players (~59 commands)** — General, Identity (rename / unbind / swap), Fly (toggle / up / down / level / height / obstacle), Buffs & items (.buff, .debuff, .give, .bloodpotion, .bloodpotionmix), Boost (.bst, wrapped in its own outer collapsible — 22 commands), Gear (player), Clan (player). Most commands take an optional player arg with placeholder "blank for self".
+- **Admin: Server (~53 commands)** — Global toggles, Time / respawn, Announcements (4), Dropped items (8), Regions (10), Boss locks (4), Server-side Gear (6), Clan rename, Prisoner config (4), Staff (6).
+- **Admin: World (~34 commands)** — Position (whereami / horse teleport), Search (item / npc), Spawn (NPC / custom / coords / despawn / horse / spawn-ban), Boss modify+teleport, Castle (10 — claim, decay reports, freeze/thaw, plot info), Servant (7), Gear range-based (2).
+- Implementation patterns: zero-arg commands appear as `AddCommandButton` rows; arg-taking commands are each their own `CollapsibleSection` (collapsed by default) wrapping a `FormBuilder` form. Common shapes are extracted into helpers (`AddPlayerCollapse` for optional-player commands, `AddBstValueForm` / `AddBstTogglePlayer` for the boost wall, `AddSimpleTextCollapse` for one-string commands).
+- VCF custom types (`FoundUnit`, `FoundItem`, `FoundRegion`, `FoundVBlood`, `FoundPrimal`, `BuffInput`, etc.) are surfaced as `TextField` — the server resolves the string. `BloodType` uses `EnumField<PlayerStateService.BloodType>` since we already have that enum.
+
+Player-facing equivalents from Phase 5h remain on the "Commands" tab. Phase 5h's 13 commands are not duplicated into the admin tabs.
+
+## Phases remaining
 - **5j** — Polish: prefab name lookup for shift spell, optional ScrollRect, name-cache autocomplete wired to chat-reply parsing.
 - **6** — Release: license, README + screenshots, real icon, Thunderstore upload via `tcli`.

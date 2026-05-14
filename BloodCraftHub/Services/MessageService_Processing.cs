@@ -137,6 +137,205 @@ public static partial class MessageService
     public const string BCCOM_KC_CLAN_MEMBERS_FORMAT  = ".clan members {0}"; // {0} = clan name
 
     // =========================================================================
+    // KindredCommands - admin commands (Phase 5i)
+    //
+    // ~146 admin commands surveyed and split across 3 sub-tabs (Players / Server
+    // / World). Constants below are organized in the same shape so UI code can
+    // walk them top-to-bottom.
+    //
+    // Many admin commands take an optional `player:OnlinePlayer=null` final arg
+    // that defaults to self when omitted; those keep a trailing `{0}` slot so
+    // the form can leave it blank for self-target.
+    // =========================================================================
+
+    // -------------------------------------------------------------------------
+    // ADMIN: PLAYERS sub-tab
+    // -------------------------------------------------------------------------
+
+    // ---- General player commands (no group) ----
+    public const string BCCOM_KCA_REVIVE_TARGET           = ".revivetarget";
+    public const string BCCOM_KCA_RENAME_SELF_FORMAT      = ".rename {0}";                    // newName
+    public const string BCCOM_KCA_RENAME_PLAYER_FORMAT    = ".rename {0} {1}";                // player, newName
+    public const string BCCOM_KCA_UNBIND_PLAYER_FORMAT    = ".unbindplayer {0}";              // player
+    public const string BCCOM_KCA_SWAP_PLAYERS_FORMAT     = ".swapplayers {0} {1}";           // player1, player2
+    public const string BCCOM_KCA_UNLOCK_FORMAT           = ".unlock {0}";                    // player (optional)
+    public const string BCCOM_KCA_REVEALMAP_FORMAT        = ".revealmap {0}";                 // player (optional)
+    public const string BCCOM_KCA_TELEPORT_FORMAT         = ".teleport {0} {1} {2} {3}";      // x y z player
+    public const string BCCOM_KCA_FLY_FORMAT              = ".fly {0}";                       // player (optional)
+    public const string BCCOM_KCA_FLYUP_FORMAT            = ".flyup {0}";                     // player
+    public const string BCCOM_KCA_FLYDOWN_FORMAT          = ".flydown {0}";                   // player
+    public const string BCCOM_KCA_FLYLEVEL_FORMAT         = ".flylevel {0} {1}";              // floor, player
+    public const string BCCOM_KCA_FLYHEIGHT_FORMAT        = ".flyheight {0}";                 // height (default 30)
+    public const string BCCOM_KCA_FLY_OBSTACLE_HEIGHT_FORMAT = ".flyobstacleheight {0}";      // height (default 7)
+    public const string BCCOM_KCA_KILL_PLAYER_FORMAT      = ".killplayer {0}";                // player
+    public const string BCCOM_KCA_STAY_DOWN_FORMAT        = ".staydown {0}";                  // player
+    public const string BCCOM_KCA_HEART_COUNT_FORMAT      = ".playerheartcount {0} {1}";      // amount, player
+    public const string BCCOM_KCA_REVIVE_FORMAT           = ".revive {0}";                    // player (optional)
+    public const string BCCOM_KCA_BUFF_FORMAT             = ".buff {0} {1} {2} {3}";          // buff, player, duration, immortal
+    public const string BCCOM_KCA_DEBUFF_FORMAT           = ".debuff {0} {1}";                // buff, player
+    public const string BCCOM_KCA_LISTBUFFS_FORMAT        = ".listbuffs {0}";                 // player (optional)
+    public const string BCCOM_KCA_GIVE_FORMAT             = ".give {0} {1}";                  // item, quantity
+    public const string BCCOM_KCA_BLOODPOTION_FORMAT      = ".bloodpotion {0} {1} {2}";       // type, quality, quantity
+    public const string BCCOM_KCA_BLOODPOTION_MIX_FORMAT  = ".bloodpotionmix {0} {1} {2} {3} {4} {5}"; // pType,pQual,sType,sQual,sTrait,qty
+    public const string BCCOM_KCA_GOD_FORMAT              = ".god {0}";                       // player
+    public const string BCCOM_KCA_MORTAL_FORMAT           = ".mortal {0}";                    // player
+    public const string BCCOM_KCA_SPECTATE_FORMAT         = ".spectate {0} {1}";              // player, returnToStart
+    public const string BCCOM_KCA_RESET_COOLDOWN_FORMAT   = ".resetcooldown {0}";             // player (optional)
+
+    // ---- Boost (bst) group ----
+    public const string BCCOM_KCA_BST_PLAYERS                = ".bst players";
+    public const string BCCOM_KCA_BST_STATE_FORMAT           = ".bst state {0}";
+    public const string BCCOM_KCA_BST_ATTACK_SPEED_FORMAT    = ".bst attackspeed {0} {1}";    // speed, player
+    public const string BCCOM_KCA_BST_REMOVE_ATTACK_SPEED_FORMAT = ".bst removeattackspeed {0}";
+    public const string BCCOM_KCA_BST_DAMAGE_FORMAT          = ".bst damage {0} {1}";
+    public const string BCCOM_KCA_BST_REMOVE_DAMAGE_FORMAT   = ".bst removedamage {0}";
+    public const string BCCOM_KCA_BST_HEALTH_FORMAT          = ".bst health {0} {1}";
+    public const string BCCOM_KCA_BST_REMOVE_HEALTH_FORMAT   = ".bst removehealth {0}";
+    public const string BCCOM_KCA_BST_SPEED_FORMAT           = ".bst speed {0} {1}";
+    public const string BCCOM_KCA_BST_REMOVE_SPEED_FORMAT    = ".bst removespeed {0}";
+    public const string BCCOM_KCA_BST_YIELD_FORMAT           = ".bst yield {0} {1}";
+    public const string BCCOM_KCA_BST_REMOVE_YIELD_FORMAT    = ".bst removeyield {0}";
+    public const string BCCOM_KCA_BST_BAT_VISION_FORMAT      = ".bst batvision {0}";
+    public const string BCCOM_KCA_BST_FLY_FORMAT             = ".bst fly {0}";
+    public const string BCCOM_KCA_BST_NO_AGGRO_FORMAT        = ".bst noaggro {0}";
+    public const string BCCOM_KCA_BST_NO_BLOOD_DRAIN_FORMAT  = ".bst noblooddrain {0}";
+    public const string BCCOM_KCA_BST_NO_COOLDOWN_FORMAT     = ".bst nocooldown {0}";
+    public const string BCCOM_KCA_BST_NO_DURABILITY_FORMAT   = ".bst nodurability {0}";
+    public const string BCCOM_KCA_BST_IMMATERIAL_FORMAT      = ".bst immaterial {0}";
+    public const string BCCOM_KCA_BST_INVINCIBLE_FORMAT      = ".bst invincible {0}";
+    public const string BCCOM_KCA_BST_SHROUDED_FORMAT        = ".bst shrouded {0}";
+    public const string BCCOM_KCA_BST_SUN_INVULNERABLE_FORMAT = ".bst suninvulnerable {0}";
+
+    // ---- Gear group (player-targeting subset) ----
+    public const string BCCOM_KCA_GEAR_REPAIR_FORMAT          = ".gear repair {0}";           // player (optional)
+    public const string BCCOM_KCA_GEAR_BREAK_FORMAT           = ".gear break {0}";            // player (optional)
+    public const string BCCOM_KCA_GEAR_SS_DURABILITY_FORMAT   = ".gear soulsharddurability {0} {1}"; // durability, player
+
+    // ---- Clan group (player-targeting subset) ----
+    public const string BCCOM_KCA_CLAN_ADD_FORMAT             = ".clan add {0} {1}";          // player, clanName
+    public const string BCCOM_KCA_CLAN_KICK_FORMAT            = ".clan kick {0}";             // player
+    public const string BCCOM_KCA_CLAN_CHANGE_ROLE_FORMAT     = ".clan changerole {0} {1}";   // player, role
+
+    // -------------------------------------------------------------------------
+    // ADMIN: SERVER sub-tab
+    // -------------------------------------------------------------------------
+
+    // ---- General server commands (no group) ----
+    public const string BCCOM_KCA_REVEALMAP_ALL              = ".revealmapforallplayers";
+    public const string BCCOM_KCA_CLEAN_CONTAINERLESS_SHARDS = ".cleancontainerlessshards";
+    public const string BCCOM_KCA_EVERYONE_DAYWALKER         = ".everyonedaywalker";
+    public const string BCCOM_KCA_GLOBAL_BAT_VISION          = ".globalbatvision";
+    public const string BCCOM_KCA_SETTIME_FORMAT             = ".settime {0} {1}";            // day, hour
+    public const string BCCOM_KCA_FORCE_RESPAWN_FORMAT       = ".forcerespawn {0}";           // range (default 10)
+
+    // ---- Announce group ----
+    public const string BCCOM_KCA_ANNOUNCE_LIST              = ".announce list";
+    public const string BCCOM_KCA_ANNOUNCE_ADD_FORMAT        = ".announce add {0} {1} {2} {3}"; // name, message, time, oneTime
+    public const string BCCOM_KCA_ANNOUNCE_CHANGE_FORMAT     = ".announce change {0} {1} {2} {3}";
+    public const string BCCOM_KCA_ANNOUNCE_REMOVE_FORMAT     = ".announce remove {0}";        // name
+
+    // ---- Drop items group ----
+    public const string BCCOM_KCA_DROP_REMOVE_LIFETIME       = ".dropitems removelifetime";
+    public const string BCCOM_KCA_DROP_CLEAR_ALL             = ".dropitems clearall";
+    public const string BCCOM_KCA_DROP_CLEAR_ALL_SHARDS      = ".dropitems clearallshards";
+    public const string BCCOM_KCA_DROP_LIFETIME_FORMAT       = ".dropitems lifetime {0}";      // seconds
+    public const string BCCOM_KCA_DROP_LIFETIME_DISABLED_FORMAT = ".dropitems lifetimewhendisabled {0}";
+    public const string BCCOM_KCA_DROP_SHARD_LIFETIME_FORMAT = ".dropitems shardlifetime {0}";
+    public const string BCCOM_KCA_DROP_CLEAR_FORMAT          = ".dropitems clear {0}";        // radius
+    public const string BCCOM_KCA_DROP_CLEAR_SHARDS_FORMAT   = ".dropitems clearshards {0}";  // radius
+
+    // ---- Region group ----
+    public const string BCCOM_KCA_REGION_LIST_PLAYERS        = ".region listplayers";
+    public const string BCCOM_KCA_REGION_LOCK_FORMAT         = ".region lock {0}";            // region
+    public const string BCCOM_KCA_REGION_UNLOCK_FORMAT       = ".region unlock {0}";
+    public const string BCCOM_KCA_REGION_GATE_FORMAT         = ".region gate {0} {1}";        // region, level
+    public const string BCCOM_KCA_REGION_UNGATE_FORMAT       = ".region ungate {0}";
+    public const string BCCOM_KCA_REGION_ALLOW_FORMAT        = ".region allow {0}";           // player
+    public const string BCCOM_KCA_REGION_BAN_FORMAT          = ".region ban {0} {1}";         // player, region
+    public const string BCCOM_KCA_REGION_UNBAN_FORMAT        = ".region unban {0} {1}";
+    public const string BCCOM_KCA_REGION_LIST_BANS_FORMAT    = ".region listbans {0}";        // region
+    public const string BCCOM_KCA_REGION_REMOVE_FORMAT       = ".region remove {0}";          // player
+
+    // ---- Boss group (server lock subset) ----
+    public const string BCCOM_KCA_BOSS_LOCK_FORMAT           = ".boss lock {0}";              // boss
+    public const string BCCOM_KCA_BOSS_UNLOCK_FORMAT         = ".boss unlock {0}";
+    public const string BCCOM_KCA_BOSS_LOCK_PRIMAL_FORMAT    = ".boss lockprimal {0}";
+    public const string BCCOM_KCA_BOSS_UNLOCK_PRIMAL_FORMAT  = ".boss unlockprimal {0}";
+
+    // ---- Gear group (server subset) ----
+    public const string BCCOM_KCA_GEAR_HEADGEAR              = ".gear headgear";
+    public const string BCCOM_KCA_GEAR_SS_FLIGHT             = ".gear soulshardflight";
+    public const string BCCOM_KCA_GEAR_SS_DROP_MGMT          = ".gear togglesoulsharddropmanagement";
+    public const string BCCOM_KCA_GEAR_DESTROY_ALL_SHARDS    = ".gear destroyallshards";
+    public const string BCCOM_KCA_GEAR_SS_LIMIT_FORMAT       = ".gear soulshardlimit {0} {1}"; // limit, shardType
+    public const string BCCOM_KCA_GEAR_SS_DURATION_FORMAT    = ".gear soulsharddurabilitytime {0}"; // seconds
+
+    // ---- Clan group (server rename) ----
+    public const string BCCOM_KCA_CLAN_RENAME_FORMAT         = ".clan rename {0} {1} {2}";    // old, new, leader
+
+    // ---- Prisoner group ----
+    public const string BCCOM_KCA_PRISONER_GRUEL_FORMAT      = ".prisoner gruel {0} {1} {2}"; // chance, min, max
+    public const string BCCOM_KCA_PRISONER_GRUEL_XFORM_FORMAT = ".prisoner grueltransform {0}";// prefab
+    public const string BCCOM_KCA_PRISONER_FEED_FORMAT       = ".prisoner feed {0} {1} {2} {3} {4} {5} {6}"; // feed,hMin,hMax,mMin,mMax,qMin,qMax
+    public const string BCCOM_KCA_PRISONER_FEED_DEFAULT_FORMAT = ".prisoner feeddefault {0}"; // feed
+
+    // ---- Staff group ----
+    public const string BCCOM_KCA_STAFF_RELOAD_STAFF         = ".staff reloadstaff";
+    public const string BCCOM_KCA_STAFF_RELOAD_ADMIN         = ".staff reloadadmin";
+    public const string BCCOM_KCA_STAFF_AUTO_ADMIN_AUTH      = ".staff autoadminauth";
+    public const string BCCOM_KCA_STAFF_SET_STAFF_FORMAT     = ".staff setstaff {0} {1}";     // player, rank
+    public const string BCCOM_KCA_STAFF_REMOVE_STAFF_FORMAT  = ".staff removestaff {0}";      // player
+    public const string BCCOM_KCA_STAFF_TOGGLE_ADMIN_FORMAT  = ".staff toggleadmin {0}";      // player
+
+    // -------------------------------------------------------------------------
+    // ADMIN: WORLD sub-tab
+    // -------------------------------------------------------------------------
+
+    // ---- General world commands (no group) ----
+    public const string BCCOM_KCA_WHERE_AM_I                 = ".whereami";
+    public const string BCCOM_KCA_SPAWN_NPC_FORMAT           = ".spawnnpc {0} {1} {2}";       // unit, count, level
+    public const string BCCOM_KCA_CUSTOM_SPAWN_FORMAT        = ".customspawn {0} {1} {2} {3} {4} {5}"; // unit,type,qual,consumable,duration,level
+    public const string BCCOM_KCA_CUSTOM_SPAWN_AT_FORMAT     = ".customspawnat {0} {1} {2} {3} {4} {5} {6} {7} {8}"; // unit,x,y,z,type,qual,consumable,duration,level
+    public const string BCCOM_KCA_DESPAWN_NPC_FORMAT         = ".despawnnpc {0} {1}";         // unit, radius
+    public const string BCCOM_KCA_SPAWN_HORSE_FORMAT         = ".spawnhorse {0} {1} {2} {3}"; // speed, accel, rotation, num
+    public const string BCCOM_KCA_SPAWN_BAN_FORMAT           = ".spawnban {0} {1}";           // unit, reason
+    public const string BCCOM_KCA_TELEPORT_HORSE_FORMAT      = ".teleporthorse {0}";          // radius
+
+    // ---- Search group ----
+    public const string BCCOM_KCA_SEARCH_ITEM_FORMAT         = ".search item {0} {1}";        // query, page
+    public const string BCCOM_KCA_SEARCH_NPC_FORMAT          = ".search npc {0} {1}";
+
+    // ---- Boss group (world: modify+teleport) ----
+    public const string BCCOM_KCA_BOSS_MODIFY_FORMAT         = ".boss modify {0} {1}";
+    public const string BCCOM_KCA_BOSS_MODIFY_PRIMAL_FORMAT  = ".boss modifyprimal {0} {1}";
+    public const string BCCOM_KCA_BOSS_TELEPORT_TO_FORMAT    = ".boss teleportto {0} {1}";    // boss, whichOne
+
+    // ---- Castle group ----
+    public const string BCCOM_KCA_CASTLE_RELOCATE_RESET      = ".relocatereset";
+    public const string BCCOM_KCA_CASTLE_INCOMING_DECAY      = ".castle incomingdecay";
+    public const string BCCOM_KCA_CASTLE_FREEZE_HEART        = ".castle freezeheart";
+    public const string BCCOM_KCA_CASTLE_THAW_HEART          = ".castle thawheart";
+    public const string BCCOM_KCA_CASTLE_CLAIM_FORMAT        = ".claim {0}";                  // player (optional)
+    public const string BCCOM_KCA_CASTLE_PLOTS_OWNED_FORMAT  = ".castle plotsowned {0}";      // page
+    public const string BCCOM_KCA_CASTLE_FROZEN_HEARTS_FORMAT = ".castle frozenhearts {0}";   // page
+    public const string BCCOM_KCA_CASTLE_CLAN_PLOTS_OWNED_FORMAT = ".castle clanplotsowned {0}"; // page
+    public const string BCCOM_KCA_CASTLE_TELEPORT_PLOT_FORMAT = ".castle teleporttoplot {0}";  // territoryIndex
+    public const string BCCOM_KCA_CASTLE_PLOT_INFO_FORMAT    = ".castle plotinfo {0}";
+
+    // ---- Servant group ----
+    public const string BCCOM_KCA_SERVANT_CONVERT            = ".servant convert";
+    public const string BCCOM_KCA_SERVANT_PERFECT            = ".servant perfect";
+    public const string BCCOM_KCA_SERVANT_HEAL               = ".servant heal";
+    public const string BCCOM_KCA_SERVANT_REVIVE             = ".servant revive";
+    public const string BCCOM_KCA_SERVANT_COMPLETE_MISSION   = ".servant completemission";
+    public const string BCCOM_KCA_SERVANT_CHANGE_FORMAT      = ".servant change {0}";         // character
+    public const string BCCOM_KCA_SERVANT_ADD_FORMAT         = ".servant add {0}";
+
+    // ---- Gear group (world: range-based) ----
+    public const string BCCOM_KCA_GEAR_REPAIR_ALL_FORMAT     = ".gear repairall {0}";         // range
+    public const string BCCOM_KCA_GEAR_BREAK_ALL_FORMAT      = ".gear breakall {0}";
+
+    // =========================================================================
     // Inbound regex pipeline (Phase 3b)
     // =========================================================================
 

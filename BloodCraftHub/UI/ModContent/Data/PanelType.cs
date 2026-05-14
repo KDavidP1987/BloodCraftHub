@@ -22,6 +22,9 @@ public enum PanelType
     // Kindred-suite tabs (companion server mods to Bloodcraft):
     KindredLogisticsTab,
     KindredCommandsPlayerTab,
+    KindredAdminPlayersTab,
+    KindredAdminServerTab,
+    KindredAdminWorldTab,
 
     // Help / Reference tabs:
     QuickStartTab,

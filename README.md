@@ -3,14 +3,14 @@
 Unified client-side V Rising UI mod that combines [BloodCraftUI](https://thunderstore.io/c/v-rising/p/panthernet/BloodCraftUI_OnlyFams/) and [Eclipse](https://thunderstore.io/c/v-rising/p/zfolmt/Eclipse/) into a single management UI for the [Bloodcraft](https://thunderstore.io/c/v-rising/p/zfolmt/Bloodcraft/) server mod.
 
 **Repo:** https://github.com/KDavidP1987/BloodCraftHub
-**Status:** v0.1.0 in development. All Bloodcraft tabs functional (8 tabs). KindredLogistics tab (5g) + KindredCommands Player tab (5h) live. KindredCommands admin sub-tabs up next. Not yet published to Thunderstore.
+**Status:** v0.1.0 in development. All Bloodcraft tabs functional (8 tabs). KindredLogistics (5g), KindredCommands Player (5h), and KindredCommands Admin sub-tabs (5i: Players / Server / World — 146 commands) all live. Polish + release pending. Not yet published to Thunderstore.
 
 ## What it does
 
 - **Single floating "BCH" button** top-right of the screen → opens the main panel.
 - **Tabbed primary UI** with 3 collapsible groups in the left rail:
   - **BLOODCRAFT**: Familiars, Boxes, Class, Weapon Expertise, Unarmed + Shift, Prestige, Levels, Admin
-  - **KINDRED**: Logistics, Commands (KindredCommands admin sub-tabs coming)
+  - **KINDRED**: Logistics, Commands, Admin: Players, Admin: Server, Admin: World
   - **HELP**: Quick Start guide
 - **Two secondary overlays** (toggle from footer): XP tracker + Familiar quick-glance. Each is an independent draggable + resizable panel.
 - **Forms-driven commands** — every Bloodcraft admin command with arguments has a real form (player picker + enum dropdowns + numeric inputs + Submit). No more typing `.lvl set <Player> <Level>` in chat.

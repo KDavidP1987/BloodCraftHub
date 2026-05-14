@@ -21,7 +21,7 @@ namespace BloodCraftHub.UI.ModContent;
 // for the layout. Each tab's body is built by a dedicated BuildXxxTab method
 // dispatched in BuildContentArea; tabs that need live data subscribe to
 // PlayerStateService events and unsubscribe in Reset.
-public class MainPanel : ResizeablePanelBase
+public partial class MainPanel : ResizeablePanelBase
 {
     public override string PanelId => "MainPanel";
     public override PanelType PanelType => PanelType.Base;
@@ -137,6 +137,9 @@ public class MainPanel : ResizeablePanelBase
             {
                 (PanelType.KindredLogisticsTab,      "Logistics"),
                 (PanelType.KindredCommandsPlayerTab, "Commands"),
+                (PanelType.KindredAdminPlayersTab,   "Admin: Players"),
+                (PanelType.KindredAdminServerTab,    "Admin: Server"),
+                (PanelType.KindredAdminWorldTab,     "Admin: World"),
             },
         },
         new TabGroupDef
@@ -376,6 +379,15 @@ public class MainPanel : ResizeablePanelBase
                     break;
                 case PanelType.KindredCommandsPlayerTab:
                     BuildKindredCommandsPlayerTab(page);
+                    break;
+                case PanelType.KindredAdminPlayersTab:
+                    BuildKindredAdminPlayersTab(page);
+                    break;
+                case PanelType.KindredAdminServerTab:
+                    BuildKindredAdminServerTab(page);
+                    break;
+                case PanelType.KindredAdminWorldTab:
+                    BuildKindredAdminWorldTab(page);
                     break;
                 case PanelType.QuickStartTab:
                     BuildQuickStartTab(page);
