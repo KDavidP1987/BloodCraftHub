@@ -1,0 +1,6 @@
+# Concrete panels — one file per panel.
+# Existing (port from BloodCraftUI/UI/ModContent/):
+#   FamStatsPanel.cs, BoxListPanel.cs, BoxContentPanel.cs
+# New panels for Eclipse-side features (build from PlayerStateService data):
+#   ProgressPanel.cs, PrestigePanel.cs, LegacyPanel.cs, ExpertisePanel.cs,
+#   ProfessionPanel.cs, QuestPanel.cs

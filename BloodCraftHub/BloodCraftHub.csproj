@@ -1,0 +1,52 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net6.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <LangVersion>latest</LangVersion>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+
+    <!-- Identity: change these once. PluginInfo.props uses them to generate
+         a MyPluginInfo class at build time (no more dual-maintenance with Plugin.cs). -->
+    <AssemblyName>BloodCraftHub</AssemblyName>
+    <RootNamespace>BloodCraftHub</RootNamespace>
+    <Authors>kdpen</Authors>
+    <Description>Unified client UI for the Bloodcraft V Rising mod, combining BloodCraftUI and Eclipse.</Description>
+    <Version>0.1.0</Version>
+    <PackageId>$(Authors).$(AssemblyName)</PackageId>
+    <PackageProjectUrl></PackageProjectUrl>
+
+    <!-- Optional: copy build output straight into your client's BepInEx plugins dir.
+         Override on the command line: dotnet build -p:DeployToClient=true -->
+    <DeployToClient>false</DeployToClient>
+    <ClientPluginDirectory Condition="'$(ClientPluginDirectory)' == ''">C:\Program Files (x86)\Steam\steamapps\common\VRising\BepInEx\plugins</ClientPluginDirectory>
+
+    <BepInExVersion>6.0.0-be.733</BepInExVersion>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- Auto-generates MyPluginInfo.PLUGIN_GUID / PLUGIN_NAME / PLUGIN_VERSION from the props above. -->
+    <PackageReference Include="BepInEx.PluginInfoProps" Version="2.1.0" />
+    <PackageReference Include="BepInEx.Unity.IL2CPP" Version="$(BepInExVersion)" IncludeAssets="compile" />
+    <!-- VampireReferenceAssemblies is the newer/more-maintained alternative to VRising.Unhollowed.Client
+         that Eclipse uses. Both reference the same underlying interop types. -->
+    <PackageReference Include="VampireReferenceAssemblies" Version="1.1.11-r96495-b8" />
+    <PackageReference Include="System.Text.Json" Version="9.0.5" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <EmbeddedResource Include="Resources\secrets.json" />
+    <EmbeddedResource Include="Resources\Localization\English.json" />
+  </ItemGroup>
+
+  <PropertyGroup Condition=" '$(Configuration)' == 'Debug' ">
+    <DebugType>Full</DebugType>
+  </PropertyGroup>
+
+  <Import Project="Manifest.props" />
+
+  <Target Name="DeployToClientDir" AfterTargets="Build" Condition="'$(DeployToClient)' == 'true'">
+    <Copy SourceFiles="$(TargetPath)" DestinationFolder="$(ClientPluginDirectory)" SkipUnchangedFiles="true" />
+  </Target>
+
+</Project>

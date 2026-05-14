@@ -1,0 +1,5 @@
+# ModernUI base classes + vendored UniverseLib pieces go here.
+# Source:
+#   LearningMods/BloodCraftUI-master/ModernUI/                            (sibling project, fold in)
+#   LearningMods/BloodCraftUI-master/BloodCraftUI/UI/ModernLib/           (shadow copies)
+#   LearningMods/BloodCraftUI-master/BloodCraftUI/UI/UniverseLib/         (vendored framework)

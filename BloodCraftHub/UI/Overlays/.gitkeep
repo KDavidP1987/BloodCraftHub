@@ -1,0 +1,3 @@
+# In-place HUD overlays (the Eclipse aesthetic — data drawn directly on the game's UI).
+# Each overlay reads from PlayerStateService and writes to CanvasService-managed GameObjects.
+# Source: LearningMods/Eclipse-main/Services/CanvasService.cs and its helpers.

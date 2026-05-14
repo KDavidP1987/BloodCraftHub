@@ -1,0 +1,11 @@
+Copyright (c) 2026 BloodCraftHub contributors
+
+TODO: pick a license before the first public release.
+
+Notes for the maintainer:
+- BloodCraftUI (LearningMods/BloodCraftUI-master) has no LICENSE in-repo —
+  contact the author (panthernet) before redistributing ported code.
+- Eclipse (LearningMods/Eclipse-main) ships LICENSE.md — read it and comply if
+  you fork code from there.
+- The Bloodcraft server mod has its own license too; you're not redistributing
+  it, but mention compatibility scope in your release notes.

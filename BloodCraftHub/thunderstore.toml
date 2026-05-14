@@ -1,0 +1,17 @@
+[package.dependencies]
+BepInEx-BepInExPack_V_Rising = "1.733.2"
+
+[publish]
+communities = ["v-rising"]
+repository = "https://thunderstore.io"
+
+[publish.categories]
+v-rising = ["mods", "client"]
+
+[package]
+namespace = "kdpen"
+name = "BloodCraftHub"
+versionNumber = "0.1.0"
+description = "Unified client UI for the Bloodcraft V Rising mod, combining BloodCraftUI and Eclipse."
+websiteUrl = ""
+containsNsfwContent = false
