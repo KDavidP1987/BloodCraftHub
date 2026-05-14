@@ -107,19 +107,25 @@ Then look top-right of your screen — the **BCH** button should be there.
 ## Iterate loop
 
 ```powershell
-# 1. Edit code.
-# 2. Rebuild + redeploy:
+# 1. FULLY QUIT V Rising first - BepInEx holds the DLL file-locked while the
+#    game is running, and `dotnet build -p:DeployToClient=true` will fail
+#    with MSB3021 / MSB3027 "The file is locked by: V Rising (PID …)" if you
+#    skip this step. Quitting to the main menu is not enough; the process
+#    has to be gone (check Task Manager if unsure).
+# 2. Edit code.
+# 3. Rebuild + redeploy:
 dotnet build BloodCraftHub\BloodCraftHub.csproj -c Release -p:DeployToClient=true
-# 3. Fully restart V Rising — BepInEx does not hot-reload plugins.
+# 4. Re-launch via Thunderstore Mod Manager.
 ```
 
-You do not need to restart Steam or r2modman; just exit the game and start it again.
+You do not need to restart Steam or the mod manager — just exit the game and start it again.
 
 ## Troubleshooting cheat sheet
 
 | Symptom | Likely cause | Fix |
 |---|---|---|
 | `dotnet build` succeeded but no `BloodCraftHub.dll` appears in the plugins folder | `DeployToClient` wasn't true, or the path doesn't exist | Re-run with `-p:DeployToClient=true`. MSBuild creates missing directories; if the path is mistyped, the DLL lands somewhere harmless and the game doesn't see it. Verify with `Get-ChildItem` of the expected path. |
+| `MSB3021 / MSB3027 "The file is locked by: V Rising (PID …)"` | The game is still running and holds the old DLL file-locked | Fully quit V Rising (not just to main menu), then re-run the build. The compile step itself succeeded — only the copy failed; the new DLL is in `bin\Release\net6.0\` either way. |
 | `[BepInEx] Loading [BloodCraftHub …]` line never appears | Wrong BepInEx install is loading | Drop the DLL into both r2modman and Steam paths. Whichever V Rising actually launches with will load it. |
 | Plugin loads but no UI appears | `CharacterHUDEntry.Awake` patch didn't fire — usually a V Rising version drift | Search log for `"Creating BloodCraftHub UI..."`. If absent, the patch target name has changed. Open `BloodCraftHub/Patches/InitializationPatch.cs` and adjust the `[HarmonyPatch(typeof(...), nameof(...))]` target to the new name. |
 | NRE in `CommonClientDataSystem.OnUpdate` postfix | Auto-generated query field names (`__query_1840110770_0`/`_1`) changed between V Rising patches | Decompile the current `Stunlock.*` / `ProjectM.*` assembly to find the new query field names; update the postfix in `InitializationPatch.cs`. |

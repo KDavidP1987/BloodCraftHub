@@ -158,8 +158,22 @@ public class MainPanel : ResizeablePanelBase
     private Toggle AddOverlayToggle(GameObject parent, string label, PanelType overlay)
     {
         var t = UIFactory.CreateToggle(parent, $"OverlayToggle_{overlay}");
-        UIFactory.SetLayoutElement(t.GameObject, minWidth: 180, minHeight: 24, flexibleWidth: 0, flexibleHeight: 0);
+        UIFactory.SetLayoutElement(t.GameObject,
+            minWidth: 200, preferredWidth: 220, flexibleWidth: 0,
+            minHeight: 24, preferredHeight: 24, flexibleHeight: 0);
+
         t.Text.text = label;
+        t.Text.fontSize = 14;
+        // CreateToggle gives the inner label minWidth:0/flexibleWidth:0, which collapses
+        // TMP to a 1-char column and word-wraps every glyph. Force a real width and
+        // disable wrap so "XP overlay" renders left-to-right on one line.
+        t.Text.enableWordWrapping = false;
+        t.Text.overflowMode = TextOverflowModes.Overflow;
+        t.Text.alignment = TextAlignmentOptions.MidlineLeft;
+        UIFactory.SetLayoutElement(t.Text.gameObject,
+            minWidth: 160, preferredWidth: 180, flexibleWidth: 1,
+            minHeight: 24, preferredHeight: 24, flexibleHeight: 0);
+
         t.Toggle.isOn = Plugin.UIManager.IsOverlayOpen(overlay);
         t.OnValueChanged += _ => Plugin.UIManager.ToggleOverlay(overlay);
         return t.Toggle;
