@@ -21,10 +21,14 @@ public class FamiliarOverlayPanel : ResizeablePanelBase
     public override int MinWidth  => 220;
     public override int MinHeight => 80;
 
-    public override Vector2 DefaultAnchorMin => new(0f, 1f);
-    public override Vector2 DefaultAnchorMax => new(0f, 1f);
-    public override Vector2 DefaultPivot     => new(0f, 1f);
-    public override Vector2 DefaultPosition  => new(20f, -100f); // below the XP overlay
+    // Center anchor/pivot for the same reason as ExperienceOverlayPanel.
+    // X clamps to left edge; Y stays 100px below the top so this overlay sits below the XP one.
+    public override Vector2 DefaultAnchorMin => new(0.5f, 0.5f);
+    public override Vector2 DefaultAnchorMax => new(0.5f, 0.5f);
+    public override Vector2 DefaultPivot     => new(0.5f, 0.5f);
+    public override Vector2 DefaultPosition  => new(
+        -Owner.Scaler.m_ReferenceResolution.x * 0.5f,
+         Owner.Scaler.m_ReferenceResolution.y * 0.5f - 100f);
 
     public override bool CanDrag => true;
     public override PanelDragger.ResizeTypes CanResize => PanelDragger.ResizeTypes.All;

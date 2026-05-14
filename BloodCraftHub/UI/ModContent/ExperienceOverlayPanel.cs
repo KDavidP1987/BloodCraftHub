@@ -21,10 +21,15 @@ public class ExperienceOverlayPanel : ResizeablePanelBase
     public override int MinWidth  => 220;
     public override int MinHeight => 60;
 
-    public override Vector2 DefaultAnchorMin => new(0f, 1f);
-    public override Vector2 DefaultAnchorMax => new(0f, 1f);
-    public override Vector2 DefaultPivot     => new(0f, 1f);
-    public override Vector2 DefaultPosition  => new(20f, -20f); // top-left inset
+    // Anchor + pivot must be (0.5, 0.5) - PanelBase.EnsureValidPosition's clamp math
+    // assumes screen-center-relative coords; non-center anchors stop the panel at the
+    // wrong place. DefaultPosition is (-halfW, +halfH) so the clamp pins it top-left.
+    public override Vector2 DefaultAnchorMin => new(0.5f, 0.5f);
+    public override Vector2 DefaultAnchorMax => new(0.5f, 0.5f);
+    public override Vector2 DefaultPivot     => new(0.5f, 0.5f);
+    public override Vector2 DefaultPosition  => new(
+        -Owner.Scaler.m_ReferenceResolution.x * 0.5f,
+         Owner.Scaler.m_ReferenceResolution.y * 0.5f);
 
     public override bool CanDrag => true;
     public override PanelDragger.ResizeTypes CanResize => PanelDragger.ResizeTypes.All;
