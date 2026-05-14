@@ -13,6 +13,24 @@ The merge: keep Eclipse's protocol as the **primary inbound data channel** and B
 
 See [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) for the full design rationale and porting plan, and [`docs/THUNDERSTORE.md`](docs/THUNDERSTORE.md) for publishing the package to Thunderstore.io (the V Rising mod repository / mod-manager source).
 
+## Dev docs
+
+| Doc | Purpose |
+|---|---|
+| [`CONTRIBUTING.md`](CONTRIBUTING.md) | Daily workflow, commit-message format, release procedure. |
+| [`docs/MOD_DESIGN.md`](docs/MOD_DESIGN.md) | User-facing feature/UX spec. What the mod does, for whom. |
+| [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) | Internal code structure and porting map from BloodCraftUI/Eclipse. |
+| [`docs/VERSIONING.md`](docs/VERSIONING.md) | Semver policy, single-source-of-truth rules, how to bump. |
+| [`docs/PREFLIGHT.md`](docs/PREFLIGHT.md) | Pre-commit / pre-release checklist. Enforced by `tools/preflight.ps1`. |
+| [`docs/THUNDERSTORE.md`](docs/THUNDERSTORE.md) | Thunderstore packaging + publishing. |
+
+## First-time setup
+
+```powershell
+cd BloodCraftHub
+.\tools\install-hooks.ps1   # wires up the pre-commit + commit-msg hooks
+```
+
 ## Build
 
 ```powershell

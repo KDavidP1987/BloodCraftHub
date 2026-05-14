@@ -1,0 +1,35 @@
+# Default: auto-detect text vs binary, normalize line endings to LF in the repo.
+* text=auto
+
+# Shell scripts and git hooks MUST be LF (CRLF breaks the shebang).
+*.sh           text eol=lf
+.githooks/**   text eol=lf
+
+# PowerShell pins to LF too — pwsh accepts both, but LF avoids the
+# noisy "LF will be replaced by CRLF" warnings on every commit.
+*.ps1          text eol=lf
+
+# Build / config files — LF for consistency across editors.
+*.csproj       text eol=lf
+*.sln          text eol=lf
+*.props        text eol=lf
+*.targets      text eol=lf
+*.config       text eol=lf
+*.toml         text eol=lf
+*.yml          text eol=lf
+*.yaml         text eol=lf
+
+# JSON is LF.
+*.json         text eol=lf
+
+# Markdown stays as native (CRLF on Windows checkouts is fine here).
+*.md           text
+
+# Binary files git should not touch.
+*.png          binary
+*.jpg          binary
+*.jpeg         binary
+*.gif          binary
+*.dll          binary
+*.pdb          binary
+*.zip          binary

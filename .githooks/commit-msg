@@ -1,0 +1,14 @@
+#!/bin/sh
+# BloodCraftHub commit-msg hook.
+# Delegates to tools/commit-msg.ps1 for the actual format check.
+# Wrapper exists because git invokes hooks by exact filename (no extension)
+# and pwsh -File requires .ps1.
+
+set -e
+
+repo_root="$(git rev-parse --show-toplevel)" || exit 0
+checker="$repo_root/tools/commit-msg.ps1"
+if [ ! -f "$checker" ]; then exit 0; fi
+if ! command -v pwsh >/dev/null 2>&1; then exit 0; fi
+
+exec pwsh -NoProfile -ExecutionPolicy Bypass -File "$checker" "$1"

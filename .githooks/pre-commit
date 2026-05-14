@@ -1,0 +1,30 @@
+#!/bin/sh
+# BloodCraftHub pre-commit hook.
+# Calls the PowerShell preflight script in Commit mode.
+# Bypass once with: git commit --no-verify
+#
+# Why a POSIX-sh wrapper rather than .ps1 directly?
+#   Git invokes hooks by exact filename ("pre-commit") and cannot dispatch a
+#   no-extension file through pwsh on Windows. The wrapper works on both
+#   Windows (via Git-for-Windows' MSYS bash) and *nix.
+
+set -e
+
+repo_root="$(git rev-parse --show-toplevel)" || {
+    echo "pre-commit: not inside a git repo, skipping." >&2
+    exit 0
+}
+
+preflight="$repo_root/tools/preflight.ps1"
+if [ ! -f "$preflight" ]; then
+    echo "pre-commit: $preflight not found, skipping." >&2
+    exit 0
+fi
+
+if ! command -v pwsh >/dev/null 2>&1; then
+    echo "pre-commit: 'pwsh' (PowerShell 7+) not on PATH — skipping checks." >&2
+    echo "          Install from https://aka.ms/powershell to re-enable." >&2
+    exit 0
+fi
+
+exec pwsh -NoProfile -ExecutionPolicy Bypass -File "$preflight" -Mode Commit
