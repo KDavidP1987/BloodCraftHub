@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System;
 using BloodCraftHub.Config;
 using BloodCraftHub.Services;
 using BloodCraftHub.UI.Forms;
@@ -71,6 +72,7 @@ public class MainPanel : ResizeablePanelBase
     // Boxes-tab live state
     private TextMeshProUGUI _boxesActiveBoxLabel;
     private TextMeshProUGUI _boxesContentHeading;
+    private TextMeshProUGUI _boxesStatusLabel;
     private GameObject _boxesPickerSection;       // parent wrapping picker heading + list
     private GameObject _boxesContentSection;      // parent wrapping content heading + list
     private GameObject _boxesListContainer;       // box-name buttons go here
@@ -320,8 +322,28 @@ public class MainPanel : ResizeablePanelBase
         UIFactory.SetLayoutElement(pickerActions,
             minWidth: 360, preferredWidth: 400, flexibleWidth: 1,
             minHeight: 32, preferredHeight: 32, flexibleHeight: 0);
-        AddCommandButton(pickerActions, "Refresh", MessageService.BCCOM_FAM_BOXES,
-            "Re-fetch your familiar boxes from the server (.fam boxes).");
+        var refreshBtn = UIFactory.CreateButton(pickerActions, "Cmd_RefreshBoxes", "Refresh");
+        UIFactory.SetLayoutElement(refreshBtn.GameObject,
+            minWidth: 70, preferredWidth: 110, flexibleWidth: 1,
+            minHeight: 28, preferredHeight: 30, flexibleHeight: 0);
+        var refreshText = refreshBtn.Component.GetComponentInChildren<TextMeshProUGUI>();
+        if (refreshText != null)
+        {
+            refreshText.enableWordWrapping = false;
+            refreshText.overflowMode = TextOverflowModes.Overflow;
+            refreshText.alignment = TextAlignmentOptions.Center;
+            refreshText.fontSize = 13;
+        }
+        TooltipHover.Attach(refreshBtn.GameObject,
+            "Re-fetch your familiar boxes from the server (.fam boxes). The server reply can take a few seconds.");
+        refreshBtn.OnClick = () =>
+        {
+            if (_boxesStatusLabel != null) _boxesStatusLabel.text = "Loading boxes from the server…";
+            EnqueueOrWarn(MessageService.BCCOM_FAM_BOXES);
+        };
+
+        _boxesStatusLabel = AddInfoLabel(_boxesPickerSection, "BoxesStatus", "",
+            FontStyles.Italic, fontSize: 11);
 
         AddSectionHeading(_boxesPickerSection, "Available Boxes");
         _boxesListContainer = UIFactory.CreateVerticalGroup(_boxesPickerSection, "BoxListContainer",
@@ -415,8 +437,13 @@ public class MainPanel : ResizeablePanelBase
         UpdateBoxesSectionVisibility();
     }
 
-    private void OnBoxListChanged()     => RenderBoxList();
-    private void OnBoxContentsChanged() => RenderBoxContents();
+    private void OnBoxListChanged()
+    {
+        if (_boxesStatusLabel != null) _boxesStatusLabel.text = "";
+        RenderBoxList();
+        AutoResizeIfEnabled();
+    }
+    private void OnBoxContentsChanged() { RenderBoxContents(); AutoResizeIfEnabled(); }
     private void OnActiveBoxChanged()
     {
         var name = PlayerStateService.ActiveBox;
@@ -755,17 +782,22 @@ public class MainPanel : ResizeablePanelBase
             "Show the Bloodcraft server's startup readiness summary in chat (.misc health). Admin only.");
 
         AddSpacer(page, 6);
-        AddSectionHeading(page, "Admin forms (Phase 5b — demo)");
+        AddSectionHeading(page, "Admin forms");
 
-        // First fully-form-driven admin command. The remaining commands in the
-        // reference section below get migrated to forms in Phase 5e.
-        FormBuilder.Build(page,
+        // Collapsible form: header click toggles the form's content visibility.
+        // Many forms collapsed by default keeps the Admin tab compact even after
+        // Phase 5e migrates the remaining 8 reference lines.
+        CollapsibleSection.Build(page,
             title: "Set player level (.lvl set)",
-            commandTemplate: ".lvl set {player} {level}",
-            new PlayerNameField("player", "Player",
-                tooltip: "Target player's character name (must match exactly)."),
-            new IntField("level", "Level", min: 1, max: 200,
-                tooltip: "Target character level. Bloodcraft default cap is 90."));
+            startExpanded: false,
+            tooltip: "Expand to set a player's character level. Admin only.",
+            buildContent: content => FormBuilder.Build(content,
+                title: "Set player level",
+                commandTemplate: ".lvl set {player} {level}",
+                new PlayerNameField("player", "Player",
+                    tooltip: "Target player's character name (must match exactly)."),
+                new IntField("level", "Level", min: 1, max: 200,
+                    tooltip: "Target character level. Bloodcraft default cap is 90.")));
 
         AddSpacer(page, 6);
         AddSectionHeading(page, "Admin commands (use chat — args required)");
@@ -955,6 +987,66 @@ public class MainPanel : ResizeablePanelBase
 
         _xpOverlayToggle  = AddOverlayToggle(footer, "XP overlay",       PanelType.ExperienceOverlay);
         _famOverlayToggle = AddOverlayToggle(footer, "Familiar overlay", PanelType.FamiliarOverlay);
+        AddAutoResizeToggle(footer);
+    }
+
+    private void AddAutoResizeToggle(GameObject parent)
+    {
+        var t = UIFactory.CreateToggle(parent, "AutoResizeToggle");
+        UIFactory.SetLayoutElement(t.GameObject,
+            minWidth: 160, preferredWidth: 180, flexibleWidth: 0,
+            minHeight: 24, preferredHeight: 24, flexibleHeight: 0);
+        t.Text.text = "Auto-resize panel";
+        t.Text.fontSize = 13;
+        t.Text.enableWordWrapping = false;
+        t.Text.overflowMode = TextOverflowModes.Overflow;
+        t.Text.alignment = TextAlignmentOptions.MidlineLeft;
+        UIFactory.SetLayoutElement(t.Text.gameObject,
+            minWidth: 130, preferredWidth: 150, flexibleWidth: 1,
+            minHeight: 24, preferredHeight: 24, flexibleHeight: 0);
+
+        t.Toggle.isOn = Settings.IsPanelAutoResizeEnabled;
+        TooltipHover.Attach(t.GameObject,
+            "When on, the main panel grows to fit the active tab's content (capped at 90% of screen height).");
+        t.OnValueChanged += value =>
+        {
+            Plugin.Instance.Config.Bind(Settings.UI_SETTINGS_GROUP, nameof(Settings.IsPanelAutoResizeEnabled), true, "").Value = value;
+            AutoResizeIfEnabled();
+        };
+    }
+
+    private void AutoResizeIfEnabled()
+    {
+        if (!Settings.IsPanelAutoResizeEnabled) return;
+        if (!_tabContent.TryGetValue(ActiveTab, out var pageGo) || pageGo == null) return;
+
+        try
+        {
+            var pageRt = pageGo.GetComponent<RectTransform>();
+            if (pageRt == null) return;
+
+            // Force the layout to recalculate so preferredHeight is up to date.
+            UnityEngine.UI.LayoutRebuilder.ForceRebuildLayoutImmediate(pageRt);
+
+            float contentHeight = UnityEngine.UI.LayoutUtility.GetPreferredHeight(pageRt);
+            // Chrome budget: title bar + tab strip already share width; we account for
+            // the OverlayFooter (32) + TooltipFooter (22) + spacing (~16) ~= 70px.
+            float chrome = 76f;
+            float desired = contentHeight + chrome;
+            float screenCap = UnityEngine.Screen.height * 0.9f;
+            float clamped = Math.Min(Math.Max(desired, MinHeight), screenCap);
+
+            var size = Rect.sizeDelta;
+            if (Math.Abs(size.y - clamped) > 1f)
+            {
+                Rect.sizeDelta = new Vector2(size.x, clamped);
+                EnsureValidPosition();
+            }
+        }
+        catch (Exception ex)
+        {
+            LogUtils.LogError($"AutoResizeIfEnabled failed: {ex}");
+        }
     }
 
     private Toggle AddOverlayToggle(GameObject parent, string label, PanelType overlay)
@@ -987,6 +1079,7 @@ public class MainPanel : ResizeablePanelBase
         if (!_tabContent.ContainsKey(tab)) return;
         foreach (var kv in _tabContent) kv.Value.SetActive(kv.Key == tab);
         ActiveTab = tab;
+        AutoResizeIfEnabled();
     }
 
     internal override void Reset()

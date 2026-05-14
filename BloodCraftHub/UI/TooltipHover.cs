@@ -27,7 +27,7 @@ public static class TooltipHover
     /// <summary>Shared display target. <see cref="ModContent.MainPanel"/> sets this on construction.</summary>
     public static TextMeshProUGUI Sink;
 
-    public static string IdlePlaceholder = "Hover any button for a hint.";
+    public static string IdlePlaceholder = "Hint: hover any control for help.";
 
     private static bool _ticking;
 
@@ -70,11 +70,21 @@ public static class TooltipHover
                 continue;
             }
             if (!b.Rt.gameObject.activeInHierarchy) continue;
-            if (RectTransformUtility.RectangleContainsScreenPoint(b.Rt, mouse, null))
+
+            // RectangleContainsScreenPoint needs a camera reference for non-Overlay
+            // canvases. Look it up cheaply per check; if the canvas is Screen Space
+            // Overlay (most likely for V Rising's UI), null is correct.
+            var canvas = b.Rt.GetComponentInParent<Canvas>();
+            Camera cam = null;
+            if (canvas != null && canvas.renderMode != RenderMode.ScreenSpaceOverlay)
+                cam = canvas.worldCamera;
+
+            if (RectTransformUtility.RectangleContainsScreenPoint(b.Rt, mouse, cam))
             {
                 hit = b.Text;
-                // Don't break - children registered after parents end up later in the list,
-                // and we want the most-recently-registered (typically deepest/inner) to win.
+                // Don't break - children registered after parents come later in the
+                // list, and we want the most-recently-registered (typically deepest)
+                // to win.
             }
         }
 

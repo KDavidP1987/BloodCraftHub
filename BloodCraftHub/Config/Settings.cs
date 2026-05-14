@@ -61,6 +61,12 @@ public class Settings
     public static bool ShowExperienceOverlay => (ConfigEntries[nameof(ShowExperienceOverlay)] as ConfigEntry<bool>)?.Value ?? false;
     public static bool ShowFamiliarOverlay   => (ConfigEntries[nameof(ShowFamiliarOverlay)]   as ConfigEntry<bool>)?.Value ?? false;
 
+    // Auto-resize: main panel grows vertically to fit content (capped at 90% of
+    // screen height). User-toggleable via the footer checkbox - some players
+    // prefer a fixed-size panel they can manually resize.
+    public static bool IsPanelAutoResizeEnabled =>
+        (ConfigEntries[nameof(IsPanelAutoResizeEnabled)] as ConfigEntry<bool>)?.Value ?? true;
+
     public Settings InitConfig()
     {
         if (!Directory.Exists(CONFIG_PATH)) Directory.CreateDirectory(CONFIG_PATH);
@@ -82,6 +88,7 @@ public class Settings
 
         InitConfigEntry(OVERLAY_SETTINGS_GROUP, nameof(ShowExperienceOverlay),       false, "Show the experience tracker overlay by default.");
         InitConfigEntry(OVERLAY_SETTINGS_GROUP, nameof(ShowFamiliarOverlay),         false, "Show the quick-familiar overlay by default.");
+        InitConfigEntry(UI_SETTINGS_GROUP,      nameof(IsPanelAutoResizeEnabled),    true,  "Auto-resize the main panel vertically to fit the active tab's content (capped at 90% of screen height).");
 
         return this;
     }

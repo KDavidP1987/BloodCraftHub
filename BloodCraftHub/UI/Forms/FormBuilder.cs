@@ -37,9 +37,15 @@ public static class FormBuilder
             forceWidth: true, forceHeight: false,
             childControlWidth: true, childControlHeight: true,
             spacing: 4, padding: new Vector4(4, 4, 4, 4));
+        // PreferredHeight buffer: title(22) + N*(row 30 + spacing 4) + submit(32) + spacing 4 + padding(8)
+        //                       ≈ 66 + fields*34
+        // Bumped from the previous (80 + fields*32) — under-sized preferredHeight made
+        // the parent's layout group cram this form into less space than it actually
+        // needs, which is what was causing the form to overlap the heading below it.
+        int prefHeight = 70 + fields.Length * 34;
         UIFactory.SetLayoutElement(form,
             minWidth: 360, preferredWidth: 400, flexibleWidth: 1,
-            minHeight: 60, preferredHeight: 80 + fields.Length * 32, flexibleHeight: 0);
+            minHeight: prefHeight, preferredHeight: prefHeight, flexibleHeight: 0);
 
         // Title row
         var titleLbl = UIFactory.CreateLabel(form, "FormTitle", title,
