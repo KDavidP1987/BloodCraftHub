@@ -30,6 +30,10 @@ public static class TooltipHover
     public static string IdlePlaceholder = "Hint: hover any control for help.";
 
     private static bool _ticking;
+    private static bool _firstHitLogged;
+
+    public static bool IsTicking => _ticking;
+    public static int  BindingCount => _bindings.Count;
 
     /// <summary>
     /// One-time wiring: registers TickAll with the per-frame loop. Safe to call
@@ -89,5 +93,16 @@ public static class TooltipHover
         }
 
         Sink.text = hit ?? IdlePlaceholder;
+
+        // One-shot diagnostic so we can confirm a hover ever registered. If
+        // this never fires, either the bindings are mis-positioned or the
+        // mouse-coords / canvas-camera mismatch is still defeating the hit
+        // test - the user can then paste this absence into the log report.
+        if (hit != null && !_firstHitLogged)
+        {
+            _firstHitLogged = true;
+            try { Utils.LogUtils.LogInfo($"TooltipHover: first hover registered ({_bindings.Count} bindings tracked)."); }
+            catch { /* harmless */ }
+        }
     }
 }

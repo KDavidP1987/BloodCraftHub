@@ -197,7 +197,20 @@ public class MainPanel : ResizeablePanelBase
         // and register the tick with CoreUpdateBehavior (idempotent).
         TooltipHover.Sink = lbl.TextMesh;
         TooltipHover.EnsureTicking();
+        LogUtils.LogInfo($"TooltipHover wired: Sink set, ticking={TooltipHover.IsTicking}, bindings={TooltipHover.BindingCount}");
+
+        // Subscribe AutoResizeIfEnabled to CollapsibleSection toggles so the
+        // panel grows/shrinks when the user expands an admin/prestige form.
+        // Static event, single subscription per panel construction; Reset
+        // unsubscribes.
+        if (!_collapsibleSubscribed)
+        {
+            CollapsibleSection.Toggled += AutoResizeIfEnabled;
+            _collapsibleSubscribed = true;
+        }
     }
+
+    private bool _collapsibleSubscribed;
 
     // -----------------------------------------------------------------------
     // Tab strip (left rail)
@@ -205,9 +218,13 @@ public class MainPanel : ResizeablePanelBase
 
     private void BuildTabStrip(GameObject parent)
     {
+        // childControlHeight: true is required - the strip stacks group headers
+        // and group-content blocks of varying heights, and without it the layout
+        // group leaves children at default sizeDelta (~0px) so KINDRED/HELP
+        // headers overlap the BLOODCRAFT sub-tab list.
         var strip = UIFactory.CreateVerticalGroup(parent, "TabStrip",
             forceWidth: false, forceHeight: false,
-            childControlWidth: true, childControlHeight: false,
+            childControlWidth: true, childControlHeight: true,
             spacing: 2, padding: new Vector4(2, 2, 2, 2));
         UIFactory.SetLayoutElement(strip, minWidth: 150, flexibleWidth: 0, flexibleHeight: 1);
 
@@ -357,13 +374,17 @@ public class MainPanel : ResizeablePanelBase
 
     private GameObject CreateTabPage(GameObject parent)
     {
+        // No fixed preferredHeight - let the VerticalLayoutGroup auto-compute
+        // from the children so AutoResizeIfEnabled's LayoutUtility query
+        // returns the ACTUAL content height (not a hardcoded 320 that ignored
+        // collapsible-section state).
         var page = UIFactory.CreateVerticalGroup(parent, "TabPage",
-            forceWidth: true, forceHeight: true,
+            forceWidth: true, forceHeight: false,
             childControlWidth: true, childControlHeight: true,
             spacing: 6, padding: new Vector4(8, 8, 8, 8));
         UIFactory.SetLayoutElement(page,
             minWidth: 380, preferredWidth: 420, flexibleWidth: 1,
-            minHeight: 280, preferredHeight: 320, flexibleHeight: 1);
+            minHeight: 280, flexibleHeight: 1);
         return page;
     }
 
@@ -1477,9 +1498,9 @@ public class MainPanel : ResizeablePanelBase
             // Force the layout to recalculate so preferredHeight is up to date.
             UnityEngine.UI.LayoutRebuilder.ForceRebuildLayoutImmediate(pageRt);
 
-            float contentHeight = UnityEngine.UI.LayoutUtility.GetPreferredHeight(pageRt);
-            // Chrome budget: title bar + tab strip already share width; we account for
-            // the OverlayFooter (32) + TooltipFooter (22) + spacing (~16) ~= 70px.
+            float contentHeight = ComputeChildrenSumHeight(pageGo);
+            // Chrome budget: tab strip is alongside (no vertical cost),
+            // OverlayFooter (32) + TooltipFooter (22) + spacing/margins (~22) ≈ 76px.
             float chrome = 76f;
             float desired = contentHeight + chrome;
             float screenCap = UnityEngine.Screen.height * 0.9f;
@@ -1496,6 +1517,42 @@ public class MainPanel : ResizeablePanelBase
         {
             LogUtils.LogError($"AutoResizeIfEnabled failed: {ex}");
         }
+    }
+
+    /// <summary>
+    /// Sum the visible direct children's preferred heights + spacing + padding.
+    /// Honors VerticalLayoutGroup's spacing/padding when present. Uses
+    /// LayoutUtility.GetPreferredHeight per child so children with their own
+    /// VerticalLayoutGroup (e.g. CollapsibleSections) report the right value
+    /// when expanded vs collapsed.
+    /// </summary>
+    private static float ComputeChildrenSumHeight(GameObject parent)
+    {
+        var rt = parent.GetComponent<RectTransform>();
+        if (rt == null) return 0f;
+
+        var vlg = parent.GetComponent<UnityEngine.UI.VerticalLayoutGroup>();
+        float spacing = vlg != null ? vlg.spacing : 0f;
+        float padTop = vlg != null ? vlg.padding.top : 0f;
+        float padBot = vlg != null ? vlg.padding.bottom : 0f;
+
+        float total = padTop + padBot;
+        int visible = 0;
+        for (int i = 0; i < rt.childCount; i++)
+        {
+            var child = rt.GetChild(i);
+            if (!child.gameObject.activeInHierarchy) continue;
+            visible++;
+
+            var crt = child.GetComponent<RectTransform>();
+            if (crt == null) continue;
+
+            float ph = UnityEngine.UI.LayoutUtility.GetPreferredHeight(crt);
+            if (ph < 0) ph = crt.rect.height;
+            total += ph;
+        }
+        if (visible > 1) total += spacing * (visible - 1);
+        return total;
     }
 
     private Toggle AddOverlayToggle(GameObject parent, string label, PanelType overlay)
@@ -1577,6 +1634,11 @@ public class MainPanel : ResizeablePanelBase
             PlayerStateService.FamiliarChanged   -= OnAnyForLevels;
             PlayerStateService.ProfessionChanged -= OnAnyForLevels;
             _lvlSubscribed = false;
+        }
+        if (_collapsibleSubscribed)
+        {
+            CollapsibleSection.Toggled -= AutoResizeIfEnabled;
+            _collapsibleSubscribed = false;
         }
     }
 }

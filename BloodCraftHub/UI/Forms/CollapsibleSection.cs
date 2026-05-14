@@ -2,6 +2,7 @@ using System;
 using BloodCraftHub.UI.Framework.UniverseLib.UI;
 using TMPro;
 using UnityEngine;
+using UnityEngine.UI;
 
 namespace BloodCraftHub.UI.Forms;
 
@@ -21,6 +22,13 @@ namespace BloodCraftHub.UI.Forms;
 // compact; users expand only the form they need.
 public static class CollapsibleSection
 {
+    /// <summary>
+    /// Raised AFTER a section has toggled expand/collapse and its layout has
+    /// rebuilt. Subscribers can use this to re-fit the parent panel (e.g.
+    /// MainPanel.AutoResizeIfEnabled).
+    /// </summary>
+    public static event Action Toggled;
+
     public static GameObject Build(
         GameObject parent,
         string title,
@@ -32,9 +40,14 @@ public static class CollapsibleSection
             forceWidth: true, forceHeight: false,
             childControlWidth: true, childControlHeight: true,
             spacing: 2, padding: new Vector4(0, 0, 0, 0));
+        // No fixed preferredHeight on the section's outer LayoutElement -
+        // the VerticalLayoutGroup auto-computes from visible children
+        // (header + content when expanded, header only when collapsed).
+        // Setting a hardcoded preferredHeight was the cause of expansion
+        // overlapping siblings instead of pushing them down.
         UIFactory.SetLayoutElement(group,
             minWidth: 360, preferredWidth: 400, flexibleWidth: 1,
-            minHeight: 28, preferredHeight: 28, flexibleHeight: 0);
+            flexibleHeight: 0);
 
         // Header button - looks like a heading row with a leading triangle.
         var header = UIFactory.CreateButton(group, "Header", BuildHeaderText(title, startExpanded));
@@ -74,6 +87,17 @@ public static class CollapsibleSection
             content.SetActive(expanded);
             if (headerText != null)
                 headerText.text = BuildHeaderText(title, expanded);
+
+            // Force a layout rebuild at the panel root so the size change
+            // cascades up through every nested VerticalLayoutGroup. Without
+            // this, the parent re-flows on the NEXT frame and the user
+            // briefly sees the content overlapping siblings.
+            var rootRt = group.transform.root as RectTransform;
+            if (rootRt != null)
+                LayoutRebuilder.ForceRebuildLayoutImmediate(rootRt);
+
+            try { Toggled?.Invoke(); }
+            catch (Exception ex) { Utils.LogUtils.LogError($"CollapsibleSection.Toggled handler threw: {ex}"); }
         };
 
         return group;
