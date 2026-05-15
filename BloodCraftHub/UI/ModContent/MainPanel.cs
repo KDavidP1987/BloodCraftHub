@@ -248,6 +248,7 @@ public partial class MainPanel : ResizeablePanelBase
 
         BuildTabStrip(body);
         BuildContentArea(body);
+        BuildLastResponsePanel(ContentRoot);
         BuildOverlayFooter(ContentRoot);
         BuildTooltipFooter(ContentRoot);
 
@@ -290,6 +291,124 @@ public partial class MainPanel : ResizeablePanelBase
     }
 
     private bool _collapsibleSubscribed;
+
+    // -----------------------------------------------------------------------
+    // Last server response panel (0.8.3)
+    //
+    // Always docked above the overlay footer. When the user clicks a read-data
+    // command (.wep get / .class l / .misc userstats / etc.), the response is
+    // captured by MessageService_Processing.AwaitingGenericResponse and routed
+    // here so it lands in the UI instead of only in chat. Friend-testing of
+    // v0.8.1 surfaced "it would load into the chat window rather than loading
+    // into the UI informational box" — this is the structural fix.
+    //
+    // Hidden until the first response arrives. Click the header to collapse
+    // the body so the panel doesn't crowd the active tab on narrow screens.
+    // -----------------------------------------------------------------------
+
+    private GameObject _lastResponseRoot;
+    private GameObject _lastResponseBodyWrap;
+    private TextMeshProUGUI _lastResponseHeader;
+    private TextMeshProUGUI _lastResponseBody;
+    private bool _lastResponseCollapsed;
+    private bool _lastResponseSubscribed;
+
+    private void BuildLastResponsePanel(GameObject parent)
+    {
+        _lastResponseRoot = UIFactory.CreateVerticalGroup(parent, "LastResponsePanel",
+            forceWidth: true, forceHeight: false,
+            childControlWidth: true, childControlHeight: true,
+            spacing: 2, padding: new Vector4(8, 8, 4, 4));
+        UIFactory.SetLayoutElement(_lastResponseRoot,
+            minHeight: 0, flexibleHeight: 0, flexibleWidth: 1);
+        _lastResponseRoot.SetActive(false); // shown when first response arrives
+
+        // Header button — click to collapse/expand the body.
+        var headerBtn = UIFactory.CreateButton(_lastResponseRoot, "LastResponseHeaderBtn", "");
+        UIFactory.SetLayoutElement(headerBtn.GameObject,
+            minWidth: 360, preferredWidth: 600, flexibleWidth: 1,
+            minHeight: 24, preferredHeight: 26, flexibleHeight: 0);
+        var headerText = headerBtn.Component.GetComponentInChildren<TextMeshProUGUI>();
+        if (headerText != null)
+        {
+            headerText.alignment = TextAlignmentOptions.MidlineLeft;
+            headerText.fontSize  = 12;
+            headerText.fontStyle = FontStyles.Bold | FontStyles.Italic;
+            _lastResponseHeader = headerText;
+        }
+        headerBtn.OnClick = () =>
+        {
+            _lastResponseCollapsed = !_lastResponseCollapsed;
+            if (_lastResponseBodyWrap != null)
+                _lastResponseBodyWrap.SetActive(!_lastResponseCollapsed);
+            UpdateLastResponseHeaderText();
+            AutoResizeIfEnabled();
+        };
+        TooltipHover.Attach(headerBtn.GameObject,
+            "Click to collapse/expand. Updates whenever you click a read-data command in any tab (.wep get, .class l, .misc userstats, .clan list, .boss list, etc.). Replies still also appear in chat unless you've enabled Clear server messages.");
+
+        _lastResponseBodyWrap = UIFactory.CreateVerticalGroup(_lastResponseRoot, "LastResponseBody",
+            forceWidth: true, forceHeight: false,
+            childControlWidth: true, childControlHeight: true,
+            spacing: 0, padding: new Vector4(6, 6, 4, 4));
+        UIFactory.SetLayoutElement(_lastResponseBodyWrap,
+            minHeight: 0, flexibleHeight: 0, flexibleWidth: 1);
+
+        // Multi-line label with ContentSizeFitter so the panel sizes to fit
+        // whatever the server returned without truncation.
+        var bodyLbl = UIFactory.CreateLabel(_lastResponseBodyWrap, "LastResponseText",
+            "", TextAlignmentOptions.TopLeft, color: null, fontSize: 12);
+        UIFactory.SetLayoutElement(bodyLbl.GameObject,
+            minWidth: 360, preferredWidth: 600, flexibleWidth: 1,
+            minHeight: 0, flexibleHeight: 0);
+        bodyLbl.TextMesh.enableWordWrapping = true;
+        bodyLbl.TextMesh.overflowMode = TextOverflowModes.Overflow;
+        bodyLbl.TextMesh.richText = true; // keep server-sent <color=...> tags
+        var fitter = bodyLbl.GameObject.AddComponent<UnityEngine.UI.ContentSizeFitter>();
+        fitter.horizontalFit = UnityEngine.UI.ContentSizeFitter.FitMode.Unconstrained;
+        fitter.verticalFit   = UnityEngine.UI.ContentSizeFitter.FitMode.PreferredSize;
+        _lastResponseBody = bodyLbl.TextMesh;
+
+        if (!_lastResponseSubscribed)
+        {
+            PlayerStateService.LastResponseChanged += OnLastResponseChanged;
+            _lastResponseSubscribed = true;
+        }
+    }
+
+    private void OnLastResponseChanged()
+    {
+        if (_lastResponseRoot == null) return;
+        var r = PlayerStateService.LastResponse;
+
+        _lastResponseRoot.SetActive(true);
+        UpdateLastResponseHeaderText();
+
+        if (_lastResponseBody != null)
+        {
+            // Concatenate lines with newlines. TMP renders the inline color
+            // tags, so the response looks like the server-side chat output.
+            _lastResponseBody.text = r.Lines != null
+                ? string.Join("\n", r.Lines)
+                : "";
+        }
+
+        // Whenever a new response arrives, auto-expand so the user notices.
+        _lastResponseCollapsed = false;
+        if (_lastResponseBodyWrap != null) _lastResponseBodyWrap.SetActive(true);
+
+        AutoResizeIfEnabled();
+    }
+
+    private void UpdateLastResponseHeaderText()
+    {
+        if (_lastResponseHeader == null) return;
+        var r = PlayerStateService.LastResponse;
+        var arrow = _lastResponseCollapsed ? "▶" : "▼";
+        var cmd   = string.IsNullOrEmpty(r.Command) ? "(no response yet)" : r.Command;
+        var count = r.Lines?.Count ?? 0;
+        _lastResponseHeader.text = $"{arrow}  Last server response — <color=#9ECCFF>{cmd}</color>  ({count} line{(count == 1 ? "" : "s")})";
+    }
 
     // -----------------------------------------------------------------------
     // Tab strip (left rail)
@@ -3504,6 +3623,11 @@ public partial class MainPanel : ResizeablePanelBase
         {
             CollapsibleSection.Toggled -= AutoResizeIfEnabled;
             _collapsibleSubscribed = false;
+        }
+        if (_lastResponseSubscribed)
+        {
+            PlayerStateService.LastResponseChanged -= OnLastResponseChanged;
+            _lastResponseSubscribed = false;
         }
     }
 }

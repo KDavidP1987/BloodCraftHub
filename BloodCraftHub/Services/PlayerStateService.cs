@@ -477,6 +477,28 @@ public static class PlayerStateService
         Fire(BloodInfoChanged);
     }
 
+    // 0.8.3: generic capture of any server response that doesn't have a
+    // dedicated structured intercept. Used for read-data chat commands like
+    // .wep get / .wep l / .bl l / .prestige l / .class l / .class lst /
+    // .misc userstats / .clan list / etc. — friend-testing of v0.8.1 surfaced
+    // that those reply texts landed in chat only, which was easy to miss when
+    // the user was browsing the UI panel. Each subscriber tab renders the
+    // captured lines in a "Last server response" section.
+    public struct LastServerResponse
+    {
+        public string Command;     // the chat command that triggered the capture (e.g. ".wep get")
+        public System.Collections.Generic.List<string> Lines; // raw color-tagged lines, in order
+        public System.DateTime CapturedAt;
+    }
+
+    public static LastServerResponse LastResponse { get; private set; }
+    public static event Action LastResponseChanged;
+    internal static void UpdateLastResponse(in LastServerResponse r)
+    {
+        LastResponse = r;
+        Fire(LastResponseChanged);
+    }
+
     // =========================================================================
     // MUTATORS - called from EclipseProtocolService
     // =========================================================================

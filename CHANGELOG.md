@@ -1,5 +1,77 @@
 # Changelog
 
+## 0.8.3 — Read-command replies land in UI + EXO prestige row
+
+Friend-testing pointed out that many `.X get` / `.X list` chat-command replies (e.g.
+weapon expertise info, class lists, prestige lists, user stats, clan rosters, boss /
+region / staff / time lookups) landed only in the chat box. If the user was browsing
+the UI panel they could easily miss the reply. This release fixes that for ~25 commands
+and also adds the long-missing EXO prestige row to the experience overlay.
+
+**Generic server-response capture.** New `ServerResponseCapture` machinery in
+`Services/MessageService_Processing.cs`: a new `InterceptFlag` pair
+(`AwaitingGenericResponse` / `ReceivingGenericResponse`) and a `ShouldArmGenericCapture`
+helper that detects ~25 known read-data command prefixes. When one of those commands
+is sent via `MessageService.EnqueueMessage`, the capture arms; the next batch of
+server-colored chat lines is buffered for ~0.6s then flushed into a new
+`PlayerStateService.LastResponse` slot. The capture is **additive** — the chat
+copy of each line is still delivered so familiar chat readers don't lose their
+flow.
+
+Commands wired (their replies are now mirrored to the UI):
+- `.fam pr`, `.fam actions`, `.fam bgs`, `.fam bg <name>`
+- `.prestige l`, `.prestige lb <type>`
+- `.bl l`, `.bl lst`
+- `.wep get`, `.wep l`, `.wep lst`
+- `.lvl get` (chat side; Eclipse stream still drives live overlay data)
+- `.class l`, `.class lsp`, `.class lst`
+- `.prof l`, `.prof get <type>`
+- `.misc userstats`, `.misc health`, `.misc remindme`
+- `.quest p <type>`, `.quest t <type>`
+- `.checklevel <player>`
+- `.clan list`, `.clan members <clan>`
+- `.boss list`, `.region list`, `.openplots`, `.staff`, `.time`, `.gear soulshardstatus`
+- `.fc <chest>`
+- `.search item <q>`, `.search npc <q>`
+
+Specific structured intercepts (`.fam boxes`, `.fam l`, `.prestige get <type>`,
+`.bl get <type>`) still take priority — those continue routing to their dedicated
+state slots (`BoxList` / `BoxContents` / `PrestigeInfoLatest` / `BloodInfoLatest`).
+
+**"Last server response" docked panel.** A new collapsible section docked just
+above the overlay-toggle footer in the main panel (`BuildLastResponsePanel` in
+`UI/ModContent/MainPanel.cs`). Hidden until a captured response arrives, then
+shows a header (`Last server response — .wep get  (5 lines)`) and the raw
+color-tagged response body. TMP `richText` is on so server color tags render
+the same way they would in chat. Click the header to collapse/expand. Auto-
+expands when a fresh response lands. The panel is panel-level (not per-tab),
+so users see the latest response regardless of which tab they're on — easier
+to follow when clicking a command on Tab A then switching to Tab B.
+
+**EXO Prestige row in the Experience overlay.** New 4th row on
+`ExperienceOverlayPanel`. EXO data is not part of Bloodcraft's signed
+`ProgressToClient` stream (the stream tops out at the shift-spell PrefabGUID at
+field 45, no EXO fields), so we get it via the existing prestige-info intercept
+by firing `.prestige get Exo` once on overlay first-show. The reply populates
+`PlayerStateService.PrestigeInfoLatest` with `TypeName="Exo"`; the overlay
+subscribes to `PrestigeInfoChanged`, filters to TypeName == "Exo", and renders
+`"EXO Prestige: X / Y"` (or `"EXO Prestige: X"` if max isn't reported).
+
+The fetch is deferred via a `CoreUpdateBehavior.Actions` ticker until
+`MessageService.IsInitialized` flips true, mirroring the 0.8.1 fix for the
+Familiar Browser's first-load auto-pull (IL2CPP gotcha #3). One-shot per panel
+instance — re-toggling the overlay doesn't re-fire the query. Manual refresh
+is still available via the Prestige tab's "Show prestige info" form (pick Exo,
+Submit).
+
+**Outside this release** (queued for v0.9.0):
+- Dual text-size toggle (UI + overlays, separate). Small / Standard / Large.
+- Per-overlay background transparency (0/25/50/75/100% — floor at 95% so panel
+  handles remain visible/grabbable).
+- Master overlay show/hide button next to the floating BCH button (session-only
+  state; never makes hidden-by-config overlays visible).
+- New Professions overlay (data already streamed via Eclipse `ProgressToClient`).
+
 ## 0.8.2 — Friend-testing hotfix: safety + dropdown + admin gate + docs
 
 Friend-testing of v0.8.1 surfaced five issues — one critical, four ergonomics.

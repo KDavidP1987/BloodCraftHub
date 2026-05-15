@@ -443,6 +443,10 @@ public static partial class MessageService
         ReceivingPrestigeInfo,
         AwaitingBloodInfo,
         ReceivingBloodInfo,
+        // 0.8.3: generic capture for read-data commands that don't have a
+        // dedicated structured parse. See PlayerStateService.LastResponse.
+        AwaitingGenericResponse,
+        ReceivingGenericResponse,
     }
 
     private static InterceptFlag _intercept = InterceptFlag.Idle;
@@ -452,6 +456,10 @@ public static partial class MessageService
     // .prestige get send so a stale query never leaks into a fresh one.
     private static PlayerStateService.PrestigeInfo _prestigeInfoBuffer;
     private static PlayerStateService.BloodInfo    _bloodInfoBuffer;
+    // 0.8.3: generic capture buffer + the originating command so subscribers
+    // can show "last response from `.wep get`: ..." if useful.
+    private static readonly List<string> _genericResponseBuffer = new();
+    private static string _genericResponseCommand = "";
     // load-bearing: tracks last time a "useful" line for the current intercept
     // arrived. Per-frame TickInterceptTimeouts() flushes the buffered list when
     // this gets too stale - covers the case where Bloodcraft sends multiple
@@ -555,6 +563,65 @@ public static partial class MessageService
             _interceptLastLineTime = UnityEngine.Time.realtimeSinceStartupAsDouble;
             LogUtils.LogInfo("Intercept armed: AwaitingBloodInfo");
         }
+        // Fallback: arm the generic capture for known read-data commands so
+        // their replies land in the UI's "Last server response" sections
+        // instead of only the chat box. Added in 0.8.3 in response to friend-
+        // testing feedback ("it would load into the chat window rather than
+        // loading into the UI informational box"). Specific intercepts above
+        // (.fam boxes / .fam l / .prestige get / .bl get) still take priority.
+        else if (ShouldArmGenericCapture(command))
+        {
+            _intercept = InterceptFlag.AwaitingGenericResponse;
+            _genericResponseBuffer.Clear();
+            _genericResponseCommand = command;
+            _interceptLastLineTime = UnityEngine.Time.realtimeSinceStartupAsDouble;
+            LogUtils.LogInfo($"Intercept armed: AwaitingGenericResponse ('{command}')");
+        }
+    }
+
+    /// <summary>True for chat commands whose reply users expect to see in the
+    /// UI panel rather than only in chat. Drives the generic capture fallback
+    /// added in 0.8.3. Specific structured intercepts (.fam boxes / .fam l /
+    /// .prestige get / .bl get) are handled separately above and shouldn't
+    /// reach this list.</summary>
+    private static bool ShouldArmGenericCapture(string command)
+    {
+        if (string.IsNullOrEmpty(command)) return false;
+
+        // Read-data commands — explicit prefix list keeps this conservative.
+        // Side-effect commands (.fam b N, .lvl set X Y, .giveset, etc.) should
+        // NOT arm the capture because their server reply is a transient
+        // confirmation, not info the user wants to study in a panel.
+        return command.StartsWith(".fam pr",         System.StringComparison.Ordinal)
+            || command.StartsWith(".fam actions",    System.StringComparison.Ordinal)
+            || command.StartsWith(".fam bgs",        System.StringComparison.Ordinal)
+            || command.StartsWith(".fam bg ",        System.StringComparison.Ordinal)
+            || command.StartsWith(".prestige l",     System.StringComparison.Ordinal)
+            || command.StartsWith(".prestige lb ",   System.StringComparison.Ordinal)
+            || command.StartsWith(".bl l",           System.StringComparison.Ordinal) // .bl l + .bl lst
+            || command.StartsWith(".wep get",        System.StringComparison.Ordinal)
+            || command.StartsWith(".wep l",          System.StringComparison.Ordinal) // .wep l + .wep lst
+            || command.StartsWith(".lvl get",        System.StringComparison.Ordinal)
+            || command.StartsWith(".class l",        System.StringComparison.Ordinal) // .class l + .class lsp + .class lst
+            || command.StartsWith(".prof l",         System.StringComparison.Ordinal)
+            || command.StartsWith(".prof get",       System.StringComparison.Ordinal)
+            || command.StartsWith(".misc userstats", System.StringComparison.Ordinal)
+            || command.StartsWith(".misc health",    System.StringComparison.Ordinal)
+            || command.StartsWith(".misc remindme",  System.StringComparison.Ordinal)
+            || command.StartsWith(".quest p ",       System.StringComparison.Ordinal)
+            || command.StartsWith(".quest t ",       System.StringComparison.Ordinal)
+            || command.StartsWith(".checklevel",     System.StringComparison.Ordinal)
+            || command.StartsWith(".clan list",      System.StringComparison.Ordinal)
+            || command.StartsWith(".clan members",   System.StringComparison.Ordinal)
+            || command.StartsWith(".boss list",      System.StringComparison.Ordinal)
+            || command.StartsWith(".region list",    System.StringComparison.Ordinal)
+            || command.StartsWith(".openplots",      System.StringComparison.Ordinal)
+            || command.StartsWith(".staff",          System.StringComparison.Ordinal)
+            || command.StartsWith(".time",           System.StringComparison.Ordinal)
+            || command.StartsWith(".gear soulshardstatus", System.StringComparison.Ordinal)
+            || command.StartsWith(".fc ",            System.StringComparison.Ordinal)
+            || command.StartsWith(".search item ",   System.StringComparison.Ordinal)
+            || command.StartsWith(".search npc ",    System.StringComparison.Ordinal);
     }
 
     /// <summary>
@@ -663,6 +730,30 @@ public static partial class MessageService
                     return false;
                 }
 
+                case InterceptFlag.AwaitingGenericResponse:
+                case InterceptFlag.ReceivingGenericResponse:
+                {
+                    // Capture any color-tagged server line. Bloodcraft / Kindred
+                    // helpers always wrap their reply text in <color=...> tags;
+                    // plain unstyled lines tend to be unrelated system chatter
+                    // (player joins, broadcast etc.) and would just be noise.
+                    if (text.StartsWith("<color", System.StringComparison.Ordinal))
+                    {
+                        _intercept = InterceptFlag.ReceivingGenericResponse;
+                        _genericResponseBuffer.Add(text);
+                        _interceptLastLineTime = UnityEngine.Time.realtimeSinceStartupAsDouble;
+                        // 0.8.3: never consume the chat copy here. The user's
+                        // ClearServerMessages setting is meant for the
+                        // structured intercepts above where the UI display
+                        // fully replaces the chat copy. The generic capture is
+                        // additive — we mirror to UI but keep the chat line
+                        // so terminology like "<color>+5</color> XP gained!"
+                        // still scrolls in the chat history.
+                        return false;
+                    }
+                    return false;
+                }
+
                 case InterceptFlag.AwaitingBoxContent:
                 case InterceptFlag.ReceivingBoxContent:
                     var match = _boxContentEntryRegex.Match(text);
@@ -728,17 +819,40 @@ public static partial class MessageService
             case InterceptFlag.ReceivingBloodInfo:
                 FlushBloodInfo();
                 break;
+            case InterceptFlag.ReceivingGenericResponse:
+                FlushGenericResponse();
+                break;
             case InterceptFlag.AwaitingBoxList:
             case InterceptFlag.AwaitingBoxContent:
             case InterceptFlag.AwaitingPrestigeInfo:
             case InterceptFlag.AwaitingBloodInfo:
+            case InterceptFlag.AwaitingGenericResponse:
                 // Server never replied (command rejected, comms hiccup, etc.).
                 // Reset so the next user click re-arms cleanly. Don't dispatch
                 // an empty list - that'd clobber any previously-loaded data.
                 LogUtils.LogWarning($"Intercept '{_intercept}' timed out with no server reply; resetting.");
                 _intercept = InterceptFlag.Idle;
+                if (_intercept == InterceptFlag.AwaitingGenericResponse) _genericResponseBuffer.Clear();
                 break;
         }
+    }
+
+    private static void FlushGenericResponse()
+    {
+        // Wrap into the public state slot so subscribed tabs can render. Strip
+        // nothing — let the UI label keep TMP color tags so the response
+        // visually matches what the user sees scrolling by in chat.
+        var snapshot = new PlayerStateService.LastServerResponse
+        {
+            Command    = _genericResponseCommand,
+            Lines      = new List<string>(_genericResponseBuffer),
+            CapturedAt = System.DateTime.UtcNow,
+        };
+        _genericResponseBuffer.Clear();
+        _genericResponseCommand = "";
+        _intercept = InterceptFlag.Idle;
+        PlayerStateService.UpdateLastResponse(snapshot);
+        LogUtils.LogInfo($"Captured {snapshot.Lines.Count} server response line(s) for '{snapshot.Command}'.");
     }
 
     private static void FlushPrestigeInfo()

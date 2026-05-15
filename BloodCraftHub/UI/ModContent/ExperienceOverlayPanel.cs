@@ -1,3 +1,4 @@
+using BloodCraftHub.Behaviors;
 using BloodCraftHub.Config;
 using BloodCraftHub.Services;
 using BloodCraftHub.UI.Framework.CustomLib.Panel;
@@ -42,7 +43,12 @@ public class ExperienceOverlayPanel : ResizeablePanelBase
     private LabelRef _levelLabel;
     private LabelRef _progressLabel;
     private LabelRef _classLabel;
+    private LabelRef _exoLabel;
     private bool _subscribed;
+    private bool _prestigeSubscribed;
+    private bool _exoFetchScheduled;
+    private int _exoLevel;
+    private int _exoMaxLevel;
 
     public ExperienceOverlayPanel(UIBase owner) : base(owner) { }
 
@@ -53,14 +59,58 @@ public class ExperienceOverlayPanel : ResizeablePanelBase
         _levelLabel    = AddRow("LevelLabel",    "Level —", FontStyles.Bold,  fontSize: 16);
         _progressLabel = AddRow("ProgressLabel", "XP — %",  FontStyles.Normal, fontSize: 14);
         _classLabel    = AddRow("ClassLabel",    "Class —", FontStyles.Italic, fontSize: 13);
+        // 0.8.3: EXO prestige row. Friend-testing surfaced that EXO data was
+        // entirely missing from the overlay. Populated from PrestigeInfo
+        // (TypeName "Exo") which the existing AwaitingPrestigeInfo intercept
+        // already parses. Auto-fired once on first show via the deferred-
+        // fetch ticker below so the data appears without the user having to
+        // run .prestige get Exo manually.
+        _exoLabel      = AddRow("ExoLabel",      "EXO Prestige —", FontStyles.Italic, fontSize: 13);
 
         Render(PlayerStateService.Experience);
+        // Render any prestige info we already have cached so re-opening the
+        // overlay doesn't blank out the EXO line until the next manual query.
+        TryRenderExoFromState();
 
         if (!_subscribed)
         {
             PlayerStateService.ExperienceChanged += OnExperienceChanged;
             _subscribed = true;
         }
+        if (!_prestigeSubscribed)
+        {
+            PlayerStateService.PrestigeInfoChanged += OnPrestigeInfoChanged;
+            _prestigeSubscribed = true;
+        }
+        ScheduleExoFetch();
+    }
+
+    /// <summary>Defer the one-shot .prestige get Exo fetch until MessageService
+    /// has bound to the local character/user — overlay panels can construct
+    /// during CharacterHUDEntry.Awake, which fires BEFORE MessageService
+    /// receives its SetCharacter/SetUser calls. Mirrors the pattern used by
+    /// the Familiar Browser's auto-pull (CHANGELOG entry 0.8.1).</summary>
+    private void ScheduleExoFetch()
+    {
+        if (_exoFetchScheduled) return;
+        _exoFetchScheduled = true;
+        // Capture our state so the ticker can self-unregister cleanly.
+        System.Action ticker = null;
+        ticker = () =>
+        {
+            if (!MessageService.IsInitialized) return;
+            // De-register first so a tick exception doesn't leave us looping.
+            Behaviors.CoreUpdateBehavior.Actions.Remove(ticker);
+            try
+            {
+                MessageService.EnqueueMessage(".prestige get Exo");
+            }
+            catch (System.Exception ex)
+            {
+                Utils.LogUtils.LogWarning($"ExperienceOverlay: auto .prestige get Exo failed — {ex.Message}");
+            }
+        };
+        Behaviors.CoreUpdateBehavior.Actions.Add(ticker);
     }
 
     private LabelRef AddRow(string name, string text, FontStyles style, int fontSize)
@@ -77,6 +127,21 @@ public class ExperienceOverlayPanel : ResizeablePanelBase
     }
 
     private void OnExperienceChanged() => Render(PlayerStateService.Experience);
+
+    private void OnPrestigeInfoChanged() => TryRenderExoFromState();
+
+    private void TryRenderExoFromState()
+    {
+        var p = PlayerStateService.PrestigeInfoLatest;
+        if (p.TypeName == null) return;
+        // PrestigeInfoLatest is shared across all .prestige get queries, so
+        // ignore updates for non-EXO types — they're for the prestige tab.
+        if (!string.Equals(p.TypeName, "Exo", System.StringComparison.OrdinalIgnoreCase)) return;
+        _exoLevel    = p.Level;
+        _exoMaxLevel = p.MaxLevel;
+        if (_exoLabel != null)
+            _exoLabel.TextMesh.text = $"EXO Prestige: {_exoLevel}" + (_exoMaxLevel > 0 ? $" / {_exoMaxLevel}" : "");
+    }
 
     private void Render(PlayerStateService.ExperienceState s)
     {
@@ -98,6 +163,11 @@ public class ExperienceOverlayPanel : ResizeablePanelBase
         {
             PlayerStateService.ExperienceChanged -= OnExperienceChanged;
             _subscribed = false;
+        }
+        if (_prestigeSubscribed)
+        {
+            PlayerStateService.PrestigeInfoChanged -= OnPrestigeInfoChanged;
+            _prestigeSubscribed = false;
         }
     }
 }
