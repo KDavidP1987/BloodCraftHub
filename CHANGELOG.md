@@ -1,5 +1,66 @@
 # Changelog
 
+## 0.9.1 — Accent-text legibility + opt-in chat suppression for familiar actions
+
+Two follow-ups from v0.9.0 friend-testing.
+
+**Pink-on-red contrast fix.** Friend-testing flagged that the Daily Quest tab's
+weekly-quest label and the Blood Legacy tab's "Bloodcraft red" headings read as
+"pink text on red background" when the panel transparency lets a red in-game
+backdrop bleed through. Two changes:
+
+- New `ApplyStrongAccentOutline` helper bumps the per-character TMP outline
+  from the default 0.15 → 0.25 (still black) for the accent-recolored labels:
+  `_blTypeLabel`, `_blInfoTitleLabel`, `_blInfoStatsLabel` (which preserves
+  server `<color=red>` tags), `_dqDailyTargetLabel`, `_dqWeeklyTargetLabel`,
+  and the docked "Last server response" body. Same helper in
+  `DailyQuestOverlayPanel` for the cyan + magenta titles. Outlines apply
+  globally to the TMP element so rich-text segments with mid-string color
+  tags also get the dark border.
+- Weekly-quest accent color brightened from Bloodcraft's #BF40BF
+  (0.75/0.25/0.75) to a lighter magenta (1.0/0.55/1.0) on both the Daily
+  Quest tab and the Daily Quest overlay. The darker reference value really
+  did blend into red backdrops; the lighter shade keeps the weekly target
+  visually distinct from the cyan daily target without sacrificing
+  readability.
+
+**Opt-in suppression of familiar-action chat confirmations.** Friend-testing
+question: "is it possible to suppress all of the chat messages that come
+through as you were switching boxes and familiars". Yes — and the UI keeps
+working because the data feeds the UI uses (`.fam boxes` / `.fam l`
+structured intercepts + Bloodcraft's signed Eclipse `ProgressToClient`
+stream) are completely independent of the human-readable confirmation
+lines.
+
+New `Settings.SuppressFamiliarActionChatter` config flag (default off so
+existing users see no change). Wiring:
+
+- In `MessageService_Processing.NoteOutboundForIntercept`, alongside the
+  existing structured-intercept arming, an additional `IsFamiliarActionCommand`
+  check arms a 1.5-second `_actionSuppressUntil` window for these
+  prefixes: `.fam b ` (bind), `.fam ub`, `.fam t`, `.fam cb ` (switch
+  box), `.fam mb ` (move box), `.fam sb ` (smartbind), `.fam r `
+  (permanent remove).
+- In `HandleInboundChat`, BEFORE the intercept state-machine switch, a
+  pre-check: if the intercept is Idle, the action-suppress window is
+  active, the user has enabled `SuppressFamiliarActionChatter`, AND the
+  line is color-tagged (Bloodcraft confirmations always are) → return
+  `true` to consume the line from chat.
+- Only consumes color-tagged lines, so unrelated chatter (player joins,
+  world events, broadcast messages) still passes through.
+- Only fires when intercept is Idle, so it never clobbers a structured
+  capture mid-flight (e.g., a `.fam l` query running concurrently).
+
+Toggle lives on the Help → About tab's Display settings section under a
+new "Chat noise" subsection. Off by default; turning it on takes effect
+immediately for the next action.
+
+**Outside this release** (still queued):
+- Live text-scale re-render without close/reopen.
+- PlayerNameField autocomplete dropdown.
+- `.class csp` shift-spell-picker dropdown.
+- Suspend-typing redesign on a different patch target.
+
 ## 0.9.0 — Accessibility & customization: text scales, overlay transparency, master toggle, Professions overlay
 
 Three friend-testing requests rolled together with one missed overlay. v0.9.0

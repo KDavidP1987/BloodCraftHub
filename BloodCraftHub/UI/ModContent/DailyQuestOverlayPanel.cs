@@ -59,13 +59,20 @@ public class DailyQuestOverlayPanel : ResizeablePanelBase
 
         _dailyTitleLabel    = AddRow("DailyTitle",    "Daily Quest", FontStyles.Bold,   fontSize: Theme.ScaledOverlay(14));
         _dailyTitleLabel.TextMesh.color = new Color(0f, 1f, 1f); // cyan to match Bloodcraft's #00FFFF
+        // 0.9.1: stronger outline so the accent color stays legible on top of
+        // bright in-game backdrops when the overlay is set semi-transparent.
+        ApplyStrongOutline(_dailyTitleLabel.TextMesh);
         _dailyTargetLabel   = AddRow("DailyTarget",   "—",           FontStyles.Normal, fontSize: Theme.ScaledOverlay(13));
         _dailyProgressLabel = AddRow("DailyProgress", "—",           FontStyles.Italic, fontSize: Theme.ScaledOverlay(13));
 
         AddSpacer(6);
 
         _weeklyTitleLabel    = AddRow("WeeklyTitle",    "Weekly Quest", FontStyles.Bold,   fontSize: Theme.ScaledOverlay(14));
-        _weeklyTitleLabel.TextMesh.color = new Color(0.75f, 0.25f, 0.75f); // Bloodcraft #BF40BF
+        // 0.9.1: brightened from Bloodcraft's #BF40BF magenta so it doesn't
+        // read as "pink on red" when the overlay sits over a red in-game
+        // backdrop (vampire areas, blood pools, etc.).
+        _weeklyTitleLabel.TextMesh.color = new Color(1f, 0.55f, 1f);
+        ApplyStrongOutline(_weeklyTitleLabel.TextMesh);
         _weeklyTargetLabel   = AddRow("WeeklyTarget",   "—",            FontStyles.Normal, fontSize: Theme.ScaledOverlay(13));
         _weeklyProgressLabel = AddRow("WeeklyProgress", "—",            FontStyles.Italic, fontSize: Theme.ScaledOverlay(13));
 
@@ -132,6 +139,21 @@ public class DailyQuestOverlayPanel : ResizeablePanelBase
             progress.TextMesh.text  = $"Progress: {s.Progress} / {s.Goal}";
             progress.TextMesh.color = Color.white;
         }
+    }
+
+    /// <summary>0.9.1: widen the per-character outline so accent-colored
+    /// labels (cyan, magenta) stay legible against bright in-game backdrops
+    /// when the overlay is set semi-transparent. Same pattern as
+    /// MainPanel.ApplyStrongAccentOutline.</summary>
+    private static void ApplyStrongOutline(TextMeshProUGUI t)
+    {
+        if (t == null) return;
+        try
+        {
+            t.outlineColor = Color.black;
+            t.outlineWidth = 0.25f;
+        }
+        catch { /* TMP can throw during application teardown */ }
     }
 
     internal override void Reset()

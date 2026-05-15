@@ -366,6 +366,10 @@ public partial class MainPanel : ResizeablePanelBase
         bodyLbl.TextMesh.enableWordWrapping = true;
         bodyLbl.TextMesh.overflowMode = TextOverflowModes.Overflow;
         bodyLbl.TextMesh.richText = true; // keep server-sent <color=...> tags
+        // 0.9.1: server color tags (e.g. <color=red> blood headings) get a
+        // wider outline so they stay legible when the panel sits over a red
+        // in-game background.
+        ApplyStrongAccentOutline(bodyLbl.TextMesh);
         var fitter = bodyLbl.GameObject.AddComponent<UnityEngine.UI.ContentSizeFitter>();
         fitter.horizontalFit = UnityEngine.UI.ContentSizeFitter.FitMode.Unconstrained;
         fitter.verticalFit   = UnityEngine.UI.ContentSizeFitter.FitMode.PreferredSize;
@@ -1637,6 +1641,7 @@ public partial class MainPanel : ResizeablePanelBase
 
         _blTypeLabel     = AddInfoLabel(page, "BlType",     "—",                  FontStyles.Bold,   fontSize: Theme.ScaledUI(18));
         _blTypeLabel.color = new Color(1f, 0.4f, 0.4f); // Bloodcraft uses red for blood headings
+        ApplyStrongAccentOutline(_blTypeLabel);
         _blProgressLabel = AddInfoLabel(page, "BlProgress", "Level —",            FontStyles.Normal, fontSize: Theme.ScaledUI(14));
         _blBonusLabel    = AddInfoLabel(page, "BlBonus",    "Bonus Stats: —",     FontStyles.Normal, fontSize: Theme.ScaledUI(13));
 
@@ -1726,15 +1731,26 @@ public partial class MainPanel : ResizeablePanelBase
             minWidth: 360, preferredWidth: 400, flexibleWidth: 1,
             minHeight: 80, flexibleHeight: 0);
 
+        // The accent labels in this section render in Bloodcraft red over a
+        // dark panel — fine on the panel background, but at lower opacity the
+        // in-game world (often red-tinted in vampire areas) bleeds through
+        // and the red-on-red kills contrast. ApplyStrongAccentOutline bumps
+        // the per-character outline so the text stays legible. Friend-testing
+        // feedback (v0.9.0): "pink or red text on the red background".
         _blInfoTitleLabel = AddInfoLabel(section, "BloodInfoTitle",
             "Blood Info", FontStyles.Bold | FontStyles.Italic, fontSize: Theme.ScaledUI(14));
         _blInfoTitleLabel.color = new Color(1f, 0.4f, 0.4f); // Bloodcraft red
+        ApplyStrongAccentOutline(_blInfoTitleLabel);
 
         _blInfoLevelLabel = AddInfoLabel(section, "BloodInfoLevel",
             "(submit Show info above to populate)", FontStyles.Italic, fontSize: Theme.ScaledUI(12));
 
+        // Stat lines preserve server <color=red> markup; the outline applies
+        // globally to the label so the red/cyan/white tokens all get the
+        // dark border.
         _blInfoStatsLabel = AddInfoLabel(section, "BloodInfoStats",
             "", FontStyles.Normal, fontSize: Theme.ScaledUI(12));
+        ApplyStrongAccentOutline(_blInfoStatsLabel);
         var fitter = _blInfoStatsLabel.gameObject.AddComponent<UnityEngine.UI.ContentSizeFitter>();
         fitter.horizontalFit = UnityEngine.UI.ContentSizeFitter.FitMode.Unconstrained;
         fitter.verticalFit   = UnityEngine.UI.ContentSizeFitter.FitMode.PreferredSize;
@@ -2268,6 +2284,7 @@ public partial class MainPanel : ResizeablePanelBase
         AddSectionHeading(page, "Daily Quest");
         _dqDailyTargetLabel   = AddInfoLabel(page, "DQDailyTarget",   "—", FontStyles.Bold,   fontSize: Theme.ScaledUI(15));
         _dqDailyTargetLabel.color = new Color(0f, 1f, 1f); // Bloodcraft cyan #00FFFF
+        ApplyStrongAccentOutline(_dqDailyTargetLabel);
         _dqDailyProgressLabel = AddInfoLabel(page, "DQDailyProgress", "—", FontStyles.Italic, fontSize: Theme.ScaledUI(13));
 
         AddSpacer(page, 4);
@@ -2288,7 +2305,13 @@ public partial class MainPanel : ResizeablePanelBase
         AddSpacer(page, 8);
         AddSectionHeading(page, "Weekly Quest");
         _dqWeeklyTargetLabel   = AddInfoLabel(page, "DQWeeklyTarget",   "—", FontStyles.Bold,   fontSize: Theme.ScaledUI(15));
-        _dqWeeklyTargetLabel.color = new Color(0.75f, 0.25f, 0.75f); // Bloodcraft #BF40BF
+        // 0.9.1: brightened from Bloodcraft's #BF40BF (0.75/0.25/0.75) to a
+        // lighter magenta. The darker reference color reads as "pink on red"
+        // when the panel transparency lets a red in-game backdrop through,
+        // which was the friend-testing complaint. The new value still keeps
+        // the weekly-quest visual distinct from the cyan daily-quest target.
+        _dqWeeklyTargetLabel.color = new Color(1f, 0.55f, 1f);
+        ApplyStrongAccentOutline(_dqWeeklyTargetLabel);
         _dqWeeklyProgressLabel = AddInfoLabel(page, "DQWeeklyProgress", "—", FontStyles.Italic, fontSize: Theme.ScaledUI(13));
 
         AddSpacer(page, 4);
@@ -3091,6 +3114,47 @@ public partial class MainPanel : ResizeablePanelBase
             v => Config.Settings.SetProfessionOverlayTransparency(v));
 
         AddSpacer(page, 8);
+        AddSectionHeading(page, "Chat noise");
+        AddSuppressActionChatterToggle(page);
+        AddSpacer(page, 8);
+    }
+
+    /// <summary>0.9.1: opt-in toggle to suppress the chat confirmation lines
+    /// Bloodcraft prints when the user bind / unbind / switch-box / move /
+    /// smartbind / permanent-remove a familiar. The structured data pipes
+    /// (.fam boxes, .fam l, Eclipse stream) are unaffected — the UI still
+    /// updates normally. Friend-testing feedback: "is it possible to
+    /// suppress all of the chat messages that come through as you were
+    /// switching boxes and familiars". Default off so existing users see no
+    /// change.</summary>
+    private void AddSuppressActionChatterToggle(GameObject parent)
+    {
+        var row = UIFactory.CreateHorizontalGroup(parent, "SuppressChatterRow",
+            forceExpandWidth: true, forceExpandHeight: false,
+            childControlWidth: true, childControlHeight: true,
+            spacing: 6, padding: new Vector4(2, 2, 2, 2));
+        UIFactory.SetLayoutElement(row,
+            minWidth: 360, preferredWidth: 400, flexibleWidth: 1,
+            minHeight: 28, preferredHeight: 30, flexibleHeight: 0);
+
+        var t = UIFactory.CreateToggle(row, "SuppressActionChatterToggle");
+        UIFactory.SetLayoutElement(t.GameObject,
+            minWidth: 360, preferredWidth: 400, flexibleWidth: 1,
+            minHeight: 24, preferredHeight: 26, flexibleHeight: 0);
+        t.Text.text = "Hide familiar-action chat (bind/unbind/switch box/...)";
+        t.Text.fontSize = Theme.ScaledUI(12);
+        t.Text.alignment = TextAlignmentOptions.MidlineLeft;
+        UIFactory.SetLayoutElement(t.Text.gameObject,
+            minWidth: 320, preferredWidth: 360, flexibleWidth: 1,
+            minHeight: 22, preferredHeight: 24, flexibleHeight: 0);
+        t.Toggle.isOn = Config.Settings.SuppressFamiliarActionChatter;
+        TooltipHover.Attach(t.GameObject,
+            "When on, Bloodcraft's confirmation chat lines for .fam b / .fam ub / .fam t / .fam cb / .fam mb / .fam sb / .fam r get eaten so they don't clutter your chat box. " +
+            "The UI continues to work normally — box list, contents, and overlays read from separate data feeds, not these confirmation lines. Off by default.");
+        t.OnValueChanged += value =>
+        {
+            Config.Settings.SetSuppressFamiliarActionChatter(value);
+        };
     }
 
     /// <summary>Renders a labeled row with three buttons (Small/Standard/Large).
@@ -3437,6 +3501,27 @@ public partial class MainPanel : ResizeablePanelBase
     // -----------------------------------------------------------------------
     // Small UI helpers (label rows, command buttons, section headings)
     // -----------------------------------------------------------------------
+
+    /// <summary>
+    /// 0.9.1: bump the per-character outline so an accent-colored label stays
+    /// legible against bright / red in-game backdrops bleeding through a low-
+    /// opacity panel. UIFactory.CreateLabel already applies a 0.15-width
+    /// black outline by default; this helper widens it to 0.25 for labels
+    /// the user has explicitly recolored (Bloodcraft red, weekly quest
+    /// magenta, daily cyan, etc.). Friend-testing surfaced this as "pink or
+    /// red text on the red background of the UI". Cheap — just a property
+    /// set, no extra GameObjects.
+    /// </summary>
+    private static void ApplyStrongAccentOutline(TextMeshProUGUI t)
+    {
+        if (t == null) return;
+        try
+        {
+            t.outlineColor = Color.black;
+            t.outlineWidth = 0.25f;
+        }
+        catch { /* TMP can throw during application teardown */ }
+    }
 
     private static TextMeshProUGUI AddInfoLabel(GameObject parent, string name, string initialText, FontStyles style, int fontSize)
     {

@@ -3,7 +3,7 @@
 Unified client-side V Rising UI mod that surfaces every chat command of the [Bloodcraft](https://thunderstore.io/c/v-rising/p/zfolmt/Bloodcraft/) server mod — with first-class support for [KindredCommands](https://thunderstore.io/c/v-rising/p/odjit/KindredCommands/) and [KindredLogistics](https://thunderstore.io/c/v-rising/p/odjit/KindredLogistics/) on the same server.
 
 **Repo:** https://github.com/KDavidP1987/BloodCraftHub
-**Status:** v0.9.0 — public on Thunderstore. 16 tabs across BLOODCRAFT / KINDRED / HELP, 5 secondary overlays (including the new Professions overlay), every chat command from the 3 backing server mods surfaced as forms + buttons (~250+ commands). v0.9.0 adds dual text-size toggles, per-overlay transparency, a master overlay show/hide button, and pulls ~25 read-data chat replies into the UI.
+**Status:** v0.9.1 — public on Thunderstore. 16 tabs across BLOODCRAFT / KINDRED / HELP, 5 secondary overlays (including the Professions overlay), every chat command from the 3 backing server mods surfaced as forms + buttons (~250+ commands). v0.9.x adds dual text-size toggles, per-overlay transparency, a master overlay show/hide button, an opt-in chat suppression for familiar-action confirmations, and pulls ~25 read-data chat replies into the UI.
 
 ## What it does
 

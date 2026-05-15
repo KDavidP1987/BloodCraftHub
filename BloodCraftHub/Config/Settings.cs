@@ -90,6 +90,18 @@ public class Settings
         (ConfigEntries[nameof(UseHorizontalContentLayout)] as ConfigEntry<bool>)?.Value ?? true;
     public static bool ClearServerMessages =>
         (ConfigEntries[nameof(ClearServerMessages)] as ConfigEntry<bool>)?.Value ?? false;
+
+    // 0.9.1: when on, the chat copy of action-confirmation messages
+    // (.fam b / .fam ub / .fam t / .fam cb / .fam mb / .fam sb / .fam r)
+    // is suppressed. Friend-testing feedback: switching boxes and bouncing
+    // between familiars produces a wall of confirmation chat that's noisy
+    // for users who already see the live state in the UI. The UI continues
+    // to work because the data feeds (.fam boxes / .fam l intercepts + the
+    // Eclipse stream) aren't affected — only the human-readable confirmation
+    // lines are eaten.
+    public static bool SuppressFamiliarActionChatter =>
+        (ConfigEntries[nameof(SuppressFamiliarActionChatter)] as ConfigEntry<bool>)?.Value ?? false;
+    public static void SetSuppressFamiliarActionChatter(bool v) => SetBool(nameof(SuppressFamiliarActionChatter), v);
     public static int GlobalQueryIntervalInSeconds { get; } = 2;
     public static int FamStatsQueryIntervalInSeconds
     {
@@ -189,6 +201,7 @@ public class Settings
         if (!Directory.Exists(CONFIG_PATH)) Directory.CreateDirectory(CONFIG_PATH);
 
         InitConfigEntry(GENERAL_SETTINGS_GROUP, nameof(ClearServerMessages),         true,  "Clear server and command messages from chat.");
+        InitConfigEntry(GENERAL_SETTINGS_GROUP, nameof(SuppressFamiliarActionChatter), false, "Suppress the chat confirmation lines that Bloodcraft prints when you switch boxes / bind / unbind / move / smartbind familiars. The UI still updates normally (box list, contents, and overlays read from separate pipes). Off by default; toggle in Display settings.");
         InitConfigEntry(GENERAL_SETTINGS_GROUP, nameof(FamStatsQueryIntervalInSeconds), 10,  "Query interval for familiar stats update (min 5s).");
 
         InitConfigEntry(UI_SETTINGS_GROUP,      nameof(UseHorizontalContentLayout),  true,  "Horizontal vs vertical layout for the main content panel.");

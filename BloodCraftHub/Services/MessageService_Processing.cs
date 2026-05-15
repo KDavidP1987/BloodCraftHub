@@ -460,6 +460,37 @@ public static partial class MessageService
     // can show "last response from `.wep get`: ..." if useful.
     private static readonly List<string> _genericResponseBuffer = new();
     private static string _genericResponseCommand = "";
+
+    // 0.9.1: action-confirmation suppress window. Independent of the intercept
+    // state machine — action commands (.fam b / .fam ub / .fam t / .fam cb
+    // etc.) don't yield structured data the UI needs to capture, but they
+    // each produce 1-3 color-tagged confirmation lines that pile up in chat.
+    // When the user opts in via SuppressFamiliarActionChatter, those lines
+    // are eaten. The window arms for ~1.5s after each action send; we only
+    // eat color-tagged lines while INTERCEPT is Idle, so we never clobber
+    // a structured intercept that's still capturing.
+    private static double _actionSuppressUntil;
+    private const double ACTION_SUPPRESS_WINDOW_SECONDS = 1.5;
+
+    private static bool IsActionSuppressActive() =>
+        UnityEngine.Time.realtimeSinceStartupAsDouble < _actionSuppressUntil;
+
+    /// <summary>True for commands whose chat confirmation the user can opt to
+    /// hide (Settings.SuppressFamiliarActionChatter). Strictly the .fam action
+    /// commands — bind, unbind, recall/dismiss, switch box, move box,
+    /// smartbind, permanent remove. List queries (.fam boxes / .fam l) are
+    /// NOT here because those have structured intercepts already.</summary>
+    private static bool IsFamiliarActionCommand(string command)
+    {
+        if (string.IsNullOrEmpty(command)) return false;
+        return command.StartsWith(".fam b ",   System.StringComparison.Ordinal) // bind by index
+            || command.Equals(".fam ub",        System.StringComparison.Ordinal) // unbind
+            || command.Equals(".fam t",         System.StringComparison.Ordinal) // toggle
+            || command.StartsWith(".fam cb ",  System.StringComparison.Ordinal) // switch box
+            || command.StartsWith(".fam mb ",  System.StringComparison.Ordinal) // move to box
+            || command.StartsWith(".fam sb ",  System.StringComparison.Ordinal) // smartbind
+            || command.StartsWith(".fam r ",   System.StringComparison.Ordinal); // permanent remove
+    }
     // load-bearing: tracks last time a "useful" line for the current intercept
     // arrived. Per-frame TickInterceptTimeouts() flushes the buffered list when
     // this gets too stale - covers the case where Bloodcraft sends multiple
@@ -522,6 +553,14 @@ public static partial class MessageService
     internal static void NoteOutboundForIntercept(string command)
     {
         if (string.IsNullOrEmpty(command)) return;
+
+        // 0.9.1: arm the action-suppress window in parallel with any
+        // structured intercept arming below. Independent flag — see
+        // _actionSuppressUntil + IsActionSuppressActive.
+        if (IsFamiliarActionCommand(command))
+        {
+            _actionSuppressUntil = UnityEngine.Time.realtimeSinceStartupAsDouble + ACTION_SUPPRESS_WINDOW_SECONDS;
+        }
 
         if (command.Equals(BCCOM_FAM_BOXES, System.StringComparison.Ordinal))
         {
@@ -631,7 +670,22 @@ public static partial class MessageService
     /// </summary>
     public static bool HandleInboundChat(string text)
     {
-        if (_intercept == InterceptFlag.Idle || string.IsNullOrEmpty(text)) return false;
+        if (string.IsNullOrEmpty(text)) return false;
+
+        // 0.9.1: action-confirmation suppress. Only fires when no structured
+        // intercept is currently armed — otherwise the intercept needs first
+        // crack at the line. Only consumes color-tagged lines (Bloodcraft's
+        // confirmations are always wrapped in <color=...>); unrelated chat
+        // (player joins, world events) passes through.
+        if (_intercept == InterceptFlag.Idle
+            && IsActionSuppressActive()
+            && Config.Settings.SuppressFamiliarActionChatter
+            && text.StartsWith("<color", System.StringComparison.Ordinal))
+        {
+            return true;
+        }
+
+        if (_intercept == InterceptFlag.Idle) return false;
 
         try
         {
