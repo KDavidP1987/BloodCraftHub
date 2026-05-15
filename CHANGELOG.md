@@ -1,8 +1,30 @@
 # Changelog
 
-## 0.9.4 — TODO
+## 0.9.4 — Equipped-weapon expertise row on the XP overlay
 
-- TODO: describe what changed.
+Friend-testing follow-up: "I didn't see in any of the experience overlays
+where it would show the current weapon and its experience and prestige
+level. This could be added into the general experience overlay."
+
+Added a weapon row between the Class row and the EXO Prestige row on
+`ExperienceOverlayPanel`. Data source:
+`PlayerStateService.Expertise` (`Type`, `Level`, `Prestige`, `Progress`) —
+populated from Bloodcraft's signed Eclipse `ProgressToClient` stream at
+indices 9..13. Bloodcraft only streams the currently-EQUIPPED weapon's
+expertise (per the upstream design), so switching weapons in-game updates
+this row on the next stream tick (~1s cadence).
+
+Format mirrors the main level/prestige line:
+`Weapon: Sword  Lv 25 (12.3%)   Pr 1`
+
+If no weapon is equipped (Bloodcraft writes Type=0/Unarmed + Level=0 at
+startup before the first equip), the row shows `Weapon —` placeholder and
+the bar hides, rather than rendering "Unarmed Lv 0" which would read as
+broken data.
+
+Optional copper-red progress bar paired with the row, tied to the
+existing `Settings.ShowProgressBars` toggle. Color chosen to be visually
+distinct from the cyan XP bar above it.
 
 ## 0.9.3 — Wrap tooltip; bar visibility + Familiar/Professions bars; chat suppress actually fires
 
