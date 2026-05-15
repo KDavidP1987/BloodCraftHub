@@ -31,6 +31,16 @@ public class BCHubUIManager : UIManagerBase
     private FamiliarOverlayPanel _familiarOverlay;
     private FamiliarBrowserOverlayPanel _familiarBrowserOverlay;
     private DailyQuestOverlayPanel _dailyQuestOverlay;
+    private ProfessionOverlayPanel _professionOverlay;
+
+    // 0.9.0: session-only flag flipped by the master-overlay button on the
+    // floating-button strip. When true, every overlay is hidden regardless
+    // of its individual SetActive state; when flipped back to false, overlays
+    // are re-shown ONLY if their per-overlay Settings flag is true (so the
+    // master toggle never resurrects overlays the user has disabled in
+    // config). Mirrors Settings.OverlaysSuppressedByUser; we keep the local
+    // copy here for the per-frame visibility application.
+    private bool _overlaysSuppressed;
 
     public bool IsMainPanelOpen => _mainPanel != null && _mainPanel.Enabled;
 
@@ -49,6 +59,7 @@ public class BCHubUIManager : UIManagerBase
         _familiarOverlay = null;
         _familiarBrowserOverlay = null;
         _dailyQuestOverlay = null;
+        _professionOverlay = null;
     }
 
     protected override void AddMainContentPanel()
@@ -69,6 +80,7 @@ public class BCHubUIManager : UIManagerBase
         _familiarOverlay?.SetActive(active && (_familiarOverlay?.Enabled ?? false));
         _familiarBrowserOverlay?.SetActive(active && (_familiarBrowserOverlay?.Enabled ?? false));
         _dailyQuestOverlay?.SetActive(active && (_dailyQuestOverlay?.Enabled ?? false));
+        _professionOverlay?.SetActive(active && (_professionOverlay?.Enabled ?? false));
     }
 
     /// <summary>Show or hide the main tabbed panel.</summary>
@@ -111,8 +123,71 @@ public class BCHubUIManager : UIManagerBase
                 _dailyQuestOverlay.SetActive(!_dailyQuestOverlay.Enabled);
                 BloodCraftHub.Config.Settings.SetShowDailyQuestOverlay(_dailyQuestOverlay.Enabled);
                 break;
+            case PanelType.ProfessionOverlay:
+                EnsureProfessionOverlay();
+                _professionOverlay.SetActive(!_professionOverlay.Enabled);
+                BloodCraftHub.Config.Settings.SetShowProfessionOverlay(_professionOverlay.Enabled);
+                break;
             default:
                 throw new ArgumentOutOfRangeException(nameof(overlay), overlay, "Not a secondary overlay.");
+        }
+    }
+
+    /// <summary>0.9.0: master overlay show/hide. Flips a session-only flag and
+    /// applies it to every overlay. Crucially this never *enables* an overlay
+    /// the user has disabled via the per-overlay footer toggle — when
+    /// un-suppressing, each overlay is only re-shown if its config flag is
+    /// true AND we previously suppressed it. Visibility persistence stays on
+    /// the per-overlay Settings flags; this toggle is purely transient.</summary>
+    public void ToggleAllOverlaysSuppressed()
+    {
+        _overlaysSuppressed = !_overlaysSuppressed;
+        BloodCraftHub.Config.Settings.OverlaysSuppressedByUser = _overlaysSuppressed;
+        ApplyOverlaySuppression();
+    }
+
+    public bool AreOverlaysSuppressed => _overlaysSuppressed;
+
+    private void ApplyOverlaySuppression()
+    {
+        if (_overlaysSuppressed)
+        {
+            // Hide whatever is open. We do NOT touch each overlay's
+            // per-config Settings.Show* flag so the original visibility
+            // preference survives.
+            _experienceOverlay?.SetActive(false);
+            _familiarOverlay?.SetActive(false);
+            _familiarBrowserOverlay?.SetActive(false);
+            _dailyQuestOverlay?.SetActive(false);
+            _professionOverlay?.SetActive(false);
+            return;
+        }
+        // Un-suppress: re-show only overlays whose per-overlay Settings flag
+        // is true. Anything the user disabled stays disabled.
+        if (BloodCraftHub.Config.Settings.ShowExperienceOverlay)
+        {
+            EnsureExperienceOverlay();
+            _experienceOverlay.SetActive(true);
+        }
+        if (BloodCraftHub.Config.Settings.ShowFamiliarOverlay)
+        {
+            EnsureFamiliarOverlay();
+            _familiarOverlay.SetActive(true);
+        }
+        if (BloodCraftHub.Config.Settings.ShowFamiliarBrowser)
+        {
+            EnsureFamiliarBrowserOverlay();
+            _familiarBrowserOverlay.SetActive(true);
+        }
+        if (BloodCraftHub.Config.Settings.ShowDailyQuestOverlay)
+        {
+            EnsureDailyQuestOverlay();
+            _dailyQuestOverlay.SetActive(true);
+        }
+        if (BloodCraftHub.Config.Settings.ShowProfessionOverlay)
+        {
+            EnsureProfessionOverlay();
+            _professionOverlay.SetActive(true);
         }
     }
 
@@ -145,6 +220,11 @@ public class BCHubUIManager : UIManagerBase
             EnsureDailyQuestOverlay();
             _dailyQuestOverlay.SetActive(true);
         }
+        if (BloodCraftHub.Config.Settings.ShowProfessionOverlay)
+        {
+            EnsureProfessionOverlay();
+            _professionOverlay.SetActive(true);
+        }
     }
 
     public bool IsOverlayOpen(PanelType overlay) => overlay switch
@@ -153,6 +233,7 @@ public class BCHubUIManager : UIManagerBase
         PanelType.FamiliarOverlay        => _familiarOverlay?.Enabled ?? false,
         PanelType.FamiliarBrowserOverlay => _familiarBrowserOverlay?.Enabled ?? false,
         PanelType.DailyQuestOverlay      => _dailyQuestOverlay?.Enabled ?? false,
+        PanelType.ProfessionOverlay      => _professionOverlay?.Enabled ?? false,
         _ => false,
     };
 
@@ -194,5 +275,13 @@ public class BCHubUIManager : UIManagerBase
         _familiarOverlay = new FamiliarOverlayPanel(UiBase);
         _panels.Add(_familiarOverlay);
         _familiarOverlay.SetActive(false);
+    }
+
+    private void EnsureProfessionOverlay()
+    {
+        if (_professionOverlay != null) return;
+        _professionOverlay = new ProfessionOverlayPanel(UiBase);
+        _panels.Add(_professionOverlay);
+        _professionOverlay.SetActive(false);
     }
 }

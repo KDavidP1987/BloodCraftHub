@@ -8,6 +8,7 @@ using BloodCraftHub.UI.ModContent.Data;
 using TMPro;
 using UnityEngine;
 using UIBase = BloodCraftHub.UI.Framework.UniverseLib.UI.UIBase;
+using BloodCraftHub.UI.Framework.CustomLib.Util;
 
 namespace BloodCraftHub.UI.ModContent;
 
@@ -40,7 +41,7 @@ public class DailyQuestOverlayPanel : ResizeablePanelBase
 
     public override bool CanDrag => true;
     public override PanelDragger.ResizeTypes CanResize => PanelDragger.ResizeTypes.All;
-    public override float Opacity => Settings.UITransparency;
+    public override float Opacity => Settings.TransparencyToAlpha(Settings.DailyQuestTransparency);
 
     private LabelRef _dailyTitleLabel;
     private LabelRef _dailyTargetLabel;
@@ -56,17 +57,17 @@ public class DailyQuestOverlayPanel : ResizeablePanelBase
     {
         base.ConstructPanelContent();
 
-        _dailyTitleLabel    = AddRow("DailyTitle",    "Daily Quest", FontStyles.Bold,   fontSize: 14);
+        _dailyTitleLabel    = AddRow("DailyTitle",    "Daily Quest", FontStyles.Bold,   fontSize: Theme.ScaledOverlay(14));
         _dailyTitleLabel.TextMesh.color = new Color(0f, 1f, 1f); // cyan to match Bloodcraft's #00FFFF
-        _dailyTargetLabel   = AddRow("DailyTarget",   "—",           FontStyles.Normal, fontSize: 13);
-        _dailyProgressLabel = AddRow("DailyProgress", "—",           FontStyles.Italic, fontSize: 13);
+        _dailyTargetLabel   = AddRow("DailyTarget",   "—",           FontStyles.Normal, fontSize: Theme.ScaledOverlay(13));
+        _dailyProgressLabel = AddRow("DailyProgress", "—",           FontStyles.Italic, fontSize: Theme.ScaledOverlay(13));
 
         AddSpacer(6);
 
-        _weeklyTitleLabel    = AddRow("WeeklyTitle",    "Weekly Quest", FontStyles.Bold,   fontSize: 14);
+        _weeklyTitleLabel    = AddRow("WeeklyTitle",    "Weekly Quest", FontStyles.Bold,   fontSize: Theme.ScaledOverlay(14));
         _weeklyTitleLabel.TextMesh.color = new Color(0.75f, 0.25f, 0.75f); // Bloodcraft #BF40BF
-        _weeklyTargetLabel   = AddRow("WeeklyTarget",   "—",            FontStyles.Normal, fontSize: 13);
-        _weeklyProgressLabel = AddRow("WeeklyProgress", "—",            FontStyles.Italic, fontSize: 13);
+        _weeklyTargetLabel   = AddRow("WeeklyTarget",   "—",            FontStyles.Normal, fontSize: Theme.ScaledOverlay(13));
+        _weeklyProgressLabel = AddRow("WeeklyProgress", "—",            FontStyles.Italic, fontSize: Theme.ScaledOverlay(13));
 
         Render();
 

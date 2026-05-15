@@ -11,6 +11,7 @@ using BloodCraftHub.Utils;
 using TMPro;
 using UnityEngine;
 using UIBase = BloodCraftHub.UI.Framework.UniverseLib.UI.UIBase;
+using BloodCraftHub.UI.Framework.CustomLib.Util;
 
 namespace BloodCraftHub.UI.ModContent;
 
@@ -61,7 +62,7 @@ public class FamiliarBrowserOverlayPanel : ResizeablePanelBase
 
     public override bool CanDrag => true;
     public override PanelDragger.ResizeTypes CanResize => PanelDragger.ResizeTypes.All;
-    public override float Opacity => Settings.UITransparency;
+    public override float Opacity => Settings.TransparencyToAlpha(Settings.FamiliarBrowserTransparency);
 
     // Header
     private TextMeshProUGUI _boxNameLabel;
@@ -150,14 +151,14 @@ public class FamiliarBrowserOverlayPanel : ResizeablePanelBase
             minWidth: 36, preferredWidth: 36, flexibleWidth: 0,
             minHeight: 26, preferredHeight: 28, flexibleHeight: 0);
         var prevTxt = prev.Component.GetComponentInChildren<TextMeshProUGUI>();
-        if (prevTxt != null) { prevTxt.fontSize = 18; prevTxt.fontStyle = FontStyles.Bold; }
+        if (prevTxt != null) { prevTxt.fontSize = Theme.ScaledOverlay(18); prevTxt.fontStyle = FontStyles.Bold; }
         prev.OnClick = () => CycleBox(-1);
         UI.TooltipHover.Attach(prev.GameObject, "Previous box (cycles left through your familiar boxes).");
 
         // Box-name label now shows "Name  (X / N)" so you can see where you
         // are in the cycle.
         var nameLbl = UIFactory.CreateLabel(headerRow, "BoxName", "(no box)",
-            TextAlignmentOptions.Center, color: null, fontSize: 14);
+            TextAlignmentOptions.Center, color: null, fontSize: Theme.ScaledOverlay(14));
         UIFactory.SetLayoutElement(nameLbl.GameObject,
             minWidth: 130, preferredWidth: 170, flexibleWidth: 1,
             minHeight: 26, preferredHeight: 28, flexibleHeight: 0);
@@ -171,7 +172,7 @@ public class FamiliarBrowserOverlayPanel : ResizeablePanelBase
             minWidth: 36, preferredWidth: 36, flexibleWidth: 0,
             minHeight: 26, preferredHeight: 28, flexibleHeight: 0);
         var nextTxt = next.Component.GetComponentInChildren<TextMeshProUGUI>();
-        if (nextTxt != null) { nextTxt.fontSize = 18; nextTxt.fontStyle = FontStyles.Bold; }
+        if (nextTxt != null) { nextTxt.fontSize = Theme.ScaledOverlay(18); nextTxt.fontStyle = FontStyles.Bold; }
         next.OnClick = () => CycleBox(+1);
         UI.TooltipHover.Attach(next.GameObject, "Next box (cycles right through your familiar boxes).");
 
@@ -180,7 +181,7 @@ public class FamiliarBrowserOverlayPanel : ResizeablePanelBase
             minWidth: 60, preferredWidth: 64, flexibleWidth: 0,
             minHeight: 26, preferredHeight: 28, flexibleHeight: 0);
         var refreshTxt = refresh.Component.GetComponentInChildren<TextMeshProUGUI>();
-        if (refreshTxt != null) refreshTxt.fontSize = 12;
+        if (refreshTxt != null) refreshTxt.fontSize = Theme.ScaledOverlay(12);
         refresh.OnClick = () =>
         {
             EnqueueOrWarn(MessageService.BCCOM_FAM_BOXES);
@@ -195,7 +196,7 @@ public class FamiliarBrowserOverlayPanel : ResizeablePanelBase
         // wasted space at the top of the overlay (compressed the familiar
         // list and forced extra scrolling for full-10 boxes).
         var status = UIFactory.CreateLabel(ContentRoot, "StatusLine",
-            "Active: (none)", TextAlignmentOptions.MidlineLeft, color: null, fontSize: 12);
+            "Active: (none)", TextAlignmentOptions.MidlineLeft, color: null, fontSize: Theme.ScaledOverlay(12));
         UIFactory.SetLayoutElement(status.GameObject,
             minWidth: 260, preferredWidth: 280, flexibleWidth: 1,
             minHeight: 20, preferredHeight: 22, flexibleHeight: 0);
@@ -341,7 +342,7 @@ public class FamiliarBrowserOverlayPanel : ResizeablePanelBase
             if (t != null)
             {
                 t.alignment = TextAlignmentOptions.MidlineLeft;
-                t.fontSize = 12;
+                t.fontSize = Theme.ScaledOverlay(12);
                 t.enableWordWrapping = false;
                 t.overflowMode = TextOverflowModes.Overflow;
             }
@@ -352,7 +353,7 @@ public class FamiliarBrowserOverlayPanel : ResizeablePanelBase
     private void AddListLine(string text)
     {
         var lbl = UIFactory.CreateLabel(_famListContainer, "ListLine", text,
-            TextAlignmentOptions.MidlineLeft, color: null, fontSize: 12);
+            TextAlignmentOptions.MidlineLeft, color: null, fontSize: Theme.ScaledOverlay(12));
         UIFactory.SetLayoutElement(lbl.GameObject,
             minWidth: 240, preferredWidth: 260, flexibleWidth: 1,
             minHeight: 20, preferredHeight: 22, flexibleHeight: 0);

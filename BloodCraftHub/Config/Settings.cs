@@ -26,6 +26,66 @@ public class Settings
     // ---- UI / general ----
     public static float UITransparency =>
         (ConfigEntries[nameof(UITransparency)] as ConfigEntry<float>)?.Value ?? 0.6f;
+
+    // 0.9.0: two-axis text scaling. The UI scale affects the main tabbed
+    // panel; the overlay scale affects the four secondary overlays (XP /
+    // Familiar / Familiar Browser / Daily Quest / Professions). Stored as a
+    // float multiplier so the user can pick Small/Standard/Large from a
+    // segmented control and a future "fine-grained" slider can drop in
+    // without a config schema change.
+    public static float UITextScale =>
+        (ConfigEntries[nameof(UITextScale)] as ConfigEntry<float>)?.Value ?? 1.0f;
+    public static float OverlayTextScale =>
+        (ConfigEntries[nameof(OverlayTextScale)] as ConfigEntry<float>)?.Value ?? 1.0f;
+    public static void SetUITextScale(float v)       => SetFloat(nameof(UITextScale), v);
+    public static void SetOverlayTextScale(float v)  => SetFloat(nameof(OverlayTextScale), v);
+
+    // 0.9.0: per-overlay background transparency. User semantics (per
+    // friend-testing direction): 0.0 = solid (opaque), 1.0 = invisible. We
+    // floor at 0.95 internally so the panel's chrome / drag handle remain
+    // visible — at 1.0 the user could no longer find the panel to
+    // close/move it. Text and other foreground elements stay fully opaque
+    // regardless; only the Image-backed background tracks this.
+    public const float OVERLAY_TRANSPARENCY_FLOOR = 0.95f;
+
+    public static float XPOverlayTransparency        => GetFloat(nameof(XPOverlayTransparency),        UITransparency);
+    public static float FamiliarOverlayTransparency  => GetFloat(nameof(FamiliarOverlayTransparency),  UITransparency);
+    public static float FamiliarBrowserTransparency  => GetFloat(nameof(FamiliarBrowserTransparency),  UITransparency);
+    public static float DailyQuestTransparency       => GetFloat(nameof(DailyQuestTransparency),       UITransparency);
+    public static float ProfessionOverlayTransparency => GetFloat(nameof(ProfessionOverlayTransparency), UITransparency);
+    public static void SetXPOverlayTransparency(float v)        => SetFloat(nameof(XPOverlayTransparency), v);
+    public static void SetFamiliarOverlayTransparency(float v)  => SetFloat(nameof(FamiliarOverlayTransparency), v);
+    public static void SetFamiliarBrowserTransparency(float v)  => SetFloat(nameof(FamiliarBrowserTransparency), v);
+    public static void SetDailyQuestTransparency(float v)       => SetFloat(nameof(DailyQuestTransparency), v);
+    public static void SetProfessionOverlayTransparency(float v) => SetFloat(nameof(ProfessionOverlayTransparency), v);
+
+    /// <summary>Convert a user-facing "transparency" value (0=opaque, 1=invisible)
+    /// to an alpha multiplier suitable for Image.color, applying the legibility
+    /// floor so panel chrome remains visible.</summary>
+    public static float TransparencyToAlpha(float userTransparency)
+    {
+        var clamped = UnityEngine.Mathf.Clamp(userTransparency, 0f, OVERLAY_TRANSPARENCY_FLOOR);
+        return 1f - clamped;
+    }
+
+    /// <summary>Visibility-suppress flag for the master overlay toggle on the
+    /// floating-button strip. Session-only — not persisted — so the user can't
+    /// suppress everything and forget how to bring it back. Reset on game
+    /// restart. Per friend-testing direction: this must NEVER make
+    /// hidden-by-config overlays visible; it only re-hides / re-shows the
+    /// overlays that were already visible per their per-overlay config flags.</summary>
+    public static bool OverlaysSuppressedByUser { get; set; }
+
+    private static float GetFloat(string key, float fallback)
+    {
+        return (ConfigEntries.TryGetValue(key, out var entry) && entry is ConfigEntry<float> f)
+            ? f.Value : fallback;
+    }
+    private static void SetFloat(string key, float value)
+    {
+        if (ConfigEntries.TryGetValue(key, out var entry) && entry is ConfigEntry<float> f)
+            f.Value = value;
+    }
     public static bool UseHorizontalContentLayout =>
         (ConfigEntries[nameof(UseHorizontalContentLayout)] as ConfigEntry<bool>)?.Value ?? true;
     public static bool ClearServerMessages =>
@@ -66,11 +126,13 @@ public class Settings
     public static bool ShowFamiliarOverlay     => (ConfigEntries[nameof(ShowFamiliarOverlay)]     as ConfigEntry<bool>)?.Value ?? false;
     public static bool ShowFamiliarBrowser     => (ConfigEntries[nameof(ShowFamiliarBrowser)]     as ConfigEntry<bool>)?.Value ?? false;
     public static bool ShowDailyQuestOverlay   => (ConfigEntries[nameof(ShowDailyQuestOverlay)]   as ConfigEntry<bool>)?.Value ?? false;
+    public static bool ShowProfessionOverlay   => (ConfigEntries[nameof(ShowProfessionOverlay)]   as ConfigEntry<bool>)?.Value ?? false;
 
     public static void SetShowExperienceOverlay(bool v) => SetBool(nameof(ShowExperienceOverlay), v);
     public static void SetShowFamiliarOverlay(bool v)   => SetBool(nameof(ShowFamiliarOverlay),   v);
     public static void SetShowFamiliarBrowser(bool v)   => SetBool(nameof(ShowFamiliarBrowser),   v);
     public static void SetShowDailyQuestOverlay(bool v) => SetBool(nameof(ShowDailyQuestOverlay), v);
+    public static void SetShowProfessionOverlay(bool v) => SetBool(nameof(ShowProfessionOverlay), v);
 
     private static void SetBool(string key, bool value)
     {
@@ -145,7 +207,19 @@ public class Settings
         InitConfigEntry(OVERLAY_SETTINGS_GROUP, nameof(ShowFamiliarOverlay),         false, "Whether the Familiar overlay (active stats) was visible at last logout.");
         InitConfigEntry(OVERLAY_SETTINGS_GROUP, nameof(ShowFamiliarBrowser),         false, "Whether the Familiar Browser overlay was visible at last logout.");
         InitConfigEntry(OVERLAY_SETTINGS_GROUP, nameof(ShowDailyQuestOverlay),       false, "Whether the Daily Quest overlay was visible at last logout.");
+        InitConfigEntry(OVERLAY_SETTINGS_GROUP, nameof(ShowProfessionOverlay),       false, "Whether the Professions overlay (Bloodcraft profession levels) was visible at last logout.");
         InitConfigEntry(UI_SETTINGS_GROUP,      nameof(IsPanelAutoResizeEnabled),    true,  "Auto-resize the main panel vertically to fit the active tab's content (capped at 90% of screen height).");
+        InitConfigEntry(UI_SETTINGS_GROUP,      nameof(UITextScale),                 1.0f,  "Font scale multiplier for the main panel (Small=0.85, Standard=1.0, Large=1.2). Changes apply when the panel is closed and reopened.");
+        InitConfigEntry(UI_SETTINGS_GROUP,      nameof(OverlayTextScale),            1.0f,  "Font scale multiplier for the secondary overlays (Small=0.85, Standard=1.0, Large=1.2). Changes apply when each overlay is toggled off and back on.");
+
+        // Per-overlay background transparency. User semantics:
+        //   0.0 = solid (opaque), 1.0 = invisible. Floored at 0.95 internally
+        //   so the panel chrome / drag handle stays visible at "100%".
+        InitConfigEntry(OVERLAY_SETTINGS_GROUP, nameof(XPOverlayTransparency),       0.4f,  "XP overlay background transparency (0.0=solid, 1.0=invisible). Floor at 0.95 keeps drag handle visible.");
+        InitConfigEntry(OVERLAY_SETTINGS_GROUP, nameof(FamiliarOverlayTransparency), 0.4f,  "Familiar overlay background transparency.");
+        InitConfigEntry(OVERLAY_SETTINGS_GROUP, nameof(FamiliarBrowserTransparency), 0.4f,  "Familiar Browser overlay background transparency.");
+        InitConfigEntry(OVERLAY_SETTINGS_GROUP, nameof(DailyQuestTransparency),      0.4f,  "Daily quest overlay background transparency.");
+        InitConfigEntry(OVERLAY_SETTINGS_GROUP, nameof(ProfessionOverlayTransparency), 0.4f, "Profession overlay background transparency.");
         InitConfigEntry(GENERAL_SETTINGS_GROUP, nameof(BloodcraftAvailability),      "Auto", "Whether the server has the Bloodcraft mod. Auto = present iff the server ACK'd our Eclipse handshake. On = always assume present. Off = always disable the BLOODCRAFT tab group.");
         InitConfigEntry(GENERAL_SETTINGS_GROUP, nameof(KindredAvailability),         "Auto", "Whether the server has the Kindred suite (KindredCommands + KindredLogistics). No protocol probe is wired yet, so Auto currently means 'assume present'. Set to Off explicitly if your server doesn't have these mods to grey out the KINDRED tab group.");
 

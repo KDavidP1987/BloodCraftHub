@@ -41,6 +41,7 @@ public enum PanelType
     ExperienceOverlay,
     FamiliarOverlay,
     FamiliarBrowserOverlay,
+    ProfessionOverlay,
 
     // Legacy panel identities from BloodCraftUI — kept so the existing
     // ResizeablePanelBase config keys (Panels/<PanelType>) survive a port.

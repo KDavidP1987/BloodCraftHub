@@ -8,6 +8,7 @@ using BloodCraftHub.UI.ModContent.Data;
 using TMPro;
 using UnityEngine;
 using UIBase = BloodCraftHub.UI.Framework.UniverseLib.UI.UIBase;
+using BloodCraftHub.UI.Framework.CustomLib.Util;
 
 namespace BloodCraftHub.UI.ModContent;
 
@@ -32,7 +33,7 @@ public class FamiliarOverlayPanel : ResizeablePanelBase
 
     public override bool CanDrag => true;
     public override PanelDragger.ResizeTypes CanResize => PanelDragger.ResizeTypes.All;
-    public override float Opacity => Settings.UITransparency;
+    public override float Opacity => Settings.TransparencyToAlpha(Settings.FamiliarOverlayTransparency);
 
     private LabelRef _nameLabel;
     private LabelRef _progressLabel;
@@ -45,9 +46,9 @@ public class FamiliarOverlayPanel : ResizeablePanelBase
     {
         base.ConstructPanelContent();
 
-        _nameLabel     = AddRow("FamOvName",     "—",           FontStyles.Bold,   fontSize: 15);
-        _progressLabel = AddRow("FamOvProgress", "Lv —",        FontStyles.Normal, fontSize: 13);
-        _statsLabel    = AddRow("FamOvStats",    "HP —",        FontStyles.Normal, fontSize: 12);
+        _nameLabel     = AddRow("FamOvName",     "—",           FontStyles.Bold,   fontSize: Theme.ScaledOverlay(15));
+        _progressLabel = AddRow("FamOvProgress", "Lv —",        FontStyles.Normal, fontSize: Theme.ScaledOverlay(13));
+        _statsLabel    = AddRow("FamOvStats",    "HP —",        FontStyles.Normal, fontSize: Theme.ScaledOverlay(12));
 
         Render(PlayerStateService.Familiar);
 

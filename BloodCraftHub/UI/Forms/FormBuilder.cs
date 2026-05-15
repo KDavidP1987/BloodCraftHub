@@ -5,6 +5,7 @@ using BloodCraftHub.Utils;
 using TMPro;
 using UnityEngine;
 using UnityEngine.EventSystems;
+using BloodCraftHub.UI.Framework.CustomLib.Util;
 
 namespace BloodCraftHub.UI.Forms;
 
@@ -72,7 +73,7 @@ public static class FormBuilder
 
         // Title row
         var titleLbl = UIFactory.CreateLabel(form, "FormTitle", title,
-            TextAlignmentOptions.MidlineLeft, color: null, fontSize: 13);
+            TextAlignmentOptions.MidlineLeft, color: null, fontSize: Theme.ScaledUI(13));
         UIFactory.SetLayoutElement(titleLbl.GameObject,
             minWidth: 360, preferredWidth: 400, flexibleWidth: 1,
             minHeight: 20, preferredHeight: 22, flexibleHeight: 0);
@@ -92,7 +93,7 @@ public static class FormBuilder
                 minHeight: 28, preferredHeight: 30, flexibleHeight: 0);
 
             var lbl = UIFactory.CreateLabel(row, "Label", field.Label + ":",
-                TextAlignmentOptions.MidlineLeft, color: null, fontSize: 12);
+                TextAlignmentOptions.MidlineLeft, color: null, fontSize: Theme.ScaledUI(12));
             UIFactory.SetLayoutElement(lbl.GameObject,
                 minWidth: 90, preferredWidth: 100, flexibleWidth: 0,
                 minHeight: 24, preferredHeight: 26, flexibleHeight: 0);
@@ -112,7 +113,7 @@ public static class FormBuilder
             minHeight: 30, preferredHeight: 32, flexibleHeight: 0);
 
         var statusLbl = UIFactory.CreateLabel(submitRow, "FormStatus", "",
-            TextAlignmentOptions.MidlineLeft, color: null, fontSize: 11);
+            TextAlignmentOptions.MidlineLeft, color: null, fontSize: Theme.ScaledUI(11));
         UIFactory.SetLayoutElement(statusLbl.GameObject,
             minWidth: 100, preferredWidth: 220, flexibleWidth: 1,
             minHeight: 22, preferredHeight: 24, flexibleHeight: 0);
@@ -130,7 +131,7 @@ public static class FormBuilder
             submitText.enableWordWrapping = false;
             submitText.overflowMode = TextOverflowModes.Overflow;
             submitText.alignment = TextAlignmentOptions.Center;
-            submitText.fontSize = 13;
+            submitText.fontSize = Theme.ScaledUI(13);
         }
         TooltipHover.Attach(submit.GameObject, $"Send the command: {commandTemplate}");
 

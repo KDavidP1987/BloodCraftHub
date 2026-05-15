@@ -4,6 +4,7 @@ using BloodCraftHub.UI.Framework.UniverseLib.UI.Models;
 using TMPro;
 using UnityEngine;
 using UnityEngine.EventSystems;
+using BloodCraftHub.UI.Framework.CustomLib.Util;
 
 namespace BloodCraftHub.UI.Forms;
 
@@ -199,7 +200,7 @@ public class EnumField<T> : FormField where T : struct, Enum
         OptionNames = Enum.GetNames(typeof(T));
         var go = UIFactory.CreateDropdown(row, $"Field_{Name}", out var dropdown,
             OptionNames.Length > 0 ? OptionNames[0] : "",
-            itemFontSize: 13,
+            itemFontSize: Theme.ScaledUI(13),
             onValueChanged: null,
             defaultOptions: OptionNames);
         Dropdown = dropdown;

@@ -3,6 +3,7 @@ using BloodCraftHub.UI.Forms;
 using BloodCraftHub.UI.Framework.UniverseLib.UI;
 using TMPro;
 using UnityEngine;
+using BloodCraftHub.UI.Framework.CustomLib.Util;
 
 namespace BloodCraftHub.UI.ModContent;
 
@@ -791,7 +792,7 @@ public partial class MainPanel
         AddSectionHeading(page, "Server wipe (DESTRUCTIVE)");
         var wipeNote = UIFactory.CreateLabel(page, "WipeNote",
             "Wipe is a 3-step flow: (1) .wipe sets up the exclusion list (territories that survive), (2) .commencewipe ACTUALLY wipes, (3) .cancelwipe aborts before commence. There is no undo once you commence.",
-            TMPro.TextAlignmentOptions.TopLeft, color: null, fontSize: 11);
+            TMPro.TextAlignmentOptions.TopLeft, color: null, fontSize: Theme.ScaledUI(11));
         UIFactory.SetLayoutElement(wipeNote.GameObject,
             minWidth: 360, preferredWidth: 400, flexibleWidth: 1,
             minHeight: 36, preferredHeight: 48, flexibleHeight: 0);
@@ -864,7 +865,7 @@ public partial class MainPanel
         AddSectionHeading(page, "Lookups (find IDs for spawn / give)");
         var lookupsHint = UIFactory.CreateLabel(page, "LookupsHint",
             "Use these to find the prefab name / ID for an item, NPC, or boss before using the Spawn or Give forms below. Replies appear in chat — V Rising's prefab registry isn't available client-side, so the search runs on the server and KindredCommands lists matching results.",
-            TMPro.TextAlignmentOptions.TopLeft, color: null, fontSize: 11);
+            TMPro.TextAlignmentOptions.TopLeft, color: null, fontSize: Theme.ScaledUI(11));
         UIFactory.SetLayoutElement(lookupsHint.GameObject,
             minWidth: 360, preferredWidth: 400, flexibleWidth: 1,
             minHeight: 40, preferredHeight: 56, flexibleHeight: 0);
@@ -1186,7 +1187,7 @@ public partial class MainPanel
     private static void AddAdminWarningIntro(GameObject page, string body)
     {
         var intro = UIFactory.CreateLabel(page, "AdminIntro", body,
-            TextAlignmentOptions.TopLeft, color: null, fontSize: 12);
+            TextAlignmentOptions.TopLeft, color: null, fontSize: Theme.ScaledUI(12));
         UIFactory.SetLayoutElement(intro.GameObject,
             minWidth: 360, preferredWidth: 400, flexibleWidth: 1,
             minHeight: 36, preferredHeight: 44, flexibleHeight: 0);

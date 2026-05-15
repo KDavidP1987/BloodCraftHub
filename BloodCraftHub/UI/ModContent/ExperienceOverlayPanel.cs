@@ -9,6 +9,7 @@ using BloodCraftHub.UI.ModContent.Data;
 using TMPro;
 using UnityEngine;
 using UIBase = BloodCraftHub.UI.Framework.UniverseLib.UI.UIBase;
+using BloodCraftHub.UI.Framework.CustomLib.Util;
 
 namespace BloodCraftHub.UI.ModContent;
 
@@ -38,7 +39,11 @@ public class ExperienceOverlayPanel : ResizeablePanelBase
 
     public override bool CanDrag => true;
     public override PanelDragger.ResizeTypes CanResize => PanelDragger.ResizeTypes.All;
-    public override float Opacity => Settings.UITransparency;
+    // 0.9.0: per-overlay background transparency. Settings.XPOverlayTransparency
+    // uses the user-facing convention (0=opaque, 1=invisible); TransparencyToAlpha
+    // converts and applies the 95% floor so the drag handle stays visible at the
+    // user's "100% transparent" choice.
+    public override float Opacity => Settings.TransparencyToAlpha(Settings.XPOverlayTransparency);
 
     private LabelRef _levelLabel;
     private LabelRef _progressLabel;
@@ -56,16 +61,16 @@ public class ExperienceOverlayPanel : ResizeablePanelBase
     {
         base.ConstructPanelContent();
 
-        _levelLabel    = AddRow("LevelLabel",    "Level —", FontStyles.Bold,  fontSize: 16);
-        _progressLabel = AddRow("ProgressLabel", "XP — %",  FontStyles.Normal, fontSize: 14);
-        _classLabel    = AddRow("ClassLabel",    "Class —", FontStyles.Italic, fontSize: 13);
+        _levelLabel    = AddRow("LevelLabel",    "Level —", FontStyles.Bold,  fontSize: Theme.ScaledOverlay(16));
+        _progressLabel = AddRow("ProgressLabel", "XP — %",  FontStyles.Normal, fontSize: Theme.ScaledOverlay(14));
+        _classLabel    = AddRow("ClassLabel",    "Class —", FontStyles.Italic, fontSize: Theme.ScaledOverlay(13));
         // 0.8.3: EXO prestige row. Friend-testing surfaced that EXO data was
         // entirely missing from the overlay. Populated from PrestigeInfo
         // (TypeName "Exo") which the existing AwaitingPrestigeInfo intercept
         // already parses. Auto-fired once on first show via the deferred-
         // fetch ticker below so the data appears without the user having to
         // run .prestige get Exo manually.
-        _exoLabel      = AddRow("ExoLabel",      "EXO Prestige —", FontStyles.Italic, fontSize: 13);
+        _exoLabel      = AddRow("ExoLabel",      "EXO Prestige —", FontStyles.Italic, fontSize: Theme.ScaledOverlay(13));
 
         Render(PlayerStateService.Experience);
         // Render any prestige info we already have cached so re-opening the

@@ -60,6 +60,30 @@ public static class Theme
         }
     }
 
+    // 0.9.0: explicit two-axis font scale. The UI multiplier scales fontSize
+    // values on the main panel (forms, tabs, headers); the overlay multiplier
+    // is independent so the player can have small overlays + large panel text
+    // or vice versa. Each scale is applied at label-construction time via the
+    // ScaledUI / ScaledOverlay helpers below — changing the multiplier at
+    // runtime does not retroactively resize already-built labels, so the user
+    // needs to close + reopen the panel (or toggle an overlay) for the change
+    // to take effect. Live re-render would require a full panel rebuild path,
+    // which is more invasive than this feature warrants.
+    public static float UIFontMultiplier { get; set; } = 1.0f;
+    public static float OverlayFontMultiplier { get; set; } = 1.0f;
+
+    /// <summary>Scale a baseline UI font size by the current UIFontMultiplier.
+    /// Rounded to int so TMP doesn't render sub-pixel mismatches across
+    /// adjacent labels.</summary>
+    public static int ScaledUI(int baseSize) =>
+        UnityEngine.Mathf.Max(8, UnityEngine.Mathf.RoundToInt(baseSize * UIFontMultiplier));
+
+    /// <summary>Scale a baseline overlay font size by the current
+    /// OverlayFontMultiplier. Separate axis from ScaledUI so overlays can be
+    /// adjusted without changing the main panel.</summary>
+    public static int ScaledOverlay(int baseSize) =>
+        UnityEngine.Mathf.Max(8, UnityEngine.Mathf.RoundToInt(baseSize * OverlayFontMultiplier));
+
     static Theme()
     {
         Opacity = 0.8f;

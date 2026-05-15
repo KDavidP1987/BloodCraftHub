@@ -4,6 +4,7 @@ using TMPro;
 using UnityEngine;
 using UnityEngine.EventSystems;
 using UnityEngine.UI;
+using BloodCraftHub.UI.Framework.CustomLib.Util;
 
 namespace BloodCraftHub.UI.Forms;
 
@@ -61,7 +62,7 @@ public static class CollapsibleSection
             headerText.enableWordWrapping = false;
             headerText.overflowMode = TextOverflowModes.Overflow;
             headerText.alignment = TextAlignmentOptions.MidlineLeft;
-            headerText.fontSize = 13;
+            headerText.fontSize = Theme.ScaledUI(13);
             headerText.fontStyle = FontStyles.Bold;
         }
         if (!string.IsNullOrEmpty(tooltip))

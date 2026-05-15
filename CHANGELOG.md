@@ -1,5 +1,87 @@
 # Changelog
 
+## 0.9.0 — Accessibility & customization: text scales, overlay transparency, master toggle, Professions overlay
+
+Three friend-testing requests rolled together with one missed overlay. v0.9.0
+is a polish release focused on accessibility (text scaling) and on giving
+power users finer control over each overlay's appearance.
+
+**Dual text-size toggle.** Two independent multiplier axes on `Theme`:
+`UIFontMultiplier` (main panel + forms) and `OverlayFontMultiplier` (the five
+secondary overlays). Three preset values per axis — Small (0.85×), Standard
+(1.0×, default), Large (1.2×). New segmented controls live on the Help →
+About tab under a "Display settings" section. Every hardcoded `fontSize` call
+across `MainPanel`, `MainPanel.KindredAdmin`, `FormBuilder`, `CollapsibleSection`,
+`FormField`, and the four (now five) overlay panels was rewrapped in
+`Theme.ScaledUI(...)` or `Theme.ScaledOverlay(...)` accordingly via a
+case-sensitive regex sweep.
+
+**Live-vs-deferred caveat:** scale changes do NOT retroactively resize labels
+that are already built. The user has to close and reopen the panel (and toggle
+each overlay off/back-on) for the new scale to take effect. The "current: X"
+hint in the segmented control + the explanatory paragraph in the section
+header keep this discoverable.
+
+**Per-overlay background transparency.** Five new BepInEx config floats:
+`XPOverlayTransparency`, `FamiliarOverlayTransparency`,
+`FamiliarBrowserTransparency`, `DailyQuestTransparency`,
+`ProfessionOverlayTransparency`. Each gets a five-button row on the About
+tab's Display settings section (0% / 25% / 50% / 75% / 100%). Each overlay's
+`Opacity` property getter routes its setting through
+`Settings.TransparencyToAlpha(...)` which:
+- inverts the user convention (0% transparency = solid; 100% = invisible) to
+  Unity's `alpha` (1.0 = opaque; 0.0 = transparent)
+- applies a 0.95 floor — at the user's "100% transparent" the panel chrome
+  / drag handle still has alpha 0.05 so the user can grab it. Without the
+  floor, the user could lose the panel entirely with no way to find it on
+  screen.
+
+Text and any non-background elements stay fully opaque regardless of
+transparency setting (it only affects the panel's `Image.color.a`). Per
+user direction: this is purely background transparency, not overall element
+transparency.
+
+**Master overlay show/hide button.** New "OV" 40×40 button next to the BCH
+floating button (the host panel grew from 56×56 → 104×56 to fit both). Click
+toggles a session-only `BCHubUIManager._overlaysSuppressedByUser` flag:
+- when suppressed, every overlay is hidden regardless of its per-overlay
+  state
+- when un-suppressed, overlays are re-shown ONLY for the per-overlay
+  `Settings.Show*` flags that are true — never re-shows overlays the user
+  has disabled via the panel footer
+- session-only: the flag is **not** persisted across game restarts, so the
+  user can't accidentally hide everything and forget how to get it back.
+
+This was the friend-testing request "beside the B, C, H button, there was
+a toggle to show and hide all active overlays so that this way a person can
+toggle them on and off as they need" — common on smaller screens where the
+overlays conflict with the in-game menus.
+
+**New Professions overlay** (`UI/ModContent/ProfessionOverlayPanel.cs`).
+Displays all eight Bloodcraft professions (Enchanting / Alchemy / Harvesting
+/ Blacksmithing / Tailoring / Woodcutting / Mining / Fishing) with level + XP
+percentage. Data is already streamed via Bloodcraft's signed
+`ProgressToClient` Eclipse channel — `EclipseProtocolService` unpacks it into
+`PlayerStateService.ProfessionState` at fields 19..34 — so the overlay just
+subscribes to `ProfessionChanged` and renders. Per-profession prestige is NOT
+shown because Bloodcraft doesn't stream it on the Eclipse channel (only
+levels); we don't fake data we don't have. Visibility persists across
+sessions via the new `Settings.ShowProfessionOverlay` config flag, same
+mechanism as the other four overlays. Toggle in the panel footer row 1.
+
+**Outside this release** (queued for later):
+- PlayerNameField autocomplete dropdown (the name cache fills passively but
+  the field is still plain text).
+- `.class csp` shift-spell-picker dropdown (would need `.class lsp` reply
+  parsing + new state slot for spell names per class).
+- Per-row Move in Boxes Edit mode.
+- Live text-scale re-render without close/reopen (requires a panel-rebuild
+  pipeline; not in scope for this release).
+- Profession-prestige row in the overlay if Bloodcraft ever adds it to the
+  signed stream.
+- Suspend-typing redesign on a different patch target (still deferred from
+  v0.8.2 — removal stays in place until a non-locking mechanism is proven).
+
 ## 0.8.3 — Read-command replies land in UI + EXO prestige row
 
 Friend-testing pointed out that many `.X get` / `.X list` chat-command replies (e.g.

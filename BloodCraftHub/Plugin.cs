@@ -53,6 +53,13 @@ public class Plugin : BasePlugin
 
         Settings = new Settings().InitConfig();
 
+        // 0.9.0: sync the Theme font multipliers from saved Settings before
+        // any panel constructs. ScaledUI / ScaledOverlay read these to size
+        // labels at build time, so the synchronization has to happen before
+        // SetupAndShowUI runs.
+        UI.Framework.CustomLib.Util.Theme.UIFontMultiplier      = BloodCraftHub.Config.Settings.UITextScale;
+        UI.Framework.CustomLib.Util.Theme.OverlayFontMultiplier = BloodCraftHub.Config.Settings.OverlayTextScale;
+
         EclipseProtocolService.Initialize();
 
         UIManager = new BCHubUIManager();

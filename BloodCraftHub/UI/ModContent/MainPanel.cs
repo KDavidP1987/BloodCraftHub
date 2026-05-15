@@ -14,6 +14,7 @@ using TMPro;
 using UnityEngine;
 using UnityEngine.UI;
 using UIBase = BloodCraftHub.UI.Framework.UniverseLib.UI.UIBase;
+using BloodCraftHub.UI.Framework.CustomLib.Util;
 
 namespace BloodCraftHub.UI.ModContent;
 
@@ -52,6 +53,7 @@ public partial class MainPanel : ResizeablePanelBase
     private Toggle _famOverlayToggle;
     private Toggle _famBrowserToggle;
     private Toggle _dqOverlayToggle;
+    private Toggle _profOverlayToggle;
 
     // Familiars-tab live labels
     private TextMeshProUGUI _famNameLabel;
@@ -265,7 +267,7 @@ public partial class MainPanel : ResizeablePanelBase
 
         var lbl = UIFactory.CreateLabel(footer, "TooltipText",
             TooltipHover.IdlePlaceholder,
-            TextAlignmentOptions.MidlineLeft, color: null, fontSize: 12);
+            TextAlignmentOptions.MidlineLeft, color: null, fontSize: Theme.ScaledUI(12));
         UIFactory.SetLayoutElement(lbl.GameObject,
             minWidth: 400, preferredWidth: 600, flexibleWidth: 1,
             minHeight: 20, preferredHeight: 22, flexibleHeight: 0);
@@ -332,7 +334,7 @@ public partial class MainPanel : ResizeablePanelBase
         if (headerText != null)
         {
             headerText.alignment = TextAlignmentOptions.MidlineLeft;
-            headerText.fontSize  = 12;
+            headerText.fontSize = Theme.ScaledUI(12);
             headerText.fontStyle = FontStyles.Bold | FontStyles.Italic;
             _lastResponseHeader = headerText;
         }
@@ -357,7 +359,7 @@ public partial class MainPanel : ResizeablePanelBase
         // Multi-line label with ContentSizeFitter so the panel sizes to fit
         // whatever the server returned without truncation.
         var bodyLbl = UIFactory.CreateLabel(_lastResponseBodyWrap, "LastResponseText",
-            "", TextAlignmentOptions.TopLeft, color: null, fontSize: 12);
+            "", TextAlignmentOptions.TopLeft, color: null, fontSize: Theme.ScaledUI(12));
         UIFactory.SetLayoutElement(bodyLbl.GameObject,
             minWidth: 360, preferredWidth: 600, flexibleWidth: 1,
             minHeight: 0, flexibleHeight: 0);
@@ -455,7 +457,7 @@ public partial class MainPanel : ResizeablePanelBase
             headerText.enableWordWrapping = false;
             headerText.overflowMode = TextOverflowModes.Overflow;
             headerText.fontStyle = FontStyles.Bold;
-            headerText.fontSize = 12;
+            headerText.fontSize = Theme.ScaledUI(12);
             if (!available) headerText.color = new Color(0.55f, 0.55f, 0.55f); // grayed
             _groupHeaderText[group.Title] = headerText;
         }
@@ -479,7 +481,7 @@ public partial class MainPanel : ResizeablePanelBase
         {
             var placeholder = UIFactory.CreateLabel(content, "Empty",
                 "(coming soon)",
-                TextAlignmentOptions.MidlineLeft, color: null, fontSize: 11);
+                TextAlignmentOptions.MidlineLeft, color: null, fontSize: Theme.ScaledUI(11));
             UIFactory.SetLayoutElement(placeholder.GameObject,
                 minWidth: 130, preferredWidth: 140, flexibleWidth: 1,
                 minHeight: 22, preferredHeight: 24, flexibleHeight: 0);
@@ -500,7 +502,7 @@ public partial class MainPanel : ResizeablePanelBase
                     t.enableWordWrapping = false;
                     t.overflowMode = TextOverflowModes.Overflow;
                     t.alignment = TextAlignmentOptions.Center;
-                    t.fontSize = 13;
+                    t.fontSize = Theme.ScaledUI(13);
                 }
                 var captured = tab;
                 b.OnClick = () => ShowTab(captured);
@@ -682,7 +684,7 @@ public partial class MainPanel : ResizeablePanelBase
     private static void AddTabHeading(GameObject page, string text)
     {
         var heading = UIFactory.CreateLabel(page, "TabHeading", text,
-            TextAlignmentOptions.TopLeft, color: null, fontSize: 20);
+            TextAlignmentOptions.TopLeft, color: null, fontSize: Theme.ScaledUI(20));
         UIFactory.SetLayoutElement(heading.GameObject,
             minWidth: 360, preferredWidth: 400, flexibleWidth: 1,
             minHeight: 28, preferredHeight: 30, flexibleHeight: 0);
@@ -695,7 +697,7 @@ public partial class MainPanel : ResizeablePanelBase
     {
         var placeholder = UIFactory.CreateLabel(page, "Placeholder",
             "Coming soon — this tab will surface the matching Bloodcraft commands.",
-            TextAlignmentOptions.TopLeft, color: null, fontSize: 14);
+            TextAlignmentOptions.TopLeft, color: null, fontSize: Theme.ScaledUI(14));
         UIFactory.SetLayoutElement(placeholder.GameObject,
             minWidth: 360, preferredWidth: 400, flexibleWidth: 1,
             minHeight: 40, preferredHeight: 80, flexibleHeight: 0);
@@ -711,9 +713,9 @@ public partial class MainPanel : ResizeablePanelBase
     {
         AddSectionHeading(page, "Active Familiar");
 
-        _famNameLabel     = AddInfoLabel(page, "FamName",     "—", FontStyles.Bold,   fontSize: 18);
-        _famProgressLabel = AddInfoLabel(page, "FamProgress", "Level — ", FontStyles.Normal, fontSize: 14);
-        _famStatsLabel    = AddInfoLabel(page, "FamStats",    "HP —  PP —  SP —", FontStyles.Normal, fontSize: 14);
+        _famNameLabel     = AddInfoLabel(page, "FamName",     "—", FontStyles.Bold,   fontSize: Theme.ScaledUI(18));
+        _famProgressLabel = AddInfoLabel(page, "FamProgress", "Level — ", FontStyles.Normal, fontSize: Theme.ScaledUI(14));
+        _famStatsLabel    = AddInfoLabel(page, "FamStats",    "HP —  PP —  SP —", FontStyles.Normal, fontSize: Theme.ScaledUI(14));
 
         AddSpacer(page, 4);
         AddSectionHeading(page, "Actions");
@@ -753,7 +755,7 @@ public partial class MainPanel : ResizeablePanelBase
         AddSpacer(page, 4);
         var note = UIFactory.CreateLabel(page, "FamNote",
             "Switch to the Boxes tab to browse your familiar boxes and click-to-bind.",
-            TextAlignmentOptions.TopLeft, color: null, fontSize: 12);
+            TextAlignmentOptions.TopLeft, color: null, fontSize: Theme.ScaledUI(12));
         UIFactory.SetLayoutElement(note.GameObject,
             minWidth: 360, preferredWidth: 400, flexibleWidth: 1,
             minHeight: 24, preferredHeight: 28, flexibleHeight: 0);
@@ -768,7 +770,7 @@ public partial class MainPanel : ResizeablePanelBase
             "  • Salute →  Toggle Combat Mode\n" +
             "  • Clap   →  Bind / Unbind active familiar\n" +
             "  • Beckon →  Interact (opens familiar's inventory, equipment, name & settings)",
-            TextAlignmentOptions.TopLeft, color: null, fontSize: 12);
+            TextAlignmentOptions.TopLeft, color: null, fontSize: Theme.ScaledUI(12));
         UIFactory.SetLayoutElement(emoteRef.GameObject,
             minWidth: 360, preferredWidth: 400, flexibleWidth: 1,
             minHeight: 110, preferredHeight: 130, flexibleHeight: 0);
@@ -846,7 +848,7 @@ public partial class MainPanel : ResizeablePanelBase
         AddSectionHeading(page, "Battle Groups");
         var bgIntro = UIFactory.CreateLabel(page, "FamBgIntro",
             "Battle groups are pre-built lineups of familiars for PvP challenges. List shows the groups you've made; create one, slot familiars into it, then challenge another player.",
-            TextAlignmentOptions.TopLeft, color: null, fontSize: 11);
+            TextAlignmentOptions.TopLeft, color: null, fontSize: Theme.ScaledUI(11));
         UIFactory.SetLayoutElement(bgIntro.GameObject,
             minWidth: 360, preferredWidth: 400, flexibleWidth: 1,
             minHeight: 32, preferredHeight: 40, flexibleHeight: 0);
@@ -942,13 +944,13 @@ public partial class MainPanel : ResizeablePanelBase
         // Compact active-box label always shown at the top.
         _boxesActiveBoxLabel = AddInfoLabel(page, "ActiveBox",
             "Active Box: (none selected)",
-            FontStyles.Bold, fontSize: 14);
+            FontStyles.Bold, fontSize: Theme.ScaledUI(14));
 
         // Hint text near the top so it can never be overlapped by a long box
         // list further down. Phrased as a one-liner so it doesn't dominate.
         var note = UIFactory.CreateLabel(page, "BoxesNote",
             "Tip: click Refresh to pull your box list, click a box to see its familiars, click a familiar to bind it. Use ← Back to return.",
-            TextAlignmentOptions.TopLeft, color: null, fontSize: 11);
+            TextAlignmentOptions.TopLeft, color: null, fontSize: Theme.ScaledUI(11));
         UIFactory.SetLayoutElement(note.GameObject,
             minWidth: 360, preferredWidth: 400, flexibleWidth: 1,
             minHeight: 22, preferredHeight: 32, flexibleHeight: 0);
@@ -990,7 +992,7 @@ public partial class MainPanel : ResizeablePanelBase
             refreshText.enableWordWrapping = false;
             refreshText.overflowMode = TextOverflowModes.Overflow;
             refreshText.alignment = TextAlignmentOptions.Center;
-            refreshText.fontSize = 13;
+            refreshText.fontSize = Theme.ScaledUI(13);
         }
         TooltipHover.Attach(refreshBtn.GameObject,
             "Re-fetch your familiar boxes from the server (.fam boxes). The server reply can take a few seconds.");
@@ -1001,7 +1003,7 @@ public partial class MainPanel : ResizeablePanelBase
         };
 
         _boxesStatusLabel = AddInfoLabel(_boxesPickerSection, "BoxesStatus", "",
-            FontStyles.Italic, fontSize: 11);
+            FontStyles.Italic, fontSize: Theme.ScaledUI(11));
 
         AddSectionHeading(_boxesPickerSection, "Available Boxes");
         _boxesListContainer = UIFactory.CreateVerticalGroup(_boxesPickerSection, "BoxListContainer",
@@ -1087,7 +1089,7 @@ public partial class MainPanel : ResizeablePanelBase
             backText.enableWordWrapping = false;
             backText.overflowMode = TextOverflowModes.Overflow;
             backText.alignment = TextAlignmentOptions.Center;
-            backText.fontSize = 13;
+            backText.fontSize = Theme.ScaledUI(13);
         }
         backBtn.OnClick = OnBackToBoxesClicked;
         TooltipHover.Attach(backBtn.GameObject, "Return to the box list without changing your active box.");
@@ -1103,7 +1105,7 @@ public partial class MainPanel : ResizeablePanelBase
             minWidth: 110, preferredWidth: 120, flexibleWidth: 0,
             minHeight: 26, preferredHeight: 28, flexibleHeight: 0);
         editToggle.Text.text = "Edit mode";
-        editToggle.Text.fontSize = 12;
+        editToggle.Text.fontSize = Theme.ScaledUI(12);
         editToggle.Text.alignment = TextAlignmentOptions.MidlineLeft;
         UIFactory.SetLayoutElement(editToggle.Text.gameObject,
             minWidth: 80, preferredWidth: 90, flexibleWidth: 1,
@@ -1121,14 +1123,14 @@ public partial class MainPanel : ResizeablePanelBase
         _boxesEditModeToggle = editToggle.Toggle;
 
         _boxesContentHeading = AddInfoLabel(_boxesContentSection, "ContentHeading",
-            "Familiars in (none)", FontStyles.Italic, fontSize: 13);
+            "Familiars in (none)", FontStyles.Italic, fontSize: Theme.ScaledUI(13));
 
         // Stays in the layout always (text empty when idle) so showing/hiding
         // the swap-confirm warning doesn't shift the familiar list and yank
         // your click target out from under your cursor. ~38px reserves room
         // for ~2 lines of wrapped text at fontSize 12.
         _boxesSwapWarning = UIFactory.CreateLabel(_boxesContentSection, "SwapWarning",
-            "", TextAlignmentOptions.MidlineLeft, color: null, fontSize: 12);
+            "", TextAlignmentOptions.MidlineLeft, color: null, fontSize: Theme.ScaledUI(12));
         UIFactory.SetLayoutElement(_boxesSwapWarning.GameObject,
             minWidth: 360, preferredWidth: 400, flexibleWidth: 1,
             minHeight: 38, preferredHeight: 38, flexibleHeight: 0);
@@ -1243,7 +1245,7 @@ public partial class MainPanel : ResizeablePanelBase
         {
             var empty = UIFactory.CreateLabel(_boxesListContainer, "BoxesEmpty",
                 "(no boxes loaded yet — click Refresh Boxes)",
-                TextAlignmentOptions.MidlineLeft, color: null, fontSize: 12);
+                TextAlignmentOptions.MidlineLeft, color: null, fontSize: Theme.ScaledUI(12));
             UIFactory.SetLayoutElement(empty.GameObject,
                 minWidth: 340, preferredWidth: 380, flexibleWidth: 1,
                 minHeight: 20, preferredHeight: 22, flexibleHeight: 0);
@@ -1272,7 +1274,7 @@ public partial class MainPanel : ResizeablePanelBase
         {
             var empty = UIFactory.CreateLabel(_boxesContentContainer, "ContentEmpty",
                 "(click a box above to load its familiars)",
-                TextAlignmentOptions.MidlineLeft, color: null, fontSize: 12);
+                TextAlignmentOptions.MidlineLeft, color: null, fontSize: Theme.ScaledUI(12));
             UIFactory.SetLayoutElement(empty.GameObject,
                 minWidth: 340, preferredWidth: 380, flexibleWidth: 1,
                 minHeight: 20, preferredHeight: 22, flexibleHeight: 0);
@@ -1284,7 +1286,7 @@ public partial class MainPanel : ResizeablePanelBase
         {
             var pending = UIFactory.CreateLabel(_boxesContentContainer, "ContentPending",
                 $"Loading familiars for {active}…",
-                TextAlignmentOptions.MidlineLeft, color: null, fontSize: 12);
+                TextAlignmentOptions.MidlineLeft, color: null, fontSize: Theme.ScaledUI(12));
             UIFactory.SetLayoutElement(pending.GameObject,
                 minWidth: 340, preferredWidth: 380, flexibleWidth: 1,
                 minHeight: 20, preferredHeight: 22, flexibleHeight: 0);
@@ -1332,7 +1334,7 @@ public partial class MainPanel : ResizeablePanelBase
                     minWidth: 70, preferredWidth: 80, flexibleWidth: 0,
                     minHeight: 24, preferredHeight: 26, flexibleHeight: 0);
                 var delText = delBtn.Component.GetComponentInChildren<TextMeshProUGUI>();
-                if (delText != null) delText.fontSize = 12;
+                if (delText != null) delText.fontSize = Theme.ScaledUI(12);
                 TooltipHover.Attach(delBtn.GameObject,
                     "PERMANENTLY delete this familiar (.fam r). Two-click confirm — first click changes the label to 'Confirm?' and waits 3 seconds. Box record is gone forever.");
                 int capturedIdx = idx;
@@ -1466,8 +1468,8 @@ public partial class MainPanel : ResizeablePanelBase
     {
         AddSectionHeading(page, "Active Class");
 
-        _classNameLabel  = AddInfoLabel(page, "ClassName",  "—",       FontStyles.Bold,   fontSize: 18);
-        _classLevelLabel = AddInfoLabel(page, "ClassLevel", "Level —", FontStyles.Normal, fontSize: 14);
+        _classNameLabel  = AddInfoLabel(page, "ClassName",  "—",       FontStyles.Bold,   fontSize: Theme.ScaledUI(18));
+        _classLevelLabel = AddInfoLabel(page, "ClassLevel", "Level —", FontStyles.Normal, fontSize: Theme.ScaledUI(14));
 
         AddSpacer(page, 4);
         AddSectionHeading(page, "Actions");
@@ -1515,7 +1517,7 @@ public partial class MainPanel : ResizeablePanelBase
         AddSpacer(page, 2);
         var note = UIFactory.CreateLabel(page, "ClassNote",
             "Tip: List Spells / List Stats above describe what each class grants before you commit.",
-            TextAlignmentOptions.TopLeft, color: null, fontSize: 11);
+            TextAlignmentOptions.TopLeft, color: null, fontSize: Theme.ScaledUI(11));
         UIFactory.SetLayoutElement(note.GameObject,
             minWidth: 360, preferredWidth: 400, flexibleWidth: 1,
             minHeight: 22, preferredHeight: 26, flexibleHeight: 0);
@@ -1552,9 +1554,9 @@ public partial class MainPanel : ResizeablePanelBase
     {
         AddSectionHeading(page, "Current Weapon Expertise");
 
-        _wepTypeLabel     = AddInfoLabel(page, "WepType",     "—",                  FontStyles.Bold,   fontSize: 18);
-        _wepProgressLabel = AddInfoLabel(page, "WepProgress", "Level —",            FontStyles.Normal, fontSize: 14);
-        _wepBonusLabel    = AddInfoLabel(page, "WepBonus",    "Bonus Stats: —",     FontStyles.Normal, fontSize: 13);
+        _wepTypeLabel     = AddInfoLabel(page, "WepType",     "—",                  FontStyles.Bold,   fontSize: Theme.ScaledUI(18));
+        _wepProgressLabel = AddInfoLabel(page, "WepProgress", "Level —",            FontStyles.Normal, fontSize: Theme.ScaledUI(14));
+        _wepBonusLabel    = AddInfoLabel(page, "WepBonus",    "Bonus Stats: —",     FontStyles.Normal, fontSize: Theme.ScaledUI(13));
 
         AddSpacer(page, 4);
         AddSectionHeading(page, "Actions");
@@ -1598,7 +1600,7 @@ public partial class MainPanel : ResizeablePanelBase
         AddSpacer(page, 4);
         var note = UIFactory.CreateLabel(page, "WepNote",
             "Bloodcraft only streams the EQUIPPED weapon's expertise to the client — there's no command to query stats for weapons you're not currently holding. Switch weapons to see each one's level + chosen stats above.",
-            TextAlignmentOptions.TopLeft, color: null, fontSize: 11);
+            TextAlignmentOptions.TopLeft, color: null, fontSize: Theme.ScaledUI(11));
         UIFactory.SetLayoutElement(note.GameObject,
             minWidth: 360, preferredWidth: 400, flexibleWidth: 1,
             minHeight: 32, preferredHeight: 44, flexibleHeight: 0);
@@ -1633,10 +1635,10 @@ public partial class MainPanel : ResizeablePanelBase
     {
         AddSectionHeading(page, "Current Blood Legacy");
 
-        _blTypeLabel     = AddInfoLabel(page, "BlType",     "—",                  FontStyles.Bold,   fontSize: 18);
+        _blTypeLabel     = AddInfoLabel(page, "BlType",     "—",                  FontStyles.Bold,   fontSize: Theme.ScaledUI(18));
         _blTypeLabel.color = new Color(1f, 0.4f, 0.4f); // Bloodcraft uses red for blood headings
-        _blProgressLabel = AddInfoLabel(page, "BlProgress", "Level —",            FontStyles.Normal, fontSize: 14);
-        _blBonusLabel    = AddInfoLabel(page, "BlBonus",    "Bonus Stats: —",     FontStyles.Normal, fontSize: 13);
+        _blProgressLabel = AddInfoLabel(page, "BlProgress", "Level —",            FontStyles.Normal, fontSize: Theme.ScaledUI(14));
+        _blBonusLabel    = AddInfoLabel(page, "BlBonus",    "Bonus Stats: —",     FontStyles.Normal, fontSize: Theme.ScaledUI(13));
 
         AddSpacer(page, 4);
         AddSectionHeading(page, "Actions");
@@ -1692,7 +1694,7 @@ public partial class MainPanel : ResizeablePanelBase
         AddSpacer(page, 4);
         var note = UIFactory.CreateLabel(page, "BlNote",
             "Unlike weapon expertise, .bl get accepts a blood-type argument — so the 'Show info for a specific blood' form above can inspect ANY blood you've leveled, not just your current one.",
-            TextAlignmentOptions.TopLeft, color: null, fontSize: 11);
+            TextAlignmentOptions.TopLeft, color: null, fontSize: Theme.ScaledUI(11));
         UIFactory.SetLayoutElement(note.GameObject,
             minWidth: 360, preferredWidth: 400, flexibleWidth: 1,
             minHeight: 32, preferredHeight: 44, flexibleHeight: 0);
@@ -1725,14 +1727,14 @@ public partial class MainPanel : ResizeablePanelBase
             minHeight: 80, flexibleHeight: 0);
 
         _blInfoTitleLabel = AddInfoLabel(section, "BloodInfoTitle",
-            "Blood Info", FontStyles.Bold | FontStyles.Italic, fontSize: 14);
+            "Blood Info", FontStyles.Bold | FontStyles.Italic, fontSize: Theme.ScaledUI(14));
         _blInfoTitleLabel.color = new Color(1f, 0.4f, 0.4f); // Bloodcraft red
 
         _blInfoLevelLabel = AddInfoLabel(section, "BloodInfoLevel",
-            "(submit Show info above to populate)", FontStyles.Italic, fontSize: 12);
+            "(submit Show info above to populate)", FontStyles.Italic, fontSize: Theme.ScaledUI(12));
 
         _blInfoStatsLabel = AddInfoLabel(section, "BloodInfoStats",
-            "", FontStyles.Normal, fontSize: 12);
+            "", FontStyles.Normal, fontSize: Theme.ScaledUI(12));
         var fitter = _blInfoStatsLabel.gameObject.AddComponent<UnityEngine.UI.ContentSizeFitter>();
         fitter.horizontalFit = UnityEngine.UI.ContentSizeFitter.FitMode.Unconstrained;
         fitter.verticalFit   = UnityEngine.UI.ContentSizeFitter.FitMode.PreferredSize;
@@ -1795,16 +1797,16 @@ public partial class MainPanel : ResizeablePanelBase
         AddSectionHeading(page, "Shift Spell");
 
         _shiftSpellLabel = AddInfoLabel(page, "ShiftSpell",
-            "Equipped: —", FontStyles.Normal, fontSize: 14);
+            "Equipped: —", FontStyles.Normal, fontSize: Theme.ScaledUI(14));
 
         AddSpacer(page, 4);
         AddSectionHeading(page, "Unarmed Expertise");
 
         _unarmedStatusLabel = AddInfoLabel(page, "UnarmedStatus",
             "Equip your fists (no weapon) to inspect unarmed expertise.",
-            FontStyles.Normal, fontSize: 14);
+            FontStyles.Normal, fontSize: Theme.ScaledUI(14));
         _unarmedBonusLabel = AddInfoLabel(page, "UnarmedBonus",
-            "Bonus Stats: —", FontStyles.Normal, fontSize: 13);
+            "Bonus Stats: —", FontStyles.Normal, fontSize: Theme.ScaledUI(13));
 
         AddSpacer(page, 4);
         AddSectionHeading(page, "Actions");
@@ -1827,7 +1829,7 @@ public partial class MainPanel : ResizeablePanelBase
         var note = UIFactory.CreateLabel(page, "ShiftNote",
             "Choosing which class spell goes in the shift slot takes a number (`.class csp <#>`). " +
             "Use chat for now; a spell picker arrives in a later phase.",
-            TextAlignmentOptions.TopLeft, color: null, fontSize: 12);
+            TextAlignmentOptions.TopLeft, color: null, fontSize: Theme.ScaledUI(12));
         UIFactory.SetLayoutElement(note.GameObject,
             minWidth: 360, preferredWidth: 400, flexibleWidth: 1,
             minHeight: 40, preferredHeight: 50, flexibleHeight: 0);
@@ -1903,10 +1905,10 @@ public partial class MainPanel : ResizeablePanelBase
             minWidth: 360, preferredWidth: 400, flexibleWidth: 1,
             minHeight: 130, flexibleHeight: 0);
 
-        _prestigeXpLabel        = AddInfoLabel(prestigeSummary, "PrestigeXp",        "Experience prestige: —", FontStyles.Normal, fontSize: 14);
-        _prestigeLegacyLabel    = AddInfoLabel(prestigeSummary, "PrestigeLegacy",    "Blood legacy prestige: —", FontStyles.Normal, fontSize: 14);
-        _prestigeExpertiseLabel = AddInfoLabel(prestigeSummary, "PrestigeExpertise", "Weapon expertise prestige: —", FontStyles.Normal, fontSize: 14);
-        _prestigeFamLabel       = AddInfoLabel(prestigeSummary, "PrestigeFam",       "Familiar prestige: —", FontStyles.Normal, fontSize: 14);
+        _prestigeXpLabel        = AddInfoLabel(prestigeSummary, "PrestigeXp",        "Experience prestige: —", FontStyles.Normal, fontSize: Theme.ScaledUI(14));
+        _prestigeLegacyLabel    = AddInfoLabel(prestigeSummary, "PrestigeLegacy",    "Blood legacy prestige: —", FontStyles.Normal, fontSize: Theme.ScaledUI(14));
+        _prestigeExpertiseLabel = AddInfoLabel(prestigeSummary, "PrestigeExpertise", "Weapon expertise prestige: —", FontStyles.Normal, fontSize: Theme.ScaledUI(14));
+        _prestigeFamLabel       = AddInfoLabel(prestigeSummary, "PrestigeFam",       "Familiar prestige: —", FontStyles.Normal, fontSize: Theme.ScaledUI(14));
 
         AddSpacer(page, 6);
         AddSectionHeading(page, "Quick actions");
@@ -2008,17 +2010,17 @@ public partial class MainPanel : ResizeablePanelBase
             minHeight: 120, flexibleHeight: 0);
 
         _prestigeInfoTitleLabel = AddInfoLabel(_prestigeInfoSection, "PrestigeInfoTitle",
-            "Prestige Info", FontStyles.Bold | FontStyles.Italic, fontSize: 16);
+            "Prestige Info", FontStyles.Bold | FontStyles.Italic, fontSize: Theme.ScaledUI(16));
         _prestigeInfoTitleLabel.color = new Color(0.6f, 0.95f, 0.6f); // Bloodcraft #90EE90
 
         _prestigeInfoLevelLabel = AddInfoLabel(_prestigeInfoSection, "PrestigeInfoLevel",
-            "(submit Show prestige info above to populate)", FontStyles.Italic, fontSize: 13);
+            "(submit Show prestige info above to populate)", FontStyles.Italic, fontSize: Theme.ScaledUI(13));
 
         // Multi-line "effects" label. Using ContentSizeFitter so however many
         // lines the server sends back render flush together — the parser emits
         // one effect per inbound chat line (color tags stripped).
         _prestigeInfoEffectsLabel = AddInfoLabel(_prestigeInfoSection, "PrestigeInfoEffects",
-            "", FontStyles.Normal, fontSize: 13);
+            "", FontStyles.Normal, fontSize: Theme.ScaledUI(13));
         var fitter = _prestigeInfoEffectsLabel.gameObject.AddComponent<UnityEngine.UI.ContentSizeFitter>();
         fitter.horizontalFit = UnityEngine.UI.ContentSizeFitter.FitMode.Unconstrained;
         fitter.verticalFit   = UnityEngine.UI.ContentSizeFitter.FitMode.PreferredSize;
@@ -2073,16 +2075,16 @@ public partial class MainPanel : ResizeablePanelBase
     private void BuildLevelsTab(GameObject page)
     {
         AddSectionHeading(page, "Player Experience");
-        _lvlXpLabel = AddInfoLabel(page, "LvlXp", "—", FontStyles.Normal, fontSize: 13);
+        _lvlXpLabel = AddInfoLabel(page, "LvlXp", "—", FontStyles.Normal, fontSize: Theme.ScaledUI(13));
 
         AddSpacer(page, 4);
         AddSectionHeading(page, "Blood Legacy");
-        _lvlLegacyLabel = AddInfoLabel(page, "LvlLegacy", "—", FontStyles.Normal, fontSize: 13);
+        _lvlLegacyLabel = AddInfoLabel(page, "LvlLegacy", "—", FontStyles.Normal, fontSize: Theme.ScaledUI(13));
 
         AddSpacer(page, 4);
         AddSectionHeading(page, "Weapon Expertise (active weapon)");
-        _lvlExpertiseLabel      = AddInfoLabel(page, "LvlExpertise",      "—", FontStyles.Normal, fontSize: 13);
-        _lvlExpertiseBonusLabel = AddInfoLabel(page, "LvlExpertiseBonus", "Bonus stats: —", FontStyles.Italic, fontSize: 12);
+        _lvlExpertiseLabel      = AddInfoLabel(page, "LvlExpertise",      "—", FontStyles.Normal, fontSize: Theme.ScaledUI(13));
+        _lvlExpertiseBonusLabel = AddInfoLabel(page, "LvlExpertiseBonus", "Bonus stats: —", FontStyles.Italic, fontSize: Theme.ScaledUI(12));
 
         // Bloodcraft's Eclipse protocol only streams the currently-equipped
         // weapon's expertise level - no per-weapon snapshot. So the in-panel
@@ -2102,15 +2104,15 @@ public partial class MainPanel : ResizeablePanelBase
 
         AddSpacer(page, 4);
         AddSectionHeading(page, "Familiar (active)");
-        _lvlFamLabel      = AddInfoLabel(page, "LvlFam",      "—", FontStyles.Normal, fontSize: 13);
-        _lvlFamStatsLabel = AddInfoLabel(page, "LvlFamStats", "HP —   PP —   SP —", FontStyles.Italic, fontSize: 12);
+        _lvlFamLabel      = AddInfoLabel(page, "LvlFam",      "—", FontStyles.Normal, fontSize: Theme.ScaledUI(13));
+        _lvlFamStatsLabel = AddInfoLabel(page, "LvlFamStats", "HP —   PP —   SP —", FontStyles.Italic, fontSize: Theme.ScaledUI(12));
 
         AddSpacer(page, 4);
         AddSectionHeading(page, "Professions");
-        _lvlProfessions1Label = AddInfoLabel(page, "LvlProf1", "—", FontStyles.Normal, fontSize: 12);
-        _lvlProfessions2Label = AddInfoLabel(page, "LvlProf2", "—", FontStyles.Normal, fontSize: 12);
-        _lvlProfessions3Label = AddInfoLabel(page, "LvlProf3", "—", FontStyles.Normal, fontSize: 12);
-        _lvlProfessions4Label = AddInfoLabel(page, "LvlProf4", "—", FontStyles.Normal, fontSize: 12);
+        _lvlProfessions1Label = AddInfoLabel(page, "LvlProf1", "—", FontStyles.Normal, fontSize: Theme.ScaledUI(12));
+        _lvlProfessions2Label = AddInfoLabel(page, "LvlProf2", "—", FontStyles.Normal, fontSize: Theme.ScaledUI(12));
+        _lvlProfessions3Label = AddInfoLabel(page, "LvlProf3", "—", FontStyles.Normal, fontSize: Theme.ScaledUI(12));
+        _lvlProfessions4Label = AddInfoLabel(page, "LvlProf4", "—", FontStyles.Normal, fontSize: Theme.ScaledUI(12));
 
         // ---- 0.7.0: profession (.prof) commands the re-audit caught ----
         AddSpacer(page, 8);
@@ -2184,7 +2186,7 @@ public partial class MainPanel : ResizeablePanelBase
         AddSpacer(page, 4);
         var toolsNote = UIFactory.CreateLabel(page, "PlayerToolsNote",
             "Heads up: most of these are server-side TOGGLES — Bloodcraft flips a flag and reports the new state in chat. The client can't 'remember' the new state across sessions because the server is the source of truth (same with Toggle Emotes / Toggle Shift / etc. on other tabs).",
-            TextAlignmentOptions.TopLeft, color: null, fontSize: 11);
+            TextAlignmentOptions.TopLeft, color: null, fontSize: Theme.ScaledUI(11));
         UIFactory.SetLayoutElement(toolsNote.GameObject,
             minWidth: 360, preferredWidth: 400, flexibleWidth: 1,
             minHeight: 32, preferredHeight: 50, flexibleHeight: 0);
@@ -2264,9 +2266,9 @@ public partial class MainPanel : ResizeablePanelBase
     private void BuildDailyQuestTab(GameObject page)
     {
         AddSectionHeading(page, "Daily Quest");
-        _dqDailyTargetLabel   = AddInfoLabel(page, "DQDailyTarget",   "—", FontStyles.Bold,   fontSize: 15);
+        _dqDailyTargetLabel   = AddInfoLabel(page, "DQDailyTarget",   "—", FontStyles.Bold,   fontSize: Theme.ScaledUI(15));
         _dqDailyTargetLabel.color = new Color(0f, 1f, 1f); // Bloodcraft cyan #00FFFF
-        _dqDailyProgressLabel = AddInfoLabel(page, "DQDailyProgress", "—", FontStyles.Italic, fontSize: 13);
+        _dqDailyProgressLabel = AddInfoLabel(page, "DQDailyProgress", "—", FontStyles.Italic, fontSize: Theme.ScaledUI(13));
 
         AddSpacer(page, 4);
         var dailyRow = UIFactory.CreateHorizontalGroup(page, "DQDailyActions",
@@ -2285,9 +2287,9 @@ public partial class MainPanel : ResizeablePanelBase
 
         AddSpacer(page, 8);
         AddSectionHeading(page, "Weekly Quest");
-        _dqWeeklyTargetLabel   = AddInfoLabel(page, "DQWeeklyTarget",   "—", FontStyles.Bold,   fontSize: 15);
+        _dqWeeklyTargetLabel   = AddInfoLabel(page, "DQWeeklyTarget",   "—", FontStyles.Bold,   fontSize: Theme.ScaledUI(15));
         _dqWeeklyTargetLabel.color = new Color(0.75f, 0.25f, 0.75f); // Bloodcraft #BF40BF
-        _dqWeeklyProgressLabel = AddInfoLabel(page, "DQWeeklyProgress", "—", FontStyles.Italic, fontSize: 13);
+        _dqWeeklyProgressLabel = AddInfoLabel(page, "DQWeeklyProgress", "—", FontStyles.Italic, fontSize: Theme.ScaledUI(13));
 
         AddSpacer(page, 4);
         var weeklyRow = UIFactory.CreateHorizontalGroup(page, "DQWeeklyActions",
@@ -2319,7 +2321,7 @@ public partial class MainPanel : ResizeablePanelBase
         AddSpacer(page, 6);
         var note = UIFactory.CreateLabel(page, "DQNote",
             "Toggle the Daily Quest overlay from the panel footer to track progress in a small movable HUD.",
-            TextAlignmentOptions.TopLeft, color: null, fontSize: 11);
+            TextAlignmentOptions.TopLeft, color: null, fontSize: Theme.ScaledUI(11));
         UIFactory.SetLayoutElement(note.GameObject,
             minWidth: 360, preferredWidth: 400, flexibleWidth: 1,
             minHeight: 22, preferredHeight: 26, flexibleHeight: 0);
@@ -2390,7 +2392,7 @@ public partial class MainPanel : ResizeablePanelBase
             $"<b>Admin only.</b> {contextLabel} commands require server-admin permission. " +
             "Non-admins can click these buttons, but the server will reject them with a " +
             "permission error. Nothing here can damage your client.",
-            TextAlignmentOptions.TopLeft, color: new Color(1f, 0.85f, 0.5f), fontSize: 12);
+            TextAlignmentOptions.TopLeft, color: new Color(1f, 0.85f, 0.5f), fontSize: Theme.ScaledUI(12));
         UIFactory.SetLayoutElement(msg.GameObject,
             minWidth: 360, preferredWidth: 400, flexibleWidth: 1,
             minHeight: 40, preferredHeight: 48, flexibleHeight: 0);
@@ -2601,7 +2603,7 @@ public partial class MainPanel : ResizeablePanelBase
         AddSpacer(page, 6);
         var note = UIFactory.CreateLabel(page, "AdminNote",
             "All admin commands now have forms. If you aren't an admin on this server, commands return a permission error.",
-            TextAlignmentOptions.TopLeft, color: null, fontSize: 12);
+            TextAlignmentOptions.TopLeft, color: null, fontSize: Theme.ScaledUI(12));
         UIFactory.SetLayoutElement(note.GameObject,
             minWidth: 360, preferredWidth: 400, flexibleWidth: 1,
             minHeight: 22, preferredHeight: 32, flexibleHeight: 0);
@@ -2622,7 +2624,7 @@ public partial class MainPanel : ResizeablePanelBase
     {
         var intro = UIFactory.CreateLabel(page, "KLIntro",
             "Requires the KindredLogistics server mod. Personal toggles affect only your character; admin globals affect the whole server (admin only).",
-            TextAlignmentOptions.TopLeft, color: null, fontSize: 12);
+            TextAlignmentOptions.TopLeft, color: null, fontSize: Theme.ScaledUI(12));
         UIFactory.SetLayoutElement(intro.GameObject,
             minWidth: 360, preferredWidth: 400, flexibleWidth: 1,
             minHeight: 32, preferredHeight: 36, flexibleHeight: 0);
@@ -2713,7 +2715,7 @@ public partial class MainPanel : ResizeablePanelBase
 
         var intro = UIFactory.CreateLabel(page, "KLAdminIntro",
             "Server-wide toggles for the KindredLogistics features. These affect every player on the server. Requires admin permission server-side.",
-            TextAlignmentOptions.TopLeft, color: null, fontSize: 12);
+            TextAlignmentOptions.TopLeft, color: null, fontSize: Theme.ScaledUI(12));
         UIFactory.SetLayoutElement(intro.GameObject,
             minWidth: 360, preferredWidth: 400, flexibleWidth: 1,
             minHeight: 32, preferredHeight: 36, flexibleHeight: 0);
@@ -2793,7 +2795,7 @@ public partial class MainPanel : ResizeablePanelBase
     {
         var intro = UIFactory.CreateLabel(page, "KCPlayerIntro",
             "Requires the KindredCommands server mod. Player-facing commands only - admin commands land in their own tab.",
-            TextAlignmentOptions.TopLeft, color: null, fontSize: 12);
+            TextAlignmentOptions.TopLeft, color: null, fontSize: Theme.ScaledUI(12));
         UIFactory.SetLayoutElement(intro.GameObject,
             minWidth: 360, preferredWidth: 400, flexibleWidth: 1,
             minHeight: 28, preferredHeight: 32, flexibleHeight: 0);
@@ -2882,7 +2884,7 @@ public partial class MainPanel : ResizeablePanelBase
 
         _clanListPageLabel = UIFactory.CreateLabel(parent, "ClanListPage",
             $"Clan List p{_clanListPage}",
-            TextAlignmentOptions.Center, color: null, fontSize: 12).TextMesh;
+            TextAlignmentOptions.Center, color: null, fontSize: Theme.ScaledUI(12)).TextMesh;
         UIFactory.SetLayoutElement(_clanListPageLabel.gameObject,
             minWidth: 90, preferredWidth: 100, flexibleWidth: 1,
             minHeight: 28, preferredHeight: 30, flexibleHeight: 0);
@@ -2991,6 +2993,8 @@ public partial class MainPanel : ResizeablePanelBase
 
     private void BuildAboutTab(GameObject page)
     {
+        BuildDisplaySettingsSection(page);
+
         AddGuideSection(page,
             "Server-side mods this UI talks to",
             "BloodCraftHub is a CLIENT mod — it doesn't change the server. " +
@@ -3031,6 +3035,185 @@ public partial class MainPanel : ResizeablePanelBase
         AddLinkRow(page, "GitHub repo", "https://github.com/KDavidP1987/BloodCraftHub");
     }
 
+    // -----------------------------------------------------------------------
+    // Display settings section (About tab) — 0.9.0
+    //
+    // Three segmented controls (text scale UI, text scale overlay, plus a
+    // grid of per-overlay transparency selectors). Each control writes its
+    // selection straight to Settings; text-scale changes take effect when the
+    // user closes and reopens the panel / overlay, transparency changes
+    // apply live because Image.color is re-read each frame by the panel
+    // base class.
+    // -----------------------------------------------------------------------
+
+    private void BuildDisplaySettingsSection(GameObject page)
+    {
+        AddGuideSection(page,
+            "Display settings  (0.9.0)",
+            "Adjust text size and overlay transparency. " +
+            "Text-size changes apply when the panel is closed and reopened " +
+            "(or when an overlay is toggled off and back on). Transparency " +
+            "changes apply immediately. 0% transparency = solid background; " +
+            "100% transparency = invisible background (capped internally at " +
+            "95% so the drag handle stays visible).");
+
+        AddTextScaleRow(page, "UI text size",
+            currentScaleSetting: () => Config.Settings.UITextScale,
+            applyScale: v => {
+                Config.Settings.SetUITextScale(v);
+                UI.Framework.CustomLib.Util.Theme.UIFontMultiplier = v;
+            });
+
+        AddTextScaleRow(page, "Overlay text size",
+            currentScaleSetting: () => Config.Settings.OverlayTextScale,
+            applyScale: v => {
+                Config.Settings.SetOverlayTextScale(v);
+                UI.Framework.CustomLib.Util.Theme.OverlayFontMultiplier = v;
+            });
+
+        AddSpacer(page, 4);
+        AddSectionHeading(page, "Overlay transparency");
+
+        AddTransparencyRow(page, "XP overlay",
+            () => Config.Settings.XPOverlayTransparency,
+            v => Config.Settings.SetXPOverlayTransparency(v));
+        AddTransparencyRow(page, "Familiar overlay",
+            () => Config.Settings.FamiliarOverlayTransparency,
+            v => Config.Settings.SetFamiliarOverlayTransparency(v));
+        AddTransparencyRow(page, "Familiar Browser",
+            () => Config.Settings.FamiliarBrowserTransparency,
+            v => Config.Settings.SetFamiliarBrowserTransparency(v));
+        AddTransparencyRow(page, "Daily quest",
+            () => Config.Settings.DailyQuestTransparency,
+            v => Config.Settings.SetDailyQuestTransparency(v));
+        AddTransparencyRow(page, "Professions",
+            () => Config.Settings.ProfessionOverlayTransparency,
+            v => Config.Settings.SetProfessionOverlayTransparency(v));
+
+        AddSpacer(page, 8);
+    }
+
+    /// <summary>Renders a labeled row with three buttons (Small/Standard/Large).
+    /// Each click writes the new multiplier and refreshes the in-row "(current: X)"
+    /// hint so the user can confirm.</summary>
+    private void AddTextScaleRow(GameObject parent, string label,
+                                 System.Func<float> currentScaleSetting,
+                                 System.Action<float> applyScale)
+    {
+        var row = UIFactory.CreateHorizontalGroup(parent, $"DisplayRow_{label}",
+            forceExpandWidth: true, forceExpandHeight: false,
+            childControlWidth: true, childControlHeight: true,
+            spacing: 6, padding: new Vector4(2, 2, 2, 2));
+        UIFactory.SetLayoutElement(row,
+            minWidth: 360, preferredWidth: 400, flexibleWidth: 1,
+            minHeight: 30, preferredHeight: 32, flexibleHeight: 0);
+
+        var lbl = UIFactory.CreateLabel(row, $"Lbl_{label}",
+            $"{label}:",
+            TMPro.TextAlignmentOptions.MidlineLeft, color: null, fontSize: 13);
+        UIFactory.SetLayoutElement(lbl.GameObject,
+            minWidth: 140, preferredWidth: 160, flexibleWidth: 0,
+            minHeight: 22, preferredHeight: 24, flexibleHeight: 0);
+
+        var hint = UIFactory.CreateLabel(row, $"Hint_{label}",
+            FormatScaleHint(currentScaleSetting()),
+            TMPro.TextAlignmentOptions.MidlineLeft, color: null, fontSize: 11);
+        UIFactory.SetLayoutElement(hint.GameObject,
+            minWidth: 90, preferredWidth: 100, flexibleWidth: 0,
+            minHeight: 22, preferredHeight: 24, flexibleHeight: 0);
+        hint.TextMesh.fontStyle = TMPro.FontStyles.Italic;
+
+        void Pick(float v)
+        {
+            applyScale(v);
+            hint.TextMesh.text = FormatScaleHint(v);
+        }
+        AddScaleButton(row, "Small",    () => Pick(0.85f));
+        AddScaleButton(row, "Standard", () => Pick(1.00f));
+        AddScaleButton(row, "Large",    () => Pick(1.20f));
+    }
+
+    private static string FormatScaleHint(float v)
+    {
+        if (v <= 0.9f)  return "(current: Small)";
+        if (v >= 1.1f)  return "(current: Large)";
+        return "(current: Standard)";
+    }
+
+    private static void AddScaleButton(GameObject row, string text, System.Action onClick)
+    {
+        var btn = UIFactory.CreateButton(row, $"Btn_{text}", text);
+        UIFactory.SetLayoutElement(btn.GameObject,
+            minWidth: 64, preferredWidth: 72, flexibleWidth: 0,
+            minHeight: 22, preferredHeight: 24, flexibleHeight: 0);
+        var t = btn.Component.GetComponentInChildren<TextMeshProUGUI>();
+        if (t != null) t.fontSize = 11;
+        btn.OnClick = () => onClick();
+    }
+
+    /// <summary>Renders a labeled row with five buttons (0% / 25% / 50% / 75% / 100%)
+    /// for a single overlay's background transparency.</summary>
+    private void AddTransparencyRow(GameObject parent, string overlayLabel,
+                                    System.Func<float> currentValue,
+                                    System.Action<float> applyValue)
+    {
+        var row = UIFactory.CreateHorizontalGroup(parent, $"OpacityRow_{overlayLabel}",
+            forceExpandWidth: true, forceExpandHeight: false,
+            childControlWidth: true, childControlHeight: true,
+            spacing: 6, padding: new Vector4(2, 2, 2, 2));
+        UIFactory.SetLayoutElement(row,
+            minWidth: 360, preferredWidth: 400, flexibleWidth: 1,
+            minHeight: 28, preferredHeight: 30, flexibleHeight: 0);
+
+        var lbl = UIFactory.CreateLabel(row, $"Lbl_{overlayLabel}",
+            $"{overlayLabel}:",
+            TMPro.TextAlignmentOptions.MidlineLeft, color: null, fontSize: 12);
+        UIFactory.SetLayoutElement(lbl.GameObject,
+            minWidth: 130, preferredWidth: 150, flexibleWidth: 0,
+            minHeight: 22, preferredHeight: 24, flexibleHeight: 0);
+
+        var hint = UIFactory.CreateLabel(row, $"Hint_{overlayLabel}",
+            FormatTransparencyHint(currentValue()),
+            TMPro.TextAlignmentOptions.MidlineLeft, color: null, fontSize: 10);
+        UIFactory.SetLayoutElement(hint.GameObject,
+            minWidth: 60, preferredWidth: 70, flexibleWidth: 0,
+            minHeight: 22, preferredHeight: 24, flexibleHeight: 0);
+        hint.TextMesh.fontStyle = TMPro.FontStyles.Italic;
+
+        void Pick(float v)
+        {
+            applyValue(v);
+            hint.TextMesh.text = FormatTransparencyHint(v);
+        }
+        AddOpacityButton(row, "0%",   () => Pick(0.00f));
+        AddOpacityButton(row, "25%",  () => Pick(0.25f));
+        AddOpacityButton(row, "50%",  () => Pick(0.50f));
+        AddOpacityButton(row, "75%",  () => Pick(0.75f));
+        AddOpacityButton(row, "100%", () => Pick(1.00f));
+    }
+
+    private static string FormatTransparencyHint(float v)
+    {
+        // Snap to nearest preset for the display so floating-point drift
+        // doesn't show "27%" for a freshly-clicked 25%.
+        if (v < 0.13f) return "(0%)";
+        if (v < 0.38f) return "(25%)";
+        if (v < 0.63f) return "(50%)";
+        if (v < 0.88f) return "(75%)";
+        return "(100%)";
+    }
+
+    private static void AddOpacityButton(GameObject row, string text, System.Action onClick)
+    {
+        var btn = UIFactory.CreateButton(row, $"Op_{text}", text);
+        UIFactory.SetLayoutElement(btn.GameObject,
+            minWidth: 36, preferredWidth: 42, flexibleWidth: 0,
+            minHeight: 22, preferredHeight: 24, flexibleHeight: 0);
+        var t = btn.Component.GetComponentInChildren<TextMeshProUGUI>();
+        if (t != null) t.fontSize = 10;
+        btn.OnClick = () => onClick();
+    }
+
     /// <summary>One row showing a label, the URL, and an "Open" button that
     /// hands the URL to <see cref="UnityEngine.Application.OpenURL"/> so the
     /// system browser opens it. Cleaner than wiring TMPro &lt;link&gt; click
@@ -3047,7 +3230,7 @@ public partial class MainPanel : ResizeablePanelBase
 
         var lbl = UIFactory.CreateLabel(row, "LinkLbl",
             $"{label}:  {url}",
-            TextAlignmentOptions.MidlineLeft, color: null, fontSize: 12);
+            TextAlignmentOptions.MidlineLeft, color: null, fontSize: Theme.ScaledUI(12));
         UIFactory.SetLayoutElement(lbl.GameObject,
             minWidth: 240, preferredWidth: 320, flexibleWidth: 1,
             minHeight: 22, preferredHeight: 24, flexibleHeight: 0);
@@ -3059,7 +3242,7 @@ public partial class MainPanel : ResizeablePanelBase
             minWidth: 56, preferredWidth: 64, flexibleWidth: 0,
             minHeight: 22, preferredHeight: 24, flexibleHeight: 0);
         var btnText = btn.Component.GetComponentInChildren<TextMeshProUGUI>();
-        if (btnText != null) btnText.fontSize = 12;
+        if (btnText != null) btnText.fontSize = Theme.ScaledUI(12);
         btn.OnClick = () =>
         {
             try { UnityEngine.Application.OpenURL(url); }
@@ -3164,7 +3347,7 @@ public partial class MainPanel : ResizeablePanelBase
         AddSectionHeading(parent, title);
 
         var lbl = UIFactory.CreateLabel(parent, $"Guide_{title}", body,
-            TextAlignmentOptions.TopLeft, color: null, fontSize: 12);
+            TextAlignmentOptions.TopLeft, color: null, fontSize: Theme.ScaledUI(12));
         // Guide body sized by TMP's actual rendered preferredHeight via a
         // ContentSizeFitter. Earlier versions estimated lines × 16 which
         // consistently over-shot, producing visible empty gaps between
@@ -3192,7 +3375,7 @@ public partial class MainPanel : ResizeablePanelBase
             minHeight: 18, preferredHeight: 20, flexibleHeight: 0);
 
         var cmd = UIFactory.CreateLabel(row, "Cmd", command,
-            TextAlignmentOptions.MidlineLeft, color: null, fontSize: 12);
+            TextAlignmentOptions.MidlineLeft, color: null, fontSize: Theme.ScaledUI(12));
         UIFactory.SetLayoutElement(cmd.GameObject,
             minWidth: 200, preferredWidth: 220, flexibleWidth: 0,
             minHeight: 18, preferredHeight: 20, flexibleHeight: 0);
@@ -3201,7 +3384,7 @@ public partial class MainPanel : ResizeablePanelBase
         cmd.TextMesh.overflowMode = TextOverflowModes.Overflow;
 
         var desc = UIFactory.CreateLabel(row, "Desc", summary,
-            TextAlignmentOptions.MidlineLeft, color: null, fontSize: 12);
+            TextAlignmentOptions.MidlineLeft, color: null, fontSize: Theme.ScaledUI(12));
         UIFactory.SetLayoutElement(desc.GameObject,
             minWidth: 160, preferredWidth: 180, flexibleWidth: 1,
             minHeight: 18, preferredHeight: 20, flexibleHeight: 0);
@@ -3271,7 +3454,7 @@ public partial class MainPanel : ResizeablePanelBase
     private static void AddSectionHeading(GameObject parent, string text)
     {
         var lbl = UIFactory.CreateLabel(parent, $"Section_{text}", text,
-            TextAlignmentOptions.MidlineLeft, color: null, fontSize: 14);
+            TextAlignmentOptions.MidlineLeft, color: null, fontSize: Theme.ScaledUI(14));
         UIFactory.SetLayoutElement(lbl.GameObject,
             minWidth: 360, preferredWidth: 400, flexibleWidth: 1,
             minHeight: 20, preferredHeight: 22, flexibleHeight: 0);
@@ -3302,7 +3485,7 @@ public partial class MainPanel : ResizeablePanelBase
             t.enableWordWrapping = false;
             t.overflowMode = TextOverflowModes.Overflow;
             t.alignment = TextAlignmentOptions.Center;
-            t.fontSize = 13;
+            t.fontSize = Theme.ScaledUI(13);
         }
 
         if (confirm && t != null)
@@ -3381,10 +3564,11 @@ public partial class MainPanel : ResizeablePanelBase
         UIFactory.SetLayoutElement(row2, minHeight: 26, flexibleHeight: 0, flexibleWidth: 1);
 
         // Row 1 — overlay toggles
-        _xpOverlayToggle  = AddOverlayToggle(row1, "XP overlay",        PanelType.ExperienceOverlay);
-        _famOverlayToggle = AddOverlayToggle(row1, "Familiar overlay",  PanelType.FamiliarOverlay);
-        _famBrowserToggle = AddOverlayToggle(row1, "Familiar Browser",  PanelType.FamiliarBrowserOverlay);
-        _dqOverlayToggle  = AddOverlayToggle(row1, "Daily quest",       PanelType.DailyQuestOverlay);
+        _xpOverlayToggle   = AddOverlayToggle(row1, "XP overlay",        PanelType.ExperienceOverlay);
+        _famOverlayToggle  = AddOverlayToggle(row1, "Familiar overlay",  PanelType.FamiliarOverlay);
+        _famBrowserToggle  = AddOverlayToggle(row1, "Familiar Browser",  PanelType.FamiliarBrowserOverlay);
+        _dqOverlayToggle   = AddOverlayToggle(row1, "Daily quest",       PanelType.DailyQuestOverlay);
+        _profOverlayToggle = AddOverlayToggle(row1, "Professions",       PanelType.ProfessionOverlay);
 
         // Row 2 — panel behavior toggles
         AddAutoResizeToggle(row2);
@@ -3401,7 +3585,7 @@ public partial class MainPanel : ResizeablePanelBase
             minWidth: 160, preferredWidth: 180, flexibleWidth: 0,
             minHeight: 24, preferredHeight: 24, flexibleHeight: 0);
         t.Text.text = "Auto-resize panel";
-        t.Text.fontSize = 13;
+        t.Text.fontSize = Theme.ScaledUI(13);
         t.Text.enableWordWrapping = false;
         t.Text.overflowMode = TextOverflowModes.Overflow;
         t.Text.alignment = TextAlignmentOptions.MidlineLeft;
@@ -3513,7 +3697,7 @@ public partial class MainPanel : ResizeablePanelBase
             minHeight: 24, preferredHeight: 24, flexibleHeight: 0);
 
         t.Text.text = label;
-        t.Text.fontSize = 13;
+        t.Text.fontSize = Theme.ScaledUI(13);
         t.Text.enableWordWrapping = false;
         t.Text.overflowMode = TextOverflowModes.Overflow;
         t.Text.alignment = TextAlignmentOptions.MidlineLeft;

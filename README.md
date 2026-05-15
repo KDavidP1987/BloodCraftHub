@@ -3,7 +3,7 @@
 Unified client-side V Rising UI mod that surfaces every chat command of the [Bloodcraft](https://thunderstore.io/c/v-rising/p/zfolmt/Bloodcraft/) server mod — with first-class support for [KindredCommands](https://thunderstore.io/c/v-rising/p/odjit/KindredCommands/) and [KindredLogistics](https://thunderstore.io/c/v-rising/p/odjit/KindredLogistics/) on the same server.
 
 **Repo:** https://github.com/KDavidP1987/BloodCraftHub
-**Status:** v0.8.2 — public on Thunderstore. 16 tabs across BLOODCRAFT / KINDRED / HELP, 4 secondary overlays, every chat command from the 3 backing server mods surfaced as forms + buttons (~250+ commands).
+**Status:** v0.9.0 — public on Thunderstore. 16 tabs across BLOODCRAFT / KINDRED / HELP, 5 secondary overlays (including the new Professions overlay), every chat command from the 3 backing server mods surfaced as forms + buttons (~250+ commands). v0.9.0 adds dual text-size toggles, per-overlay transparency, a master overlay show/hide button, and pulls ~25 read-data chat replies into the UI.
 
 ## What it does
 
@@ -12,7 +12,9 @@ Unified client-side V Rising UI mod that surfaces every chat command of the [Blo
   - **BLOODCRAFT** (10 tabs): Familiars, Boxes, Class, Weapon Expertise, Blood Legacy, Unarmed + Shift, Prestige, Levels, Daily Quests, Admin
   - **KINDRED** (6 tabs): Logistics, Logistics: Admin, Commands, Admin: Players, Admin: Server, Admin: World
   - **HELP** (3 tabs): Quick Start, Vanilla Admin reference, About
-- **Four secondary overlays** (toggle from footer): XP tracker, Familiar quick-glance (active stats), Familiar Browser (box switcher + bind/unbind), Daily Quest tracker. Each is independent draggable + resizable, and visibility persists across sessions.
+- **Five secondary overlays** (toggle from footer): XP tracker (with EXO prestige), Familiar quick-glance, Familiar Browser, Daily Quest tracker, and Professions (all eight Bloodcraft profession levels). Each is independent draggable + resizable, with its own background transparency setting (0/25/50/75/100%). Visibility persists across sessions; a master "OV" button next to the BCH floating button hides/shows all currently-enabled overlays at once.
+- **Dual text-size toggle** (Small / Standard / Large, separate for the UI and for the overlays) on the Help → About tab.
+- **"Last server response" docked panel** at the bottom of the main panel — replies to read-data chat commands (`.wep get`, `.class l`, `.misc userstats`, `.clan list`, etc.) appear in-UI as well as in chat, so you don't have to chase the chat box for the answer.
 - **Forms-driven commands** — every chat command with arguments has a real form (player picker + enum dropdowns + numeric inputs + Submit). No more typing `.lvl set <Player> <Level>` in chat.
 - **Live data** via Bloodcraft's structured MAC-signed protocol (the same channel Eclipse uses). Falls back to regex parsing for `.fam boxes`/`.fam l` replies.
 - **Hover tooltips** for every control, surfaced in a single footer line.
