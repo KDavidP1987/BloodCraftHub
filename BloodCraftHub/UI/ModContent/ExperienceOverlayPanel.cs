@@ -51,8 +51,15 @@ public class ExperienceOverlayPanel : ResizeablePanelBase
     private GameObject _xpBar;          // 0.9.2: horizontal progress bar (visible iff Settings.ShowProgressBars)
     private UnityEngine.RectTransform _xpBarFill;
     private LabelRef _classLabel;
+    // 0.9.4: equipped-weapon expertise row + optional progress bar.
+    // Data lives at PlayerStateService.Expertise (filled from Bloodcraft's
+    // Eclipse ProgressToClient stream at indices 9..13).
+    private LabelRef _weaponLabel;
+    private GameObject _weaponBar;
+    private UnityEngine.RectTransform _weaponBarFill;
     private LabelRef _exoLabel;
     private bool _subscribed;
+    private bool _expertiseSubscribed;
     private bool _prestigeSubscribed;
     private bool _exoFetchScheduled;
     private int _exoLevel;
@@ -74,6 +81,15 @@ public class ExperienceOverlayPanel : ResizeablePanelBase
             fillColor: new UnityEngine.Color(0.4f, 0.85f, 1f, 0.95f));
         _xpBar.SetActive(false);
         _classLabel    = AddRow("ClassLabel",    "Class —", FontStyles.Italic, fontSize: Theme.ScaledOverlay(13));
+        // 0.9.4: equipped-weapon expertise row. Friend-testing: "I didn't see
+        // in any of the experience overlays where it would show the current
+        // weapon and its experience and prestige level". Bloodcraft only
+        // streams the currently-equipped weapon's data over Eclipse — switch
+        // weapons in-game and this row will update on the next stream tick.
+        _weaponLabel   = AddRow("WeaponLabel",   "Weapon —", FontStyles.Normal, fontSize: Theme.ScaledOverlay(13));
+        _weaponBar     = Framework.CustomLib.Controls.MiniBar.Create(ContentRoot, "WeaponXpBar", out _weaponBarFill,
+            fillColor: new UnityEngine.Color(1f, 0.45f, 0.3f, 0.95f)); // distinct copper/red so it doesn't compete with the XP cyan bar above
+        _weaponBar.SetActive(false);
         // 0.8.3: EXO prestige row. Friend-testing surfaced that EXO data was
         // entirely missing from the overlay. Populated from PrestigeInfo
         // (TypeName "Exo") which the existing AwaitingPrestigeInfo intercept
@@ -92,11 +108,19 @@ public class ExperienceOverlayPanel : ResizeablePanelBase
             PlayerStateService.ExperienceChanged += OnExperienceChanged;
             _subscribed = true;
         }
+        if (!_expertiseSubscribed)
+        {
+            PlayerStateService.ExpertiseChanged += OnExpertiseChanged;
+            _expertiseSubscribed = true;
+        }
         if (!_prestigeSubscribed)
         {
             PlayerStateService.PrestigeInfoChanged += OnPrestigeInfoChanged;
             _prestigeSubscribed = true;
         }
+        // Initial render of the weapon row from whatever's already cached
+        // (it'll be the equipped weapon's data once Eclipse has handshaken).
+        RenderWeapon(PlayerStateService.Expertise);
         ScheduleExoFetch();
     }
 
@@ -143,6 +167,32 @@ public class ExperienceOverlayPanel : ResizeablePanelBase
 
     private void OnExperienceChanged() => Render(PlayerStateService.Experience);
 
+    private void OnExpertiseChanged() => RenderWeapon(PlayerStateService.Expertise);
+
+    private void RenderWeapon(PlayerStateService.ExpertiseState e)
+    {
+        if (_weaponLabel == null) return;
+        // Bloodcraft writes Type=0 (Unarmed) + Level=0 when nothing is
+        // equipped at startup. Show "—" placeholder rather than "Unarmed
+        // Lv 0" which reads as broken data.
+        bool armed = e.Level > 0 || (int)e.Type != 0;
+        if (!armed)
+        {
+            _weaponLabel.TextMesh.text = "Weapon —";
+            if (_weaponBar != null && _weaponBar.activeSelf) _weaponBar.SetActive(false);
+            return;
+        }
+
+        string label = e.Prestige > 0
+            ? $"Weapon: {e.Type}  Lv {e.Level} ({e.Progress * 100f:0.#}%)   Pr {e.Prestige}"
+            : $"Weapon: {e.Type}  Lv {e.Level} ({e.Progress * 100f:0.#}%)";
+        _weaponLabel.TextMesh.text = label;
+
+        bool showBar = Settings.ShowProgressBars;
+        if (_weaponBar != null && _weaponBar.activeSelf != showBar) _weaponBar.SetActive(showBar);
+        if (showBar) Framework.CustomLib.Controls.MiniBar.SetProgress(_weaponBarFill, e.Progress);
+    }
+
     private void OnPrestigeInfoChanged() => TryRenderExoFromState();
 
     private void TryRenderExoFromState()
@@ -185,6 +235,11 @@ public class ExperienceOverlayPanel : ResizeablePanelBase
         {
             PlayerStateService.ExperienceChanged -= OnExperienceChanged;
             _subscribed = false;
+        }
+        if (_expertiseSubscribed)
+        {
+            PlayerStateService.ExpertiseChanged -= OnExpertiseChanged;
+            _expertiseSubscribed = false;
         }
         if (_prestigeSubscribed)
         {
