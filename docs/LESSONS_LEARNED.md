@@ -26,13 +26,21 @@ can't see ("click ↻ to refresh" was meaningless when ↻ was a square).
 
 Suspending V Rising's gameplay input by skipping its `InputActionSystem.OnUpdate`
 also wedges Unity's UI input pipeline — clicks on our own panel stop registering,
-the user can't even toggle the suspend setting back off. This bit us twice
-(0.1.1 added it on, 0.1.2 narrowed scope to BCH-owned fields, 0.1.3 finally
-forced default-off + force-disabled-on-load to stop trapping users).
+the user can't even toggle the suspend setting back off. This bit us four times
+(0.1.1 added it on, 0.1.2 narrowed scope to BCH-owned fields, 0.1.3 forced
+default-off + force-disabled-on-load to stop trapping users, **0.8.2 removed
+the feature entirely** after friend-testing surfaced that even with all the
+guards, some testers still got fully locked games and had to force-quit).
 
-The "right" fix would be a different suspension layer — capturing input at the
-key-read level rather than skipping the whole system update. Not implemented;
-the feature is currently default-off with an experimental warning.
+Eclipse-main's reference patch (`Patches/InputActionSystemPatch.cs`) is a
+**postfix observer** that never blocks the system — confirming the prefix-
+return-false approach is inherently incompatible with V Rising's input pipeline.
+A re-implementation would need a completely different patch target: capturing
+input at the key-read consumer level (or filtering the InputState component
+after the system writes it), not skipping the system update.
+
+Until that redesign happens, the feature is gone. The `SuspendGameInputWhileTyping`
+config key is no longer registered; stale entries in user .cfg files are inert.
 
 ### Init order: `CharacterHUDEntry.Awake` fires BEFORE `MessageService` binds
 

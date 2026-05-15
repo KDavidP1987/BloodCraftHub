@@ -760,7 +760,11 @@ public static class UIFactory
         templateRect.anchorMax = new Vector2(1f, 0f);
         templateRect.pivot = new Vector2(0.5f, 1f);
         templateRect.anchoredPosition = new Vector2(0f, 2f);
-        templateRect.sizeDelta = new Vector2(0f, 150f);
+        // 0.8.2: bumped from 150 → 250 so long enum lists (BloodType, stat
+        // indices, KindredCommands player lookups) show ~10 items before
+        // needing scroll instead of ~6. Item height stays 25px; if a future
+        // release adds a UI-text-scale toggle, this should also scale.
+        templateRect.sizeDelta = new Vector2(0f, 250f);
 
         RectTransform viewportRect = viewportObj.GetComponent<RectTransform>();
         viewportRect.anchorMin = new Vector2(0f, 0f);

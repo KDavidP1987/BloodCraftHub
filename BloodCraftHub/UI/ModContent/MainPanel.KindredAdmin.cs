@@ -26,7 +26,7 @@ public partial class MainPanel
 
     private void BuildKindredAdminPlayersTab(GameObject page)
     {
-        if (!RenderAdminGate(page, "Kindred admin (Players)")) return;
+        RenderAdminInfoNote(page, "Kindred admin (Players)");
         AddAdminWarningIntro(page,
             "Player-targeting admin commands. Most accept a player name; leave " +
             "the player field blank to target yourself. Requires KindredCommands " +
@@ -473,7 +473,7 @@ public partial class MainPanel
 
     private void BuildKindredAdminServerTab(GameObject page)
     {
-        if (!RenderAdminGate(page, "Kindred admin (Server)")) return;
+        RenderAdminInfoNote(page, "Kindred admin (Server)");
         AddAdminWarningIntro(page,
             "Server-wide admin commands. These affect global config, all " +
             "players, or persistent server state. Requires KindredCommands + " +
@@ -835,7 +835,7 @@ public partial class MainPanel
 
     private void BuildKindredAdminWorldTab(GameObject page)
     {
-        if (!RenderAdminGate(page, "Kindred admin (World)")) return;
+        RenderAdminInfoNote(page, "Kindred admin (World)");
         AddAdminWarningIntro(page,
             "World manipulation commands - spawn units, teleport, search " +
             "prefabs, manage servants and castles. Acts on the world around " +

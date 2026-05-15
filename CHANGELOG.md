@@ -1,5 +1,98 @@
 # Changelog
 
+## 0.8.2 — Friend-testing hotfix: safety + dropdown + admin gate + docs
+
+Friend-testing of v0.8.1 surfaced five issues — one critical, four ergonomics.
+This release fixes all of them. The bigger feature work (text-size toggles,
+per-overlay transparency, master overlay toggle, professions overlay, EXO
+prestige row) is queued for v0.9.0; the chat-routing audit for `.wep get` /
+`.lvl get` / `.class l` / `.misc userstats` etc. is queued for v0.8.3.
+
+**Suspend-typing toggle REMOVED.** The `SuspendGameInputWhileTyping` footer
+toggle has been removed entirely along with `Patches/InputActionSystemPatch.cs`,
+the Settings accessor, and the config init. The Harmony prefix returning false
+on `InputActionSystem.OnUpdate` was inherently incompatible with V Rising's UI
+input pipeline — even with all the scope guards added across 0.1.1 → 0.1.3,
+testers still got fully locked games and had to force-quit. Eclipse-main's
+reference patch (a postfix observer that never blocks) confirms the prefix-
+return-false approach is fundamentally wrong; a proper fix needs a different
+patch target (filtering InputState components after the system writes them,
+not skipping the system update). Until that redesign happens, the feature is
+gone. Stale `SuspendGameInputWhileTyping` entries in user `.cfg` files are
+inert. Updated `docs/LESSONS_LEARNED.md` § "InputActionSystem.OnUpdate Harmony
+prefix returning false wedges UI input" to reflect the removal and document the
+constraint for any future re-implementation.
+
+**Dropdown popup no longer closes when you grab the scrollbar.** Root cause was
+in `FormDropdownRegistry.TickCloseOnOutsideClick` (`UI/Forms/FormField.cs`) —
+the outside-click check used `RectangleContainsScreenPoint` against the "Dropdown
+List" rect, which doesn't reliably include the scrollbar across all canvas modes.
+Clicks on the scrollbar handle counted as "outside" and dismissed the dropdown
+mid-scroll, so users couldn't actually scroll through long enum lists. Switched
+to `EventSystem.RaycastAll` + ancestry-walk: if any UI raycast hit is a descendant
+of the dropdown's transform tree, the dropdown stays open. This naturally covers
+the scrollbar, the handle, the item rows, and any future child widgets. Kept the
+rect check as a fallback for the rare case where the canvas isn't raycast-registered.
+
+**Dropdown popup taller — 150 → 250 px.** `UI/Framework/UniverseLib/UI/UIFactory.cs`
+template `sizeDelta.y` bumped so long enum dropdowns (blood types, the 1-12 stat
+indices for `.wep cst` / `.bl cst`, KindredCommands player lookups) show ~10
+items before requiring scroll instead of ~6.
+
+**Admin gate removed; replaced with an info note at the top of each admin tab.**
+The previous `RenderAdminGate` flow had a "I am a server admin" toggle that flipped
+`Settings.IsAdmin`. The toggle's rebuild path called `ShowTab(ActiveTab)` on the
+same tab, which didn't fully rebuild the page in every code path — users had to
+fully relaunch the game for admin tabs to surface. The gate added no security
+either, since the server enforces permissions; non-admins clicking commands just
+get rejection messages. So: gate removed across `BuildAdminTab`,
+`BuildKindredLogisticsAdminTab`, `BuildKindredAdminPlayersTab`,
+`BuildKindredAdminServerTab`, `BuildKindredAdminWorldTab`. Each now renders a
+colored info note (`RenderAdminInfoNote`) at the top explaining the commands
+require server-admin permission and that non-admin clicks fail safely.
+`Settings.IsAdmin` / `Settings.SetIsAdmin` removed; stale `.cfg` entries are inert.
+
+**Prestige tab — info rows + parsed-prestige box no longer crammed.** The four
+"Current Prestige" rows (XP / Blood Legacy / Weapon Expertise / Familiar) used to
+stack directly under the section heading with no padding; wrapped them in a
+dedicated `PrestigeSummary` VerticalGroup with `spacing: 6` and `padding: 8/8/6/6`,
+and bumped row font size 13 → 14. The parsed-prestige info box
+(`BuildPrestigeInfoDisplay`) had `spacing: 2, padding: 6` — bumped to
+`spacing: 8, padding: 12/12/10/10` and increased title font 14 → 16, body 12 → 13.
+The effect-lines wrap noticeably less crowded now.
+
+**Docs cleanup (README + LICENSE + Thunderstore notes):**
+
+- Removed the "Screenshots go here" placeholder block. If screenshots are
+  added in the future, they can land in `docs/screenshots/` with a proper
+  reference.
+- Removed the "Source-of-truth references (read-only)" section that listed
+  the workspace's `LearningMods/` folders — that's internal-dev context, not
+  end-user / Thunderstore-reader context.
+- Removed the "Why combine BloodCraftUI + Eclipse?" historical-motivation
+  section — at this point the mod stands on its own and the motivation is
+  better captured in the `Acknowledgements` section.
+- Removed `InputActionSystemPatch` from the layout diagram (file no longer
+  exists) and the "Game-input suspension" bullet from the feature list.
+- **Added a real "Acknowledgements" section** crediting Bloodcraft (zfolmt),
+  KindredCommands (odjit), and KindredLogistics (odjit) explicitly with
+  Thunderstore links. Ported the "About me" content from the in-UI About tab
+  (Chaos / The Shadow Realm / Discord / PayPal / SkillEra.IO).
+- `LICENSE.txt` third-party attribution updated to credit the upstream peer
+  authors with their links, even though no code is bundled from those mods.
+- Updated `Status:` line to v0.8.2 in the README.
+
+**Outside this release** (queued for v0.8.3 / v0.9.0):
+- v0.8.3: chat-routing audit. Every `.X get` / `.X list` reply that today
+  lands in chat instead of the UI panel (`.wep get`, `.wep l`, `.bl l`,
+  `.prestige l`, `.class l`, `.class lsp`, `.class lst`, `.misc userstats`,
+  `.clan list`, etc. — ~22 commands total). Plus EXO prestige row in the
+  Experience overlay.
+- v0.9.0: dual text-size toggle (UI + overlays, separate); per-overlay
+  transparency (0/25/50/75/95% — floor at 95% so handles stay grabbable);
+  master overlay show/hide button next to the BCH floating button;
+  Professions overlay (data already streamed via Eclipse).
+
 ## 0.8.1 — Familiar Browser glyph fix + deferred auto-pull
 
 **Square-glyph buttons replaced with rendering-safe alternatives.** The header buttons used `◄` (BLACK LEFT-POINTING POINTER, U+25C4), `►` (U+25BA), and `↻` (CLOCKWISE OPEN CIRCLE ARROW, U+21BB) — V Rising's TMPro fallback font lacks all three glyphs, so they rendered as featureless squares with no indication of what they did. Replaced with `←` / `→` (LEFTWARDS / RIGHTWARDS ARROW, U+2190 / U+2192) which we already use successfully for the main Boxes tab Back button, and the literal word `Reload` for the refresh button. Buttons widened from 32→36px (arrows) / 32→64px (Reload) to fit the new labels at fontSize 18 (arrows) / 12 (Reload). Tooltips kept. Also updated the empty-list hint strings ("click ↻ to refresh" / "use ◄ ► to pick a box") to match the new glyphs.

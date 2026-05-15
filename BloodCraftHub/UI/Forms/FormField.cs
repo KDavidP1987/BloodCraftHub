@@ -3,6 +3,7 @@ using BloodCraftHub.UI.Framework.UniverseLib.UI;
 using BloodCraftHub.UI.Framework.UniverseLib.UI.Models;
 using TMPro;
 using UnityEngine;
+using UnityEngine.EventSystems;
 
 namespace BloodCraftHub.UI.Forms;
 
@@ -104,24 +105,69 @@ public static class FormDropdownRegistry
         if (dd != null) _active.Add(dd);
     }
 
+    // Reusable scratch list for EventSystem.RaycastAll. V Rising runs IL2CPP,
+    // so the RaycastAll overload expects Il2CppSystem.Collections.Generic.List —
+    // a managed System.Collections.Generic.List won't satisfy the bridge.
+    // Reusing one list across frames also avoids per-click allocations.
+    private static readonly Il2CppSystem.Collections.Generic.List<RaycastResult> _raycastHits
+        = new Il2CppSystem.Collections.Generic.List<RaycastResult>();
+
     /// <summary>Per-frame: close any open dropdown when the user clicks outside it.
-    /// Registered with CoreUpdateBehavior in Plugin.Load.</summary>
+    /// Registered with CoreUpdateBehavior in Plugin.Load.
+    ///
+    /// 0.8.2: switched from rect-containment to EventSystem.RaycastAll + ancestry
+    /// check. The old approach checked whether the click landed inside the
+    /// "Dropdown List" RectTransform, which excluded the scrollbar — clicking
+    /// the scrollbar handle counted as "outside" and dismissed the dropdown
+    /// mid-scroll. The raycast approach asks "did the click hit anything
+    /// rendered by this dropdown's hierarchy?", which catches the scrollbar,
+    /// its handle, the items, and any future child widgets.</summary>
     public static void TickCloseOnOutsideClick()
     {
         if (!UnityEngine.Input.GetMouseButtonDown(0)) return;
         if (_active.Count == 0) return;
 
+        var es = EventSystem.current;
         Vector2 mouse = UnityEngine.Input.mousePosition;
+
+        // Raycast once; reuse the hit list across every open dropdown this frame.
+        _raycastHits.Clear();
+        if (es != null)
+        {
+            var ped = new PointerEventData(es) { position = mouse };
+            es.RaycastAll(ped, _raycastHits);
+        }
+
         for (int i = _active.Count - 1; i >= 0; i--)
         {
             var dd = _active[i];
             if (dd == null) { _active.RemoveAt(i); continue; }
 
-            // Find the runtime-spawned options panel: it's a child of the dropdown
+            // The runtime-spawned options panel is a child of the dropdown
             // named "Dropdown List" while expanded; absent when collapsed.
             var listTransform = dd.transform.Find("Dropdown List");
             if (listTransform == null) continue;
 
+            // Pass 1: ancestry check via raycast. If the user clicked anything
+            // rendered as a descendant of the dropdown or its popup, leave it
+            // open. This covers the scrollbar + handle + items naturally.
+            bool hitDropdown = false;
+            for (int h = 0; h < _raycastHits.Count; h++)
+            {
+                var go = _raycastHits[h].gameObject;
+                if (go == null) continue;
+                var t = go.transform;
+                while (t != null)
+                {
+                    if (t == dd.transform || t == listTransform) { hitDropdown = true; break; }
+                    t = t.parent;
+                }
+                if (hitDropdown) break;
+            }
+            if (hitDropdown) continue;
+
+            // Pass 2: fall back to rect-containment in case the canvas isn't
+            // raycast-registered (rare but possible during scene transitions).
             var listRt = listTransform as RectTransform;
             var ddRt   = dd.transform as RectTransform;
             bool overList = listRt != null && UnityEngine.RectTransformUtility.RectangleContainsScreenPoint(listRt, mouse, null);

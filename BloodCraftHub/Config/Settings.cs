@@ -84,25 +84,11 @@ public class Settings
     public static bool IsPanelAutoResizeEnabled =>
         (ConfigEntries[nameof(IsPanelAutoResizeEnabled)] as ConfigEntry<bool>)?.Value ?? true;
 
-    // EXPERIMENTAL — default OFF as of 0.1.3 because the underlying mechanism
-    // (skipping InputActionSystem.OnUpdate via Harmony) also wedges Unity's UI
-    // input pipeline. When on, clicking into a form field can lock you out of
-    // the panel itself with no way to recover. We default off until a non-
-    // locking suspension mechanism is available; opting in is fine if you're
-    // willing to take the risk (mash Escape / quit if it freezes).
-    public static bool SuspendGameInputWhileTyping =>
-        (ConfigEntries[nameof(SuspendGameInputWhileTyping)] as ConfigEntry<bool>)?.Value ?? false;
-    public static void SetSuspendGameInputWhileTyping(bool value)
-    {
-        if (ConfigEntries.TryGetValue(nameof(SuspendGameInputWhileTyping), out var entry)
-            && entry is ConfigEntry<bool> b)
-            b.Value = value;
-    }
-
-    // (SuspendGameInputWhileUIOpen was removed in 0.1.2 — the implementation
-    // also wedged the UI-input pipeline, so any user who toggled it on got
-    // their game frozen across sessions. The .cfg entry is no longer registered;
-    // any stale value in the user's config is inert.)
+    // (SuspendGameInputWhileTyping was removed in 0.8.2 — its Harmony prefix on
+    // InputActionSystem.OnUpdate also wedged Unity's UI input pipeline,
+    // locking the entire game when users typed into a form. A proper fix needs
+    // a different patch target; until then the feature is gone. SuspendGameInputWhileUIOpen
+    // was removed in 0.1.2 for the same reason. Stale .cfg entries are inert.)
 
     // Tristate per-server-mod availability (Auto / On / Off). Auto uses a
     // probe to decide:
@@ -129,20 +115,12 @@ public class Settings
             s.Value = v.ToString();
     }
 
-    // User-asserted "I am a server admin" flag. Off by default. When off, all
-    // admin panels (Bloodcraft Admin tab + 3 Kindred admin sub-tabs) display a
-    // placeholder explaining the gate and a toggle to flip the flag, so a
-    // non-admin player isn't presented with commands the server will reject
-    // anyway. We don't probe the server for actual admin status because the
-    // chat-pipe protocol gives us no reliable signal.
-    public static bool IsAdmin =>
-        (ConfigEntries[nameof(IsAdmin)] as ConfigEntry<bool>)?.Value ?? false;
-    public static void SetIsAdmin(bool value)
-    {
-        if (ConfigEntries.TryGetValue(nameof(IsAdmin), out var entry)
-            && entry is ConfigEntry<bool> b)
-            b.Value = value;
-    }
+    // (Settings.IsAdmin was removed in 0.8.2 — the toggle gate it backed was
+    // unreliable: ShowTab(ActiveTab) on the same tab didn't always rebuild the
+    // page, so the user had to fully relaunch the game for admin tabs to
+    // surface. Admin tabs are now always visible with an info note at the top;
+    // the server enforces permissions, so non-admins clicking commands just
+    // get rejection messages.)
 
     public Settings InitConfig()
     {
@@ -168,8 +146,6 @@ public class Settings
         InitConfigEntry(OVERLAY_SETTINGS_GROUP, nameof(ShowFamiliarBrowser),         false, "Whether the Familiar Browser overlay was visible at last logout.");
         InitConfigEntry(OVERLAY_SETTINGS_GROUP, nameof(ShowDailyQuestOverlay),       false, "Whether the Daily Quest overlay was visible at last logout.");
         InitConfigEntry(UI_SETTINGS_GROUP,      nameof(IsPanelAutoResizeEnabled),    true,  "Auto-resize the main panel vertically to fit the active tab's content (capped at 90% of screen height).");
-        InitConfigEntry(UI_SETTINGS_GROUP,      nameof(SuspendGameInputWhileTyping), false, "EXPERIMENTAL — off by default in 0.1.3+. When on, suspends gameplay input while you're typing into a BCH form field (so WASD doesn't move the character). The implementation can also lock the UI on some configs — if your panel becomes unresponsive after clicking a field, this is why. Turn back on at your own risk; mash Escape / quit V Rising if it freezes.");
-        InitConfigEntry(GENERAL_SETTINGS_GROUP, nameof(IsAdmin),                     false, "Self-asserted: 'I have admin privileges on this server'. Off by default; when off, the admin tabs are hidden behind a 'You are not an admin' placeholder. Toggle on if you actually have admin so the admin commands surface.");
         InitConfigEntry(GENERAL_SETTINGS_GROUP, nameof(BloodcraftAvailability),      "Auto", "Whether the server has the Bloodcraft mod. Auto = present iff the server ACK'd our Eclipse handshake. On = always assume present. Off = always disable the BLOODCRAFT tab group.");
         InitConfigEntry(GENERAL_SETTINGS_GROUP, nameof(KindredAvailability),         "Auto", "Whether the server has the Kindred suite (KindredCommands + KindredLogistics). No protocol probe is wired yet, so Auto currently means 'assume present'. Set to Off explicitly if your server doesn't have these mods to grey out the KINDRED tab group.");
 

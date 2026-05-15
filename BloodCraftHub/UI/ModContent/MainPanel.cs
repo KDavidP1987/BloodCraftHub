@@ -1772,12 +1772,24 @@ public partial class MainPanel : ResizeablePanelBase
     {
         AddSectionHeading(page, "Current Prestige");
 
-        _prestigeXpLabel        = AddInfoLabel(page, "PrestigeXp",        "Experience prestige: —", FontStyles.Normal, fontSize: 13);
-        _prestigeLegacyLabel    = AddInfoLabel(page, "PrestigeLegacy",    "Blood legacy prestige: —", FontStyles.Normal, fontSize: 13);
-        _prestigeExpertiseLabel = AddInfoLabel(page, "PrestigeExpertise", "Weapon expertise prestige: —", FontStyles.Normal, fontSize: 13);
-        _prestigeFamLabel       = AddInfoLabel(page, "PrestigeFam",       "Familiar prestige: —", FontStyles.Normal, fontSize: 13);
+        // 0.8.2: wrap the 4 prestige info rows in their own padded VLG so they
+        // don't crowd against the section heading or each other. Pre-0.8.2 they
+        // were direct children of the page (spacing inherited from the page's
+        // VLG, which is 2-3px) — friend-testing surfaced this as "crammed".
+        var prestigeSummary = UIFactory.CreateVerticalGroup(page, "PrestigeSummary",
+            forceWidth: true, forceHeight: false,
+            childControlWidth: true, childControlHeight: true,
+            spacing: 6, padding: new Vector4(8, 8, 6, 6));
+        UIFactory.SetLayoutElement(prestigeSummary,
+            minWidth: 360, preferredWidth: 400, flexibleWidth: 1,
+            minHeight: 130, flexibleHeight: 0);
 
-        AddSpacer(page, 4);
+        _prestigeXpLabel        = AddInfoLabel(prestigeSummary, "PrestigeXp",        "Experience prestige: —", FontStyles.Normal, fontSize: 14);
+        _prestigeLegacyLabel    = AddInfoLabel(prestigeSummary, "PrestigeLegacy",    "Blood legacy prestige: —", FontStyles.Normal, fontSize: 14);
+        _prestigeExpertiseLabel = AddInfoLabel(prestigeSummary, "PrestigeExpertise", "Weapon expertise prestige: —", FontStyles.Normal, fontSize: 14);
+        _prestigeFamLabel       = AddInfoLabel(prestigeSummary, "PrestigeFam",       "Familiar prestige: —", FontStyles.Normal, fontSize: 14);
+
+        AddSpacer(page, 6);
         AddSectionHeading(page, "Quick actions");
 
         var actions = UIFactory.CreateHorizontalGroup(page, "PrestigeActions",
@@ -1864,26 +1876,30 @@ public partial class MainPanel : ResizeablePanelBase
 
     private void BuildPrestigeInfoDisplay(GameObject page)
     {
+        // 0.8.2: bumped spacing 2→8 and padding 6→12 so the parsed prestige
+        // info ("Prestige Info" title, level line, effect lines) doesn't crowd
+        // together at the top of the box. Friend-testing called this out as
+        // "crammed" — the issue is more visible when the effect lines wrap.
         _prestigeInfoSection = UIFactory.CreateVerticalGroup(page, "PrestigeInfoDisplay",
             forceWidth: true, forceHeight: false,
             childControlWidth: true, childControlHeight: true,
-            spacing: 2, padding: new Vector4(6, 6, 6, 6));
+            spacing: 8, padding: new Vector4(12, 12, 10, 10));
         UIFactory.SetLayoutElement(_prestigeInfoSection,
             minWidth: 360, preferredWidth: 400, flexibleWidth: 1,
-            minHeight: 100, flexibleHeight: 0);
+            minHeight: 120, flexibleHeight: 0);
 
         _prestigeInfoTitleLabel = AddInfoLabel(_prestigeInfoSection, "PrestigeInfoTitle",
-            "Prestige Info", FontStyles.Bold | FontStyles.Italic, fontSize: 14);
+            "Prestige Info", FontStyles.Bold | FontStyles.Italic, fontSize: 16);
         _prestigeInfoTitleLabel.color = new Color(0.6f, 0.95f, 0.6f); // Bloodcraft #90EE90
 
         _prestigeInfoLevelLabel = AddInfoLabel(_prestigeInfoSection, "PrestigeInfoLevel",
-            "(submit Show prestige info above to populate)", FontStyles.Italic, fontSize: 12);
+            "(submit Show prestige info above to populate)", FontStyles.Italic, fontSize: 13);
 
         // Multi-line "effects" label. Using ContentSizeFitter so however many
         // lines the server sends back render flush together — the parser emits
         // one effect per inbound chat line (color tags stripped).
         _prestigeInfoEffectsLabel = AddInfoLabel(_prestigeInfoSection, "PrestigeInfoEffects",
-            "", FontStyles.Normal, fontSize: 12);
+            "", FontStyles.Normal, fontSize: 13);
         var fitter = _prestigeInfoEffectsLabel.gameObject.AddComponent<UnityEngine.UI.ContentSizeFitter>();
         fitter.horizontalFit = UnityEngine.UI.ContentSizeFitter.FitMode.Unconstrained;
         fitter.verticalFit   = UnityEngine.UI.ContentSizeFitter.FitMode.PreferredSize;
@@ -2241,58 +2257,34 @@ public partial class MainPanel : ResizeablePanelBase
     // -----------------------------------------------------------------------
 
     /// <summary>
-    /// Returns true if the user has self-asserted admin status. Otherwise
-    /// renders a placeholder explaining the gate (with a toggle to flip it)
-    /// into <paramref name="page"/> and returns false. Wrap each admin Build
-    /// method in `if (!RenderAdminGate(page, "...")) return;` so non-admin
-    /// players don't see commands the server will reject anyway.
+    /// Renders an info note at the top of every admin tab explaining that the
+    /// commands here require server-admin permission. 0.8.2: replaced the
+    /// previous self-asserted "Is admin" gate (which needed a full game
+    /// restart to actually surface the commands — `Settings.SetIsAdmin` flipped
+    /// a bool but `ShowTab(ActiveTab)` didn't always rebuild the page). The
+    /// gate added no security since the server enforces permissions anyway;
+    /// non-admins clicking commands just get rejection messages.
     /// </summary>
-    private bool RenderAdminGate(GameObject page, string contextLabel)
+    private void RenderAdminInfoNote(GameObject page, string contextLabel)
     {
-        if (Settings.IsAdmin) return true;
-
-        AddSectionHeading(page, "Admin only");
-        var msg = UIFactory.CreateLabel(page, "AdminGateMsg",
-            $"{contextLabel} commands are hidden because you haven't marked yourself as a server admin. " +
-            "If you actually have admin privileges on this server, toggle the box below to surface the commands. " +
-            "Non-admins running these would just get 'permission denied' from the server.",
-            TextAlignmentOptions.TopLeft, color: null, fontSize: 12);
+        var msg = UIFactory.CreateLabel(page, "AdminInfoNote",
+            $"<b>Admin only.</b> {contextLabel} commands require server-admin permission. " +
+            "Non-admins can click these buttons, but the server will reject them with a " +
+            "permission error. Nothing here can damage your client.",
+            TextAlignmentOptions.TopLeft, color: new Color(1f, 0.85f, 0.5f), fontSize: 12);
         UIFactory.SetLayoutElement(msg.GameObject,
             minWidth: 360, preferredWidth: 400, flexibleWidth: 1,
-            minHeight: 60, preferredHeight: 80, flexibleHeight: 0);
+            minHeight: 40, preferredHeight: 48, flexibleHeight: 0);
         msg.TextMesh.enableWordWrapping = true;
         msg.TextMesh.overflowMode = TextOverflowModes.Overflow;
+        msg.TextMesh.richText = true;
 
         AddSpacer(page, 4);
-
-        var t = UIFactory.CreateToggle(page, "AdminGateToggle");
-        UIFactory.SetLayoutElement(t.GameObject,
-            minWidth: 360, preferredWidth: 400, flexibleWidth: 1,
-            minHeight: 28, preferredHeight: 28, flexibleHeight: 0);
-        t.Text.text = "I am a server admin (show admin commands)";
-        t.Text.fontSize = 13;
-        t.Text.alignment = TextAlignmentOptions.MidlineLeft;
-        UIFactory.SetLayoutElement(t.Text.gameObject,
-            minWidth: 320, preferredWidth: 360, flexibleWidth: 1,
-            minHeight: 24, preferredHeight: 24, flexibleHeight: 0);
-        t.Toggle.isOn = false;
-        t.OnValueChanged += value =>
-        {
-            Settings.SetIsAdmin(value);
-            // Rebuild every admin tab the user has already opened so the gate
-            // disappears immediately. Cheap: empty pages just rebuild on next
-            // ShowTab; built pages we clear and re-dispatch via BuildContentArea
-            // is overkill here - the user can switch away/back to refresh.
-            // The simplest UX: re-show the current tab.
-            ShowTab(ActiveTab);
-        };
-
-        return false;
     }
 
     private void BuildAdminTab(GameObject page)
     {
-        if (!RenderAdminGate(page, "Bloodcraft admin")) return;
+        RenderAdminInfoNote(page, "Bloodcraft admin");
 
         AddSectionHeading(page, "Server Diagnostics");
 
@@ -2590,14 +2582,15 @@ public partial class MainPanel : ResizeablePanelBase
                 new TextField("name", "Chest name",
                     tooltip: "The custom name written on the chest's sign (e.g. 'salvage', 'spawner', 'brazier').")));
 
-        // Admin globals (.lg ...) live on the dedicated KindredLogisticsAdminTab,
-        // gated behind Settings.IsAdmin. Pointer left here so anyone reading
-        // BuildKindredLogisticsTab knows where the rest of the surface went.
+        // Admin globals (.lg ...) live on the dedicated KindredLogisticsAdminTab.
+        // Pointer left here so anyone reading BuildKindredLogisticsTab knows
+        // where the rest of the surface went. Admin tabs are not gated client-
+        // side as of 0.8.2 — the server enforces permissions.
     }
 
     private void BuildKindredLogisticsAdminTab(GameObject page)
     {
-        if (!RenderAdminGate(page, "Kindred Logistics admin")) return;
+        RenderAdminInfoNote(page, "Kindred Logistics admin");
 
         var intro = UIFactory.CreateLabel(page, "KLAdminIntro",
             "Server-wide toggles for the KindredLogistics features. These affect every player on the server. Requires admin permission server-side.",
@@ -3042,10 +3035,9 @@ public partial class MainPanel : ResizeablePanelBase
             "- Hover any control to see what it does (footer at panel bottom).\n" +
             "- Auto-resize ON: the panel grows to fit the active tab. Turn " +
             "off if you prefer manual sizing.\n" +
-            "- Suspend game input ON: typing into UI fields won't move your " +
-            "character. Turn off if you'd rather have continuous gameplay.\n" +
-            "- The two secondary overlays (XP, Familiar) are independent " +
-            "draggable panels - useful while playing.");
+            "- The secondary overlays (XP, Familiar, Familiar Browser, Daily " +
+            "Quest) are independent draggable panels - toggle them in the " +
+            "footer.");
     }
 
     private static void AddGuideSection(GameObject parent, string title, string body)
@@ -3277,37 +3269,10 @@ public partial class MainPanel : ResizeablePanelBase
 
         // Row 2 — panel behavior toggles
         AddAutoResizeToggle(row2);
-        AddInputBlockToggle(row2);
-        // The "Suspend game input while UI open" toggle was removed in 0.1.2;
-        // its implementation wedged the UI-input pipeline. See InputActionSystemPatch.cs.
-    }
-
-    private void AddInputBlockToggle(GameObject parent)
-    {
-        var t = UIFactory.CreateToggle(parent, "InputBlockToggle");
-        UIFactory.SetLayoutElement(t.GameObject,
-            minWidth: 240, preferredWidth: 270, flexibleWidth: 1,
-            minHeight: 24, preferredHeight: 24, flexibleHeight: 0);
-        t.Text.text = "Suspend game input on type (experimental)";
-        t.Text.fontSize = 13;
-        t.Text.enableWordWrapping = false;
-        t.Text.overflowMode = TextOverflowModes.Overflow;
-        t.Text.alignment = TextAlignmentOptions.MidlineLeft;
-        UIFactory.SetLayoutElement(t.Text.gameObject,
-            minWidth: 170, preferredWidth: 190, flexibleWidth: 1,
-            minHeight: 24, preferredHeight: 24, flexibleHeight: 0);
-
-        t.Toggle.isOn = Settings.SuspendGameInputWhileTyping;
-        TooltipHover.Attach(t.GameObject,
-            "EXPERIMENTAL (default OFF). When on, WASD typed into a BCH field stays in the form. " +
-            "WARNING: the underlying mechanism can also lock UI clicks — if the panel becomes " +
-            "unresponsive after clicking a field, this is why. Mash Escape / quit V Rising if it freezes. " +
-            "Off is safe; your character will move when you type WASD.");
-        t.OnValueChanged += value =>
-        {
-            Plugin.Instance.Config.Bind(Settings.UI_SETTINGS_GROUP,
-                nameof(Settings.SuspendGameInputWhileTyping), true, "").Value = value;
-        };
+        // SuspendGameInputWhileTyping was removed in 0.8.2 — its Harmony prefix
+        // on InputActionSystem.OnUpdate wedged the entire game (UI + input
+        // alike). SuspendGameInputWhileUIOpen was removed in 0.1.2 for the same
+        // reason. A proper fix needs a different patch target.
     }
 
     private void AddAutoResizeToggle(GameObject parent)

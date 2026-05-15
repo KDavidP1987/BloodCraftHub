@@ -53,17 +53,6 @@ public class Plugin : BasePlugin
 
         Settings = new Settings().InitConfig();
 
-        // 0.1.3 one-time safety: force-disable SuspendGameInputWhileTyping if a
-        // pre-0.1.3 install left it on. The feature can wedge the UI when the
-        // user clicks into a form field (root cause not yet fixed), and a frozen
-        // user can't reach the toggle to turn it off. Anyone who genuinely
-        // wants the feature can re-enable via the footer toggle each session.
-        if (BloodCraftHub.Config.Settings.SuspendGameInputWhileTyping)
-        {
-            BloodCraftHub.Config.Settings.SetSuspendGameInputWhileTyping(false);
-            Log.LogWarning("Force-disabled SuspendGameInputWhileTyping (was on from a prior install). Re-enable via the panel footer if you want it; see the tooltip for the lockup caveat.");
-        }
-
         EclipseProtocolService.Initialize();
 
         UIManager = new BCHubUIManager();

@@ -1,18 +1,9 @@
 # BloodCraftHub
 
-Unified client-side V Rising UI mod that combines [BloodCraftUI](https://thunderstore.io/c/v-rising/p/panthernet/BloodCraftUI_OnlyFams/) and [Eclipse](https://thunderstore.io/c/v-rising/p/zfolmt/Eclipse/) into a single management UI for the [Bloodcraft](https://thunderstore.io/c/v-rising/p/zfolmt/Bloodcraft/) server mod — with first-class support for [KindredCommands](https://thunderstore.io/c/v-rising/p/odjit/KindredCommands/) and [KindredLogistics](https://thunderstore.io/c/v-rising/p/odjit/KindredLogistics/) on the same server.
+Unified client-side V Rising UI mod that surfaces every chat command of the [Bloodcraft](https://thunderstore.io/c/v-rising/p/zfolmt/Bloodcraft/) server mod — with first-class support for [KindredCommands](https://thunderstore.io/c/v-rising/p/odjit/KindredCommands/) and [KindredLogistics](https://thunderstore.io/c/v-rising/p/odjit/KindredLogistics/) on the same server.
 
 **Repo:** https://github.com/KDavidP1987/BloodCraftHub
-**Status:** v0.8.1 — public on Thunderstore. 16 tabs across BLOODCRAFT / KINDRED / HELP, 4 secondary overlays, every chat command from the 3 backing server mods surfaced as forms + buttons (~250+ commands).
-
-## Screenshots
-
-> _Screenshots go here. Drop PNGs into `docs/screenshots/` and reference them like:_
-> ```markdown
-> ![Main panel — Familiars tab](docs/screenshots/01-familiars.png)
-> ![Admin: Players tab — Boost collapsibles open](docs/screenshots/02-admin-boost.png)
-> ![Quick Start guide](docs/screenshots/03-quickstart.png)
-> ```
+**Status:** v0.8.2 — public on Thunderstore. 16 tabs across BLOODCRAFT / KINDRED / HELP, 4 secondary overlays, every chat command from the 3 backing server mods surfaced as forms + buttons (~250+ commands).
 
 ## What it does
 
@@ -27,7 +18,6 @@ Unified client-side V Rising UI mod that combines [BloodCraftUI](https://thunder
 - **Hover tooltips** for every control, surfaced in a single footer line.
 - **Scrollable tabs** — long admin tabs scroll within the viewport instead of clipping.
 - **Auto-resizing panel** that grows/shrinks to fit the active tab content (capped at 90% of screen height; toggleable).
-- **Game-input suspension** while typing into form fields so WASD doesn't move your character (toggleable).
 - **Passive player-name autocomplete cache** that fills as the server prints names into chat.
 
 ## Installation
@@ -82,12 +72,40 @@ If the server is running a newer Bloodcraft, most things should still work — t
 
 For the full open-issue list, see the project's GitHub issues.
 
-## Why combine BloodCraftUI + Eclipse?
+## Acknowledgements
 
-- **BloodCraftUI** has a polished, modular panel UI but parses inbound data via fragile regex on colored chat strings.
-- **Eclipse** has the durable signed-protocol pipeline but mutates the game HUD in place, no panel framework.
+BloodCraftHub is a client UI for server-side mods built by other developers. The
+features it surfaces would not exist without their work. If you use BCH, please
+also show the upstream mods some love:
 
-We take the panel framework from BloodCraftUI, the structured protocol from Eclipse, and add a form-based admin/user UI on top.
+### Bloodcraft — by zfolmt
+
+Leveling, expertise, legacies, professions, familiars, classes, quests! The
+bulk of what BloodCraftHub surfaces (every BLOODCRAFT-group tab) is wrapping
+zfolmt's chat-command surface.
+
+- Thunderstore: https://thunderstore.io/c/v-rising/p/zfolmt/Bloodcraft/
+
+### KindredCommands & KindredLogistics — by odjit
+
+Server administration utilities and personal/admin logistics toggles. The KINDRED
+admin tabs (Players / Server / World) and the Logistics section all call into
+odjit's mods.
+
+- KindredCommands: https://thunderstore.io/c/v-rising/p/odjit/KindredCommands/
+- KindredLogistics: https://thunderstore.io/c/v-rising/p/odjit/KindredLogistics/
+
+### About the UI
+
+BCH was built on the V Rising server **The Shadow Realm** (Brutal PvE), maintained
+by Chaos. If you want to support BCH development directly:
+
+- Server Discord: https://discord.gg/usC9QgBrXK
+- PayPal: https://www.paypal.com/paypalme/KrisPenland
+- SkillEra.IO: https://SkillEra.IO
+
+BloodCraftHub is open source (MIT). Bug reports, feature ideas, and pull
+requests welcome at https://github.com/KDavidP1987/BloodCraftHub.
 
 ---
 
@@ -159,7 +177,6 @@ BloodCraftHub/
     │     Settings.cs              ← BepInEx-bound, static accessors
     ├── Patches/                   ← Harmony patches
     │     ClientChatPatch          ← inbound: Eclipse protocol + regex fallback + name harvest
-    │     InputActionSystemPatch   ← game-input suspension while typing
     │     InitializationPatch      ← UI bring-up + LocalCharacter/User capture
     │     GameManagerPatch / EscapeMenuPatch / UICanvasSystemPatch / VersionStringPatch
     ├── Services/
@@ -191,16 +208,6 @@ BloodCraftHub/
         └── Localization/English.json
 ```
 
-### Source-of-truth references (read-only)
-
-Five upstream mods checked into the parent workspace as reference:
-
-- `../LearningMods/Bloodcraft-main/` — server-side, ~97 commands across 9 groups
-- `../LearningMods/BloodCraftUI-master/` — panel UI source
-- `../LearningMods/Eclipse-main/` — Eclipse protocol + HMAC verify source
-- `../LearningMods/KindredCommands-main/` — KindredCommands (~146 admin commands + 13 player commands surfaced under KINDRED)
-- `../LearningMods/KindredLogistics-main/` — KindredLogistics (28 commands surfaced under KINDRED)
-
 ## License
 
-[MIT](LICENSE.txt) — see `LICENSE.txt` for the full text plus third-party attribution for ported code from BloodCraftUI (panthernet) and Eclipse (zfolmt).
+[MIT](LICENSE.txt) — see `LICENSE.txt` for the full text plus third-party attribution for ported code from BloodCraftUI (panthernet), Eclipse (zfolmt), and the runtime peers we integrate with: Bloodcraft (zfolmt), KindredCommands (odjit), and KindredLogistics (odjit).

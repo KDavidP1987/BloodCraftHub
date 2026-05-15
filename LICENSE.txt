@@ -40,4 +40,9 @@ upstream V Rising client mods:
 
 The Bloodcraft, KindredCommands, and KindredLogistics server mods are
 referenced as runtime peers - no code is bundled from them; the integration
-is over BepInEx + chat-command interop only.
+is over BepInEx + chat-command interop only. Their authors are credited here
+out of gratitude even though no code is shared:
+
+- Bloodcraft (zfolmt) — https://thunderstore.io/c/v-rising/p/zfolmt/Bloodcraft/
+- KindredCommands (odjit) — https://thunderstore.io/c/v-rising/p/odjit/KindredCommands/
+- KindredLogistics (odjit) — https://thunderstore.io/c/v-rising/p/odjit/KindredLogistics/
