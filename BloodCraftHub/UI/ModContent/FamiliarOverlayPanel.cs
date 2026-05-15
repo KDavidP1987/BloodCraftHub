@@ -1,5 +1,6 @@
 using BloodCraftHub.Config;
 using BloodCraftHub.Services;
+using BloodCraftHub.UI.Framework.CustomLib.Controls;
 using BloodCraftHub.UI.Framework.CustomLib.Panel;
 using BloodCraftHub.UI.Framework.UniverseLib.UI;
 using BloodCraftHub.UI.Framework.UniverseLib.UI.Models;
@@ -37,6 +38,8 @@ public class FamiliarOverlayPanel : ResizeablePanelBase
 
     private LabelRef _nameLabel;
     private LabelRef _progressLabel;
+    private GameObject _xpBar;
+    private RectTransform _xpBarFill;
     private LabelRef _statsLabel;
     private bool _subscribed;
 
@@ -48,6 +51,10 @@ public class FamiliarOverlayPanel : ResizeablePanelBase
 
         _nameLabel     = AddRow("FamOvName",     "—",           FontStyles.Bold,   fontSize: Theme.ScaledOverlay(15));
         _progressLabel = AddRow("FamOvProgress", "Lv —",        FontStyles.Normal, fontSize: Theme.ScaledOverlay(13));
+        // 0.9.3: optional familiar XP progress bar (toggle on the Settings tab).
+        _xpBar = MiniBar.Create(ContentRoot, "FamXpBar", out _xpBarFill,
+            fillColor: new Color(1f, 0.6f, 0.2f, 0.95f)); // warm orange — distinct from XP overlay cyan
+        _xpBar.SetActive(false);
         _statsLabel    = AddRow("FamOvStats",    "HP —",        FontStyles.Normal, fontSize: Theme.ScaledOverlay(12));
 
         Render(PlayerStateService.Familiar);
@@ -88,6 +95,13 @@ public class FamiliarOverlayPanel : ResizeablePanelBase
         _statsLabel.TextMesh.text = active
             ? $"HP {s.MaxHealth}  PP {s.PhysicalPower}  SP {s.SpellPower}"
             : "HP —";
+
+        // 0.9.3: re-read the progress-bar setting each render so toggling it
+        // takes effect without rebuild. Hide the bar if no familiar is
+        // bound (otherwise we'd render a zero-fill bar that looks broken).
+        bool showBar = active && Settings.ShowProgressBars;
+        if (_xpBar != null && _xpBar.activeSelf != showBar) _xpBar.SetActive(showBar);
+        if (showBar) MiniBar.SetProgress(_xpBarFill, s.Progress);
     }
 
     internal override void Reset()

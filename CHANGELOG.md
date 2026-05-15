@@ -1,5 +1,66 @@
 # Changelog
 
+## 0.9.3 — Wrap tooltip; bar visibility + Familiar/Professions bars; chat suppress actually fires
+
+Four follow-ups from v0.9.2 friend-testing.
+
+**Tooltip footer now wraps.** `BuildTooltipFooter` had `enableWordWrapping = false`
+so long tooltips (notably the new master-overlay "OV" button's multi-sentence
+description) overflowed the right edge of the panel as one un-wrapped line.
+Wrap is on now; footer height bumped 22 → 56 px (room for ~3 lines of 12pt
+italic) with `TextOverflowModes.Ellipsis` so very long tooltips get capped
+instead of pushing the panel taller.
+
+**Progress bar — opaque container with outlined border.** Friend-testing:
+"If they are a bar that crosses the transparent background, it's hard to
+distinguish where they're expected to end." Root cause was the bar's bg
+alpha was 0.85, which against a low-opacity overlay backdrop made the
+container nearly invisible. Now the bg is fully opaque dark
+(`0.07, 0.07, 0.07, 1.0`), a 1px gray Outline draws the container's
+border, and the colored fill is inset by 1px so it sits inside the
+outline cleanly instead of crashing through. Default bar height bumped
+8 → 12 px for clearer visual.
+
+**Progress bars added to Familiar overlay + Professions overlay.** Pre-0.9.3
+the toggle only affected the XP overlay and the Prestige info display.
+- Familiar overlay: one warm-orange bar below the "Lv X (Y.Y%)" row,
+  driven by `FamiliarState.Progress`. Hidden when no familiar is bound
+  (otherwise it'd render a zero-fill bar that looks broken).
+- Professions overlay: 8 amber bars, one paired with each profession's
+  label row. Color chosen to be distinct from the XP-overlay cyan and
+  the Familiar-overlay orange so all three overlays remain visually
+  separable when visible together.
+
+**Chat suppression now fires during box switching.** Friend-testing: the
+toggle was on but "Box Selected" still appeared in chat every box click.
+Root cause confirmed via exploration of `MainPanel.OnBoxClicked` (line
+1395-1408) and `FamiliarBrowserOverlayPanel` (line 257-265): clicking a
+box enqueues TWO commands back to back:
+1. `.fam cb {name}` — arms `_actionSuppressUntil` (1.5s window).
+2. `.fam l` — arms `InterceptFlag.AwaitingBoxContent`.
+
+When Bloodcraft replies `"Box Selected - <color=white>{name}</color>!"`,
+intercept was already AwaitingBoxContent (overwritten by the second
+command's arm). The old suppress check required `_intercept == Idle`,
+so the action-confirmation skipped suppress and landed in chat.
+
+Fix: replace the broad "contains color tag during action window" filter
+with `IsKnownFamiliarActionConfirmation(text)` — pattern-matches the
+exact literal strings Bloodcraft uses (from `Commands/FamiliarCommands.cs`
+and `Utilities/Familiars.cs`):
+- `.fam cb` → starts with "Box Selected"
+- `.fam ub` → contains "unbound</color>!" or "</color> unbound!"
+- `.fam mb` → contains "</color> moved -"
+- `.fam r`  → contains "</color> removed from "
+- `.fam t`  → contains "Familiar</color> <color=" and "enabled!"/"disabled!"
+- `.fam b`  → contains "now bound!" or "now active!"
+
+These patterns are distinct from the structured intercept patterns
+(`<color=yellow>\d+</color>|` for box content; literal "Familiar Boxes"
+header for box list; etc.) so the suppress can fire alongside an active
+intercept without eating legitimate list/info data. Net result: clicking
+a box switches the box without spamming chat.
+
 ## 0.9.2 — Live settings, real transparency, dedicated Settings tab, progress bars, fixes
 
 Seven follow-ups from v0.9.1 friend-testing.

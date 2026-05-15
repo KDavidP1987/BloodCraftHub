@@ -475,6 +475,37 @@ public static partial class MessageService
     private static bool IsActionSuppressActive() =>
         UnityEngine.Time.realtimeSinceStartupAsDouble < _actionSuppressUntil;
 
+    /// <summary>0.9.3: pattern-match Bloodcraft's literal action-confirmation
+    /// reply strings (from `LearningMods/Bloodcraft-main/Commands/FamiliarCommands.cs`
+    /// and `.../Utilities/Familiars.cs`). Listed here so the suppress can fire
+    /// even when a structured intercept is concurrently armed (e.g., the
+    /// `.fam cb` + `.fam l` back-to-back workflow). Patterns chosen to be
+    /// distinct from the structured intercept patterns so no legitimate
+    /// list/info response gets eaten by accident.</summary>
+    private static bool IsKnownFamiliarActionConfirmation(string text)
+    {
+        if (string.IsNullOrEmpty(text)) return false;
+        // .fam cb {name} → "Box Selected - <color=white>{name}</color>"
+        if (text.StartsWith("Box Selected", System.StringComparison.Ordinal)) return true;
+        // .fam ub → "<color=green>{name}</color> <color=#FFC0CB>unbound</color>!"
+        if (text.Contains("unbound</color>!")) return true;
+        if (text.Contains("</color> unbound!")) return true;
+        // .fam mb {dest} → "<color=green>{name}</color> moved - <color=white>{dest}</color>"
+        if (text.Contains("</color> moved -")) return true;
+        // .fam r N → "<color=green>{name}</color> removed from <color=white>{box}</color>."
+        if (text.Contains("</color> removed from ")) return true;
+        // .fam t → "<color=yellow>Familiar</color> <color=green>enabled</color>!"
+        //       or "<color=yellow>Familiar</color> <color=red>disabled</color>!"
+        if (text.Contains("Familiar</color> <color=") &&
+            (text.Contains("enabled</color>!") || text.Contains("disabled</color>!"))) return true;
+        // .fam b (bind) async confirmation — Bloodcraft's bind flow prints
+        // a generic "is now bound!" once the familiar entity instantiates.
+        // Pattern is loose because Bloodcraft has multiple bind paths.
+        if (text.Contains("now bound!")) return true;
+        if (text.Contains("now active!")) return true;
+        return false;
+    }
+
     /// <summary>True for commands whose chat confirmation the user can opt to
     /// hide (Settings.SuppressFamiliarActionChatter). Strictly the .fam action
     /// commands — bind, unbind, recall/dismiss, switch box, move box,
@@ -672,23 +703,27 @@ public static partial class MessageService
     {
         if (string.IsNullOrEmpty(text)) return false;
 
-        // 0.9.1 / 0.9.2: action-confirmation suppress. Only fires when no
-        // structured intercept is currently armed — otherwise the intercept
-        // needs first crack at the line.
+        // 0.9.1 / 0.9.2 / 0.9.3: action-confirmation suppress.
         //
-        // 0.9.2: changed `text.StartsWith("<color")` → `text.Contains("<color=")`
-        // because Bloodcraft formats confirmation lines like "Box Selected -
-        // <color=white>name</color>!" — the color tag is in the middle, not
-        // the prefix, so the StartsWith filter never matched the bulk of
-        // confirmations. Contains catches both prefix-color and mid-color
-        // patterns. Risk: legitimate player chat could be eaten if it
-        // included literal "<color=" — but the substring is essentially never
-        // present in human-typed chat, and the suppress window is only 1.5s
-        // wide after a deliberate action click.
-        if (_intercept == InterceptFlag.Idle
-            && IsActionSuppressActive()
+        // 0.9.3 fix: the "intercept must be Idle" guard was too strict and
+        // caused the suppress to silently fail in the most common workflow.
+        // Clicking a box in the picker enqueues TWO commands back to back:
+        //     .fam cb {name}  → arms _actionSuppressUntil (no structured intercept)
+        //     .fam l           → arms InterceptFlag.AwaitingBoxContent
+        // When Bloodcraft replies "Box Selected - <color=white>{name}</color>!",
+        // the intercept state is already AwaitingBoxContent, so the old
+        // Idle-guarded suppress check skipped and the chatter passed through.
+        //
+        // New approach: match Bloodcraft's exact action-confirmation patterns
+        // (Box Selected, unbound!, moved -, removed from, Familiar enabled/
+        // disabled). These are distinct enough from the structured intercept
+        // patterns (box-content-entry regex requires <color=yellow>\d+</color>|
+        // prefix; box-list header is the literal "Familiar Boxes" string; etc.)
+        // that we can fire the suppress even when an intercept is armed
+        // without risk of clobbering a legitimate structured response.
+        if (IsActionSuppressActive()
             && Config.Settings.SuppressFamiliarActionChatter
-            && text.Contains("<color="))
+            && IsKnownFamiliarActionConfirmation(text))
         {
             return true;
         }

@@ -262,21 +262,26 @@ public partial class MainPanel : ResizeablePanelBase
 
     private void BuildTooltipFooter(GameObject parent)
     {
+        // 0.9.3: footer height bumped 22 → 56 and label set to word-wrap.
+        // Pre-0.9.3 long tooltips (notably the new OV master-overlay button's
+        // multi-sentence description) overflowed the panel's right edge as
+        // a single un-wrapped line. The new height holds ~3 lines of 12pt
+        // italic text; longer tooltips get ellipsized instead of overflowing.
         var footer = UIFactory.CreateHorizontalGroup(parent, "TooltipFooter",
             forceExpandWidth: true, forceExpandHeight: false,
             childControlWidth: true, childControlHeight: true,
-            spacing: 4, padding: new Vector4(8, 8, 2, 2));
-        UIFactory.SetLayoutElement(footer, minHeight: 22, preferredHeight: 22, flexibleHeight: 0, flexibleWidth: 1);
+            spacing: 4, padding: new Vector4(8, 8, 4, 4));
+        UIFactory.SetLayoutElement(footer, minHeight: 56, preferredHeight: 56, flexibleHeight: 0, flexibleWidth: 1);
 
         var lbl = UIFactory.CreateLabel(footer, "TooltipText",
             TooltipHover.IdlePlaceholder,
             TextAlignmentOptions.MidlineLeft, color: null, fontSize: Theme.ScaledUI(12));
         UIFactory.SetLayoutElement(lbl.GameObject,
             minWidth: 400, preferredWidth: 600, flexibleWidth: 1,
-            minHeight: 20, preferredHeight: 22, flexibleHeight: 0);
+            minHeight: 48, preferredHeight: 52, flexibleHeight: 0);
         lbl.TextMesh.fontStyle = FontStyles.Italic;
-        lbl.TextMesh.enableWordWrapping = false;
-        lbl.TextMesh.overflowMode = TextOverflowModes.Overflow;
+        lbl.TextMesh.enableWordWrapping = true;
+        lbl.TextMesh.overflowMode = TextOverflowModes.Ellipsis;
 
         // Wire the static Sink so the per-frame TooltipHover.TickAll updates
         // this label. The TickAll action itself is registered in Plugin.Load,

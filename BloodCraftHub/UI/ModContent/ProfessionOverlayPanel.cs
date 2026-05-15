@@ -54,6 +54,11 @@ public class ProfessionOverlayPanel : ResizeablePanelBase
     private LabelRef _woodcuttingLabel;
     private LabelRef _miningLabel;
     private LabelRef _fishingLabel;
+    // 0.9.3: optional progress bars per profession, paired with the label rows.
+    private GameObject _enchantingBar, _alchemyBar, _harvestingBar, _blacksmithingBar;
+    private GameObject _tailoringBar, _woodcuttingBar, _miningBar, _fishingBar;
+    private RectTransform _enchantingFill, _alchemyFill, _harvestingFill, _blacksmithingFill;
+    private RectTransform _tailoringFill, _woodcuttingFill, _miningFill, _fishingFill;
     private bool _subscribed;
 
     public ProfessionOverlayPanel(UIBase owner) : base(owner) { }
@@ -64,13 +69,21 @@ public class ProfessionOverlayPanel : ResizeablePanelBase
 
         AddHeader();
         _enchantingLabel    = AddRow("ProfEnchanting",    "Enchanting —");
+        _enchantingBar      = AddBar("ProfEnchantingBar",    out _enchantingFill);
         _alchemyLabel       = AddRow("ProfAlchemy",       "Alchemy —");
+        _alchemyBar         = AddBar("ProfAlchemyBar",       out _alchemyFill);
         _harvestingLabel    = AddRow("ProfHarvesting",    "Harvesting —");
+        _harvestingBar      = AddBar("ProfHarvestingBar",    out _harvestingFill);
         _blacksmithingLabel = AddRow("ProfBlacksmithing", "Blacksmithing —");
+        _blacksmithingBar   = AddBar("ProfBlacksmithingBar", out _blacksmithingFill);
         _tailoringLabel     = AddRow("ProfTailoring",     "Tailoring —");
+        _tailoringBar       = AddBar("ProfTailoringBar",     out _tailoringFill);
         _woodcuttingLabel   = AddRow("ProfWoodcutting",   "Woodcutting —");
+        _woodcuttingBar     = AddBar("ProfWoodcuttingBar",   out _woodcuttingFill);
         _miningLabel        = AddRow("ProfMining",        "Mining —");
+        _miningBar          = AddBar("ProfMiningBar",        out _miningFill);
         _fishingLabel       = AddRow("ProfFishing",       "Fishing —");
+        _fishingBar         = AddBar("ProfFishingBar",       out _fishingFill);
 
         Render(PlayerStateService.Profession);
 
@@ -105,6 +118,19 @@ public class ProfessionOverlayPanel : ResizeablePanelBase
         return lbl;
     }
 
+    /// <summary>0.9.3: optional progress bar paired with each profession's
+    /// label row. Hidden by default; visibility tied to Settings.ShowProgressBars
+    /// and refreshed on every Render. Uses a warm amber fill so the 8 bars
+    /// don't compete with the XP overlay's cyan or the Familiar overlay's
+    /// orange when they're all visible together.</summary>
+    private GameObject AddBar(string name, out UnityEngine.RectTransform fillRect)
+    {
+        var bar = Framework.CustomLib.Controls.MiniBar.Create(ContentRoot, name, out fillRect,
+            fillColor: new Color(0.95f, 0.75f, 0.35f, 0.95f), height: 10);
+        bar.SetActive(false);
+        return bar;
+    }
+
     private void OnProfessionChanged() => Render(PlayerStateService.Profession);
 
     private void Render(PlayerStateService.ProfessionState s)
@@ -118,6 +144,25 @@ public class ProfessionOverlayPanel : ResizeablePanelBase
         _woodcuttingLabel.TextMesh.text   = FormatRow("Woodcutting",   s.WoodcuttingLevel,   s.WoodcuttingProgress);
         _miningLabel.TextMesh.text        = FormatRow("Mining",        s.MiningLevel,        s.MiningProgress);
         _fishingLabel.TextMesh.text       = FormatRow("Fishing",       s.FishingLevel,       s.FishingProgress);
+
+        // 0.9.3: progress-bar visibility per the Settings.ShowProgressBars
+        // toggle. Re-read every render so the toggle takes effect live.
+        bool showBars = Settings.ShowProgressBars;
+        SyncBar(_enchantingBar,    _enchantingFill,    s.EnchantingProgress,    showBars);
+        SyncBar(_alchemyBar,       _alchemyFill,       s.AlchemyProgress,       showBars);
+        SyncBar(_harvestingBar,    _harvestingFill,    s.HarvestingProgress,    showBars);
+        SyncBar(_blacksmithingBar, _blacksmithingFill, s.BlacksmithingProgress, showBars);
+        SyncBar(_tailoringBar,     _tailoringFill,     s.TailoringProgress,     showBars);
+        SyncBar(_woodcuttingBar,   _woodcuttingFill,   s.WoodcuttingProgress,   showBars);
+        SyncBar(_miningBar,        _miningFill,        s.MiningProgress,        showBars);
+        SyncBar(_fishingBar,       _fishingFill,       s.FishingProgress,       showBars);
+    }
+
+    private static void SyncBar(GameObject bar, UnityEngine.RectTransform fill, float progress, bool show)
+    {
+        if (bar == null) return;
+        if (bar.activeSelf != show) bar.SetActive(show);
+        if (show) Framework.CustomLib.Controls.MiniBar.SetProgress(fill, progress);
     }
 
     private static string FormatRow(string name, int level, float progress) =>
