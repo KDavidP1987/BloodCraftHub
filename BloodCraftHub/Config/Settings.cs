@@ -91,6 +91,14 @@ public class Settings
     public static bool ClearServerMessages =>
         (ConfigEntries[nameof(ClearServerMessages)] as ConfigEntry<bool>)?.Value ?? false;
 
+    // 0.9.2: when on, the XP overlay + Prestige info display render a
+    // horizontal progress bar alongside the % text. Friend-testing feedback:
+    // "some people have requested if it could be a visual progress bar".
+    // Off by default so existing users see no change.
+    public static bool ShowProgressBars =>
+        (ConfigEntries[nameof(ShowProgressBars)] as ConfigEntry<bool>)?.Value ?? false;
+    public static void SetShowProgressBars(bool v) => SetBool(nameof(ShowProgressBars), v);
+
     // 0.9.1: when on, the chat copy of action-confirmation messages
     // (.fam b / .fam ub / .fam t / .fam cb / .fam mb / .fam sb / .fam r)
     // is suppressed. Friend-testing feedback: switching boxes and bouncing
@@ -202,6 +210,7 @@ public class Settings
 
         InitConfigEntry(GENERAL_SETTINGS_GROUP, nameof(ClearServerMessages),         true,  "Clear server and command messages from chat.");
         InitConfigEntry(GENERAL_SETTINGS_GROUP, nameof(SuppressFamiliarActionChatter), false, "Suppress the chat confirmation lines that Bloodcraft prints when you switch boxes / bind / unbind / move / smartbind familiars. The UI still updates normally (box list, contents, and overlays read from separate pipes). Off by default; toggle in Display settings.");
+        InitConfigEntry(UI_SETTINGS_GROUP,      nameof(ShowProgressBars),            false, "Show experience progress and prestige progress as horizontal bars alongside the % numbers. Affects the XP overlay (XP%) and the Prestige info box (level/max). Off by default; toggle in Display settings.");
         InitConfigEntry(GENERAL_SETTINGS_GROUP, nameof(FamStatsQueryIntervalInSeconds), 10,  "Query interval for familiar stats update (min 5s).");
 
         InitConfigEntry(UI_SETTINGS_GROUP,      nameof(UseHorizontalContentLayout),  true,  "Horizontal vs vertical layout for the main content panel.");

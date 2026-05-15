@@ -102,6 +102,8 @@ public partial class MainPanel : ResizeablePanelBase
     private TextMeshProUGUI  _prestigeInfoTitleLabel;
     private TextMeshProUGUI  _prestigeInfoLevelLabel;
     private TextMeshProUGUI  _prestigeInfoEffectsLabel;
+    private GameObject       _prestigeBar;        // 0.9.2: optional progress bar
+    private RectTransform    _prestigeBarFill;
     private bool _prestigeInfoSubscribed;
 
     // Levels-tab live labels (full overview)
@@ -209,6 +211,7 @@ public partial class MainPanel : ResizeablePanelBase
             Tabs = new[]
             {
                 (PanelType.QuickStartTab,    "Quick Start"),
+                (PanelType.SettingsTab,      "Settings"),
                 (PanelType.VanillaAdminTab,  "Vanilla Admin"),
                 (PanelType.AboutTab,         "About"),
             },
@@ -637,6 +640,9 @@ public partial class MainPanel : ResizeablePanelBase
                 case PanelType.QuickStartTab:
                     BuildQuickStartTab(page);
                     break;
+                case PanelType.SettingsTab:
+                    BuildSettingsTab(page);
+                    break;
                 case PanelType.AboutTab:
                     BuildAboutTab(page);
                     break;
@@ -1010,10 +1016,14 @@ public partial class MainPanel : ResizeablePanelBase
             FontStyles.Italic, fontSize: Theme.ScaledUI(11));
 
         AddSectionHeading(_boxesPickerSection, "Available Boxes");
+        // 0.9.2: bumped top padding 2→6 so the first row of box buttons has
+        // breathing room from the "Available Boxes" heading above it. The
+        // heading itself now reserves a larger height (AddSectionHeading
+        // 0.9.2 fix) but the row gap was tight too.
         _boxesListContainer = UIFactory.CreateVerticalGroup(_boxesPickerSection, "BoxListContainer",
             forceWidth: true, forceHeight: false,
             childControlWidth: true, childControlHeight: true,
-            spacing: 2, padding: new Vector4(2, 2, 2, 2));
+            spacing: 2, padding: new Vector4(2, 2, 6, 2));
         // No fixed preferredHeight - the VerticalLayoutGroup computes from
         // its dynamic children (box buttons), so auto-resize picks up the
         // actual list height after .fam boxes returns.
@@ -2031,6 +2041,13 @@ public partial class MainPanel : ResizeablePanelBase
 
         _prestigeInfoLevelLabel = AddInfoLabel(_prestigeInfoSection, "PrestigeInfoLevel",
             "(submit Show prestige info above to populate)", FontStyles.Italic, fontSize: Theme.ScaledUI(13));
+        // 0.9.2: optional progress bar showing level / maxLevel. Visibility +
+        // fill are pushed during RenderPrestigeInfo, which re-reads
+        // Settings.ShowProgressBars so the toggle takes effect live.
+        _prestigeBar = UI.Framework.CustomLib.Controls.MiniBar.Create(
+            _prestigeInfoSection, "PrestigeBar", out _prestigeBarFill,
+            fillColor: new Color(0.6f, 0.95f, 0.6f, 0.95f)); // matches the Bloodcraft #90EE90 title accent
+        _prestigeBar.SetActive(false);
 
         // Multi-line "effects" label. Using ContentSizeFitter so however many
         // lines the server sends back render flush together — the parser emits
@@ -2059,6 +2076,7 @@ public partial class MainPanel : ResizeablePanelBase
             _prestigeInfoTitleLabel.text  = "Prestige Info";
             _prestigeInfoLevelLabel.text  = "(submit Show prestige info above to populate)";
             _prestigeInfoEffectsLabel.text = "";
+            if (_prestigeBar != null && _prestigeBar.activeSelf) _prestigeBar.SetActive(false);
             return;
         }
 
@@ -2071,6 +2089,14 @@ public partial class MainPanel : ResizeablePanelBase
             _prestigeInfoEffectsLabel.text = "• " + string.Join("\n• ", info.EffectLines);
         else
             _prestigeInfoEffectsLabel.text = "(no additional effect lines parsed)";
+
+        // 0.9.2: progress bar. Only meaningful when MaxLevel > 0 (i.e. the
+        // server reported a cap); otherwise hide so we don't show a bar
+        // that never fills.
+        bool showBar = Config.Settings.ShowProgressBars && info.MaxLevel > 0;
+        if (_prestigeBar != null && _prestigeBar.activeSelf != showBar) _prestigeBar.SetActive(showBar);
+        if (showBar)
+            UI.Framework.CustomLib.Controls.MiniBar.SetProgress(_prestigeBarFill, info.Level / (float)info.MaxLevel);
     }
 
     private void OnAnyForPrestige() => RenderPrestige();
@@ -2305,12 +2331,12 @@ public partial class MainPanel : ResizeablePanelBase
         AddSpacer(page, 8);
         AddSectionHeading(page, "Weekly Quest");
         _dqWeeklyTargetLabel   = AddInfoLabel(page, "DQWeeklyTarget",   "—", FontStyles.Bold,   fontSize: Theme.ScaledUI(15));
-        // 0.9.1: brightened from Bloodcraft's #BF40BF (0.75/0.25/0.75) to a
-        // lighter magenta. The darker reference color reads as "pink on red"
-        // when the panel transparency lets a red in-game backdrop through,
-        // which was the friend-testing complaint. The new value still keeps
-        // the weekly-quest visual distinct from the cyan daily-quest target.
-        _dqWeeklyTargetLabel.color = new Color(1f, 0.55f, 1f);
+        // 0.9.2: dropped the pink family entirely. v0.9.1 tried brightening
+        // Bloodcraft's #BF40BF magenta to (1, 0.55, 1) but it still reads as
+        // pink against red in-game backdrops. Switched to gold/yellow — well
+        // outside the red wavelength so contrast survives any backdrop, and
+        // still visually distinct from the cyan daily-quest target.
+        _dqWeeklyTargetLabel.color = new Color(1f, 0.85f, 0.3f);
         ApplyStrongAccentOutline(_dqWeeklyTargetLabel);
         _dqWeeklyProgressLabel = AddInfoLabel(page, "DQWeeklyProgress", "—", FontStyles.Italic, fontSize: Theme.ScaledUI(13));
 
@@ -3016,8 +3042,8 @@ public partial class MainPanel : ResizeablePanelBase
 
     private void BuildAboutTab(GameObject page)
     {
-        BuildDisplaySettingsSection(page);
-
+        // 0.9.2: Display settings + Chat noise moved to their own Settings tab.
+        // About tab is now purely acknowledgements + community links.
         AddGuideSection(page,
             "Server-side mods this UI talks to",
             "BloodCraftHub is a CLIENT mod — it doesn't change the server. " +
@@ -3059,15 +3085,17 @@ public partial class MainPanel : ResizeablePanelBase
     }
 
     // -----------------------------------------------------------------------
-    // Display settings section (About tab) — 0.9.0
+    // Settings tab (Help group) — 0.9.0 sections, 0.9.2 promoted to its own tab.
     //
     // Three segmented controls (text scale UI, text scale overlay, plus a
-    // grid of per-overlay transparency selectors). Each control writes its
-    // selection straight to Settings; text-scale changes take effect when the
-    // user closes and reopens the panel / overlay, transparency changes
-    // apply live because Image.color is re-read each frame by the panel
-    // base class.
+    // grid of per-overlay transparency selectors) and the chat-noise toggle.
+    // 0.9.2 hooks rebuild + opacity-refresh so changes take effect live.
     // -----------------------------------------------------------------------
+
+    private void BuildSettingsTab(GameObject page)
+    {
+        BuildDisplaySettingsSection(page);
+    }
 
     private void BuildDisplaySettingsSection(GameObject page)
     {
@@ -3085,6 +3113,10 @@ public partial class MainPanel : ResizeablePanelBase
             applyScale: v => {
                 Config.Settings.SetUITextScale(v);
                 UI.Framework.CustomLib.Util.Theme.UIFontMultiplier = v;
+                // 0.9.2: rebuild the main panel so labels pick up the new
+                // multiplier. Deferred to next frame so this click handler
+                // completes before the panel hosting it is destroyed.
+                Plugin.UIManager.RequestRebuildMainPanel();
             });
 
         AddTextScaleRow(page, "Overlay text size",
@@ -3092,6 +3124,11 @@ public partial class MainPanel : ResizeablePanelBase
             applyScale: v => {
                 Config.Settings.SetOverlayTextScale(v);
                 UI.Framework.CustomLib.Util.Theme.OverlayFontMultiplier = v;
+                // 0.9.2: rebuild each overlay so its labels pick up the new
+                // multiplier. Only rebuilds overlays the user has enabled
+                // via the per-overlay toggles — disabled overlays stay
+                // un-constructed.
+                Plugin.UIManager.RequestRebuildAllOverlays();
             });
 
         AddSpacer(page, 4);
@@ -3114,9 +3151,50 @@ public partial class MainPanel : ResizeablePanelBase
             v => Config.Settings.SetProfessionOverlayTransparency(v));
 
         AddSpacer(page, 8);
+        AddSectionHeading(page, "HUD extras");
+        AddShowProgressBarsToggle(page);
+        AddSpacer(page, 8);
         AddSectionHeading(page, "Chat noise");
         AddSuppressActionChatterToggle(page);
         AddSpacer(page, 8);
+    }
+
+    /// <summary>0.9.2: toggle XP and prestige progress visualization as
+    /// horizontal bars (alongside the existing % numeric value). Off by
+    /// default. Applies immediately because each render re-reads the
+    /// setting and toggles the bar GameObject's SetActive.</summary>
+    private void AddShowProgressBarsToggle(GameObject parent)
+    {
+        var row = UIFactory.CreateHorizontalGroup(parent, "ShowProgressBarsRow",
+            forceExpandWidth: true, forceExpandHeight: false,
+            childControlWidth: true, childControlHeight: true,
+            spacing: 6, padding: new Vector4(2, 2, 2, 2));
+        UIFactory.SetLayoutElement(row,
+            minWidth: 360, preferredWidth: 400, flexibleWidth: 1,
+            minHeight: 28, preferredHeight: 30, flexibleHeight: 0);
+
+        var t = UIFactory.CreateToggle(row, "ShowProgressBarsToggle");
+        UIFactory.SetLayoutElement(t.GameObject,
+            minWidth: 360, preferredWidth: 400, flexibleWidth: 1,
+            minHeight: 24, preferredHeight: 26, flexibleHeight: 0);
+        t.Text.text = "Show XP / Prestige progress as horizontal bars";
+        t.Text.fontSize = Theme.ScaledUI(12);
+        t.Text.alignment = TextAlignmentOptions.MidlineLeft;
+        UIFactory.SetLayoutElement(t.Text.gameObject,
+            minWidth: 320, preferredWidth: 360, flexibleWidth: 1,
+            minHeight: 22, preferredHeight: 24, flexibleHeight: 0);
+        t.Toggle.isOn = Config.Settings.ShowProgressBars;
+        TooltipHover.Attach(t.GameObject,
+            "When on, the XP overlay and the Prestige info box render a slim horizontal progress bar alongside the % / level value. Off by default — % numbers stay visible either way.");
+        t.OnValueChanged += value =>
+        {
+            Config.Settings.SetShowProgressBars(value);
+            // 0.9.2: force a re-render on the Prestige info panel so its bar
+            // appears/disappears immediately. XP overlay re-reads the setting
+            // on its next render tick (triggered when Bloodcraft pushes new
+            // experience data, which it does multiple times per second).
+            try { RenderPrestigeInfo(); } catch { /* prestige tab not built yet */ }
+        };
     }
 
     /// <summary>0.9.1: opt-in toggle to suppress the chat confirmation lines
@@ -3248,6 +3326,10 @@ public partial class MainPanel : ResizeablePanelBase
         {
             applyValue(v);
             hint.TextMesh.text = FormatTransparencyHint(v);
+            // 0.9.2: push the new alpha to existing panel backgrounds so
+            // the user sees the change without having to toggle the
+            // overlay off and on.
+            Plugin.UIManager.RefreshAllOpacities();
         }
         AddOpacityButton(row, "0%",   () => Pick(0.00f));
         AddOpacityButton(row, "25%",  () => Pick(0.25f));
@@ -3540,11 +3622,21 @@ public partial class MainPanel : ResizeablePanelBase
     {
         var lbl = UIFactory.CreateLabel(parent, $"Section_{text}", text,
             TextAlignmentOptions.MidlineLeft, color: null, fontSize: Theme.ScaledUI(14));
+        // 0.9.2: bumped minHeight 20→26 and preferredHeight 22→30. The old
+        // values were tight even at Standard scale and clipped into the next
+        // container at Large scale (Theme.ScaledUI(14) → 17pt with ~20px line
+        // height needs >22px reserved). Friend-testing: "the text for available
+        // boxes and the text for manage boxes is overlapping with the border of
+        // the table". The container immediately below the heading (BoxList,
+        // BoxContent etc.) typically had only 2px top padding so any
+        // overflow from the heading drew into the list's edge. Bumping the
+        // heading itself fixes the root cause.
         UIFactory.SetLayoutElement(lbl.GameObject,
             minWidth: 360, preferredWidth: 400, flexibleWidth: 1,
-            minHeight: 20, preferredHeight: 22, flexibleHeight: 0);
+            minHeight: 26, preferredHeight: 30, flexibleHeight: 0);
         lbl.TextMesh.fontStyle = FontStyles.Bold | FontStyles.Italic;
         lbl.TextMesh.enableWordWrapping = false;
+        lbl.TextMesh.overflowMode = TextOverflowModes.Overflow;
     }
 
     private static void AddSpacer(GameObject parent, int height)

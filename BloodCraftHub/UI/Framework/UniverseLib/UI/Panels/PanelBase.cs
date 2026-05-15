@@ -57,6 +57,16 @@ public abstract class PanelBase : UIBehaviourModel, IPanelBase
         Owner.Panels.AddPanel(this);
     }
 
+    /// <summary>0.9.2: re-read the current Opacity value and apply it to the
+    /// panel's background Image. Lets per-overlay transparency settings take
+    /// effect without rebuilding the whole panel. Called from
+    /// BCHubUIManager.RefreshOverlayOpacity after the user clicks a
+    /// transparency segmented-button on the Settings tab.</summary>
+    public void RefreshOpacity()
+    {
+        UIFactory.ApplyOpacityToPanel(uiRoot, Opacity);
+    }
+
     protected void ForceRecalculateBasePanelWidth(List<GameObject> data = null)
     {
         float contentWidth = 0;

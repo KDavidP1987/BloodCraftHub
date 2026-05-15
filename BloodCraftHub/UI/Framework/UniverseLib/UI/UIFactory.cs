@@ -187,13 +187,41 @@ public static class UIFactory
 
         Image bgImage = contentHolder.AddComponent<Image>();
         bgImage.type = Image.Type.Filled;
-        bgImage.color = bgColor ?? Theme.DarkBackground;
+        // 0.9.2: actually apply the `opacity` parameter. Pre-0.9.2 the
+        // parameter was accepted but immediately discarded — the per-panel
+        // Opacity override on overlays had no visible effect because the
+        // image kept whatever alpha came packed into Theme.DarkBackground
+        // (the static global, ~0.8). Replace the alpha with the caller's
+        // requested value so each overlay's user-chosen transparency actually
+        // takes effect. Stored as a named child so PanelBase can find it again
+        // for live refresh on settings changes.
+        var color = bgColor ?? Theme.DarkBackground;
+        color.a = opacity;
+        bgImage.color = color;
 
         var panelOutline = contentHolder.AddComponent<Outline>();
         panelOutline.effectColor = Theme.DarkBackground;
         panelOutline.effectDistance = outlineDistance;
 
         return panelObj;
+    }
+
+    /// <summary>0.9.2: re-apply a panel's current Opacity to its background
+    /// Image at runtime. Called by overlay panels from RefreshOpacity() after
+    /// the user changes a per-overlay transparency setting — without this
+    /// the panel keeps the alpha it was constructed with and the setting
+    /// only takes effect on next game launch. Walks the content holder for
+    /// the Image component added in CreatePanel.</summary>
+    public static void ApplyOpacityToPanel(GameObject panelObj, float opacity)
+    {
+        if (panelObj == null) return;
+        var content = panelObj.transform.Find("Content");
+        if (content == null) return;
+        var img = content.GetComponent<Image>();
+        if (img == null) return;
+        var c = img.color;
+        c.a = opacity;
+        img.color = c;
     }
 
     /// <summary>

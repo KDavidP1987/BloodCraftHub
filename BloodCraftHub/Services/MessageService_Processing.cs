@@ -672,15 +672,23 @@ public static partial class MessageService
     {
         if (string.IsNullOrEmpty(text)) return false;
 
-        // 0.9.1: action-confirmation suppress. Only fires when no structured
-        // intercept is currently armed — otherwise the intercept needs first
-        // crack at the line. Only consumes color-tagged lines (Bloodcraft's
-        // confirmations are always wrapped in <color=...>); unrelated chat
-        // (player joins, world events) passes through.
+        // 0.9.1 / 0.9.2: action-confirmation suppress. Only fires when no
+        // structured intercept is currently armed — otherwise the intercept
+        // needs first crack at the line.
+        //
+        // 0.9.2: changed `text.StartsWith("<color")` → `text.Contains("<color=")`
+        // because Bloodcraft formats confirmation lines like "Box Selected -
+        // <color=white>name</color>!" — the color tag is in the middle, not
+        // the prefix, so the StartsWith filter never matched the bulk of
+        // confirmations. Contains catches both prefix-color and mid-color
+        // patterns. Risk: legitimate player chat could be eaten if it
+        // included literal "<color=" — but the substring is essentially never
+        // present in human-typed chat, and the suppress window is only 1.5s
+        // wide after a deliberate action click.
         if (_intercept == InterceptFlag.Idle
             && IsActionSuppressActive()
             && Config.Settings.SuppressFamiliarActionChatter
-            && text.StartsWith("<color", System.StringComparison.Ordinal))
+            && text.Contains("<color="))
         {
             return true;
         }

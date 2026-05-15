@@ -1,5 +1,82 @@
 # Changelog
 
+## 0.9.2 — Live settings, real transparency, dedicated Settings tab, progress bars, fixes
+
+Seven follow-ups from v0.9.1 friend-testing.
+
+**Per-overlay transparency now actually changes anything.** Root cause: the
+`opacity` parameter on `UIFactory.CreatePanel` had been accepted but never
+applied to the panel's background `Image` — the alpha came packed into
+`Theme.DarkBackground` (the static global, ~0.8) and the per-panel `Opacity`
+override was a no-op. Fixed by setting `Image.color.a = opacity` at
+construct time. Also added `UIFactory.ApplyOpacityToPanel(...)` +
+`PanelBase.RefreshOpacity()` so runtime Settings changes push the new
+alpha to existing panels' Image components — no rebuild required. Each
+transparency segmented-button click now calls
+`BCHubUIManager.RefreshAllOpacities()` and the change is visible
+immediately.
+
+**UI text size changes now actually re-render.** Pre-0.9.2 the
+`Theme.UIFontMultiplier` was updated correctly but existing labels kept
+their construct-time fontSize. Added `BCHubUIManager.RequestRebuildMainPanel()`
+and `RequestRebuildAllOverlays()` — both defer the destroy+recreate to
+the next frame (via `CoreUpdateBehavior.Actions`) so the click handler that
+triggered the rebuild can finish before the panel hosting it disappears.
+ActiveTab is preserved across the rebuild. Overlays are only rebuilt when
+their per-overlay `Settings.Show*Overlay` is true — disabled overlays
+stay un-constructed.
+
+**Settings moved to a dedicated tab.** Display settings + Chat noise +
+HUD extras are no longer a section on the About tab. New
+`PanelType.SettingsTab` lives in the HELP left-rail group between Quick
+Start and Vanilla Admin. The About tab is now purely acknowledgements +
+community links, as it was originally intended.
+
+**Chat suppression filter — fixed for Bloodcraft's actual reply format.**
+Pre-0.9.2 the filter was `text.StartsWith("<color")` — but Bloodcraft's
+`.fam cb` reply is `"Box Selected - <color=white>name</color>"` with the
+color tag in the middle. Changed to `text.Contains("<color=")` so both
+prefix-color and mid-color patterns match. False-positive risk minimal:
+human players don't type `<color=` literal in chat, and the suppress
+window is only 1.5s wide after a deliberate action click.
+
+**Weekly Quest accent — switched from pink/magenta to gold.** v0.9.1's
+brightened-magenta `(1, 0.55, 1)` still read as pink against red in-game
+backdrops. Changed to gold `(1, 0.85, 0.3)` which is well outside the red
+wavelength — contrast survives any backdrop and still visually distinct
+from the cyan daily-quest target. Applied to both the Daily Quest tab and
+the Daily Quest overlay.
+
+**Boxes tab — heading text no longer overlaps the panel border.**
+`AddSectionHeading` reserved only `minHeight: 20 / preferredHeight: 22`, too
+tight for the bolded italic 14pt text + line metrics, and very wrong at
+Large scale where the text grew to 17pt. Bumped to 26/30. Also bumped the
+box list container's top padding 2px → 6px so the first row has breathing
+room below the heading. Section headings throughout the panel are
+slightly taller now as a side effect — a small visual change but no
+content shifts.
+
+**Progress-bar toggle for XP and Prestige.** New
+`Settings.ShowProgressBars` config + Settings-tab toggle. When on:
+- XP overlay renders a horizontal cyan progress bar below the "XP X%"
+  label (XP% number stays visible).
+- Prestige info display renders a green progress bar below the "Current
+  Prestige Level: X / Y" line (only when MaxLevel > 0; otherwise the bar
+  hides since there's no normalized progress).
+Off by default so existing layouts are unchanged. New `MiniBar` control
+under `UI/Framework/CustomLib/Controls/` — minimal anchor-stretched
+two-image setup, pure proportional scaling (no need to query parent
+width). Reused the existing heavier `ProgressBar.cs` would have over-spec'd
+the feature — that class includes flash animations, fade timers, change
+deltas, and alert tooltips, none of which a HUD progress bar needs.
+
+**Outside this release** (still queued):
+- PlayerNameField autocomplete dropdown.
+- `.class csp` shift-spell-picker dropdown.
+- Suspend-typing redesign on a different patch target.
+- Per-profession prestige row in the Professions overlay if Bloodcraft
+  ever streams it.
+
 ## 0.9.1 — Accent-text legibility + opt-in chat suppression for familiar actions
 
 Two follow-ups from v0.9.0 friend-testing.

@@ -284,4 +284,102 @@ public class BCHubUIManager : UIManagerBase
         _panels.Add(_professionOverlay);
         _professionOverlay.SetActive(false);
     }
+
+    // -----------------------------------------------------------------------
+    // 0.9.2: live refresh helpers for the Settings tab.
+    //
+    // RefreshAllOpacities — re-applies each overlay's current Opacity value
+    // to its background Image. Pre-0.9.2 UIFactory.CreatePanel accepted the
+    // opacity parameter but never wrote it to the Image, so per-overlay
+    // transparency settings had no visible effect. Now that UIFactory
+    // applies it on construct, this method exists to push runtime changes.
+    //
+    // RebuildMainPanel / RebuildOverlay — destroy and recreate the panel
+    // so labels pick up the new Theme.UIFontMultiplier (or
+    // OverlayFontMultiplier). Without this, scale changes only take effect
+    // on next game launch because fontSize is baked into TMP_Text at
+    // construct time. Deferred via CoreUpdateBehavior.Actions so the
+    // triggering click handler completes before we tear down the panel
+    // hosting that very click.
+    // -----------------------------------------------------------------------
+
+    public void RefreshAllOpacities()
+    {
+        _experienceOverlay?.RefreshOpacity();
+        _familiarOverlay?.RefreshOpacity();
+        _familiarBrowserOverlay?.RefreshOpacity();
+        _dailyQuestOverlay?.RefreshOpacity();
+        _professionOverlay?.RefreshOpacity();
+        _mainPanel?.RefreshOpacity();
+        _floatingButton?.RefreshOpacity();
+    }
+
+    public void RequestRebuildMainPanel()
+    {
+        if (_mainPanel == null) return;
+        // Defer to next frame so the click that requested this rebuild
+        // finishes processing on the about-to-be-destroyed page.
+        Behaviors.CoreUpdateBehavior.Actions.Add(_deferredMainPanelRebuild ??= () =>
+        {
+            Behaviors.CoreUpdateBehavior.Actions.Remove(_deferredMainPanelRebuild);
+            _deferredMainPanelRebuild = null;
+            RebuildMainPanelNow();
+        });
+    }
+    private System.Action _deferredMainPanelRebuild;
+
+    private void RebuildMainPanelNow()
+    {
+        if (_mainPanel == null) return;
+        var wasOpen = _mainPanel.Enabled;
+        var activeTab = _mainPanel.ActiveTab;
+        if (_mainPanel is BloodCraftHub.UI.Framework.CustomLib.Panel.ResizeablePanelBase mp)
+            mp.Reset();
+        _mainPanel.Destroy();
+        _panels.Remove(_mainPanel);
+        _mainPanel = null;
+        if (wasOpen)
+        {
+            EnsureMainPanel();
+            _mainPanel.SetActive(true);
+            _mainPanel.ShowTab(activeTab);
+        }
+    }
+
+    public void RequestRebuildAllOverlays()
+    {
+        Behaviors.CoreUpdateBehavior.Actions.Add(_deferredOverlayRebuild ??= () =>
+        {
+            Behaviors.CoreUpdateBehavior.Actions.Remove(_deferredOverlayRebuild);
+            _deferredOverlayRebuild = null;
+            RebuildAllOverlaysNow();
+        });
+    }
+    private System.Action _deferredOverlayRebuild;
+
+    private void RebuildAllOverlaysNow()
+    {
+        RebuildOverlay(ref _experienceOverlay,      BloodCraftHub.Config.Settings.ShowExperienceOverlay, b => new ExperienceOverlayPanel(b));
+        RebuildOverlay(ref _familiarOverlay,        BloodCraftHub.Config.Settings.ShowFamiliarOverlay,   b => new FamiliarOverlayPanel(b));
+        RebuildOverlay(ref _familiarBrowserOverlay, BloodCraftHub.Config.Settings.ShowFamiliarBrowser,   b => new FamiliarBrowserOverlayPanel(b));
+        RebuildOverlay(ref _dailyQuestOverlay,      BloodCraftHub.Config.Settings.ShowDailyQuestOverlay, b => new DailyQuestOverlayPanel(b));
+        RebuildOverlay(ref _professionOverlay,      BloodCraftHub.Config.Settings.ShowProfessionOverlay, b => new ProfessionOverlayPanel(b));
+    }
+
+    private void RebuildOverlay<T>(ref T slot, bool wasVisibleByConfig, System.Func<BloodCraftHub.UI.Framework.UniverseLib.UI.UIBase, T> factory)
+        where T : BloodCraftHub.UI.Framework.CustomLib.Panel.ResizeablePanelBase
+    {
+        if (slot == null) return; // never constructed; nothing to rebuild
+        slot.Reset();
+        slot.Destroy();
+        _panels.Remove(slot);
+        slot = null;
+        if (wasVisibleByConfig)
+        {
+            var fresh = factory(UiBase);
+            _panels.Add(fresh);
+            fresh.SetActive(true);
+            slot = fresh;
+        }
+    }
 }

@@ -68,10 +68,10 @@ public class DailyQuestOverlayPanel : ResizeablePanelBase
         AddSpacer(6);
 
         _weeklyTitleLabel    = AddRow("WeeklyTitle",    "Weekly Quest", FontStyles.Bold,   fontSize: Theme.ScaledOverlay(14));
-        // 0.9.1: brightened from Bloodcraft's #BF40BF magenta so it doesn't
-        // read as "pink on red" when the overlay sits over a red in-game
-        // backdrop (vampire areas, blood pools, etc.).
-        _weeklyTitleLabel.TextMesh.color = new Color(1f, 0.55f, 1f);
+        // 0.9.2: dropped the pink family entirely. v0.9.1's lighter magenta
+        // still read as pink on red backdrops. Gold/yellow contrasts cleanly
+        // against any in-game background.
+        _weeklyTitleLabel.TextMesh.color = new Color(1f, 0.85f, 0.3f);
         ApplyStrongOutline(_weeklyTitleLabel.TextMesh);
         _weeklyTargetLabel   = AddRow("WeeklyTarget",   "—",            FontStyles.Normal, fontSize: Theme.ScaledOverlay(13));
         _weeklyProgressLabel = AddRow("WeeklyProgress", "—",            FontStyles.Italic, fontSize: Theme.ScaledOverlay(13));

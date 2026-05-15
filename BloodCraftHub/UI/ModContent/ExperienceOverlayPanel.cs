@@ -1,6 +1,7 @@
 using BloodCraftHub.Behaviors;
 using BloodCraftHub.Config;
 using BloodCraftHub.Services;
+using BloodCraftHub.UI.Framework.CustomLib.Controls;
 using BloodCraftHub.UI.Framework.CustomLib.Panel;
 using BloodCraftHub.UI.Framework.UniverseLib.UI;
 using BloodCraftHub.UI.Framework.UniverseLib.UI.Models;
@@ -47,6 +48,8 @@ public class ExperienceOverlayPanel : ResizeablePanelBase
 
     private LabelRef _levelLabel;
     private LabelRef _progressLabel;
+    private GameObject _xpBar;          // 0.9.2: horizontal progress bar (visible iff Settings.ShowProgressBars)
+    private UnityEngine.RectTransform _xpBarFill;
     private LabelRef _classLabel;
     private LabelRef _exoLabel;
     private bool _subscribed;
@@ -63,6 +66,13 @@ public class ExperienceOverlayPanel : ResizeablePanelBase
 
         _levelLabel    = AddRow("LevelLabel",    "Level —", FontStyles.Bold,  fontSize: Theme.ScaledOverlay(16));
         _progressLabel = AddRow("ProgressLabel", "XP — %",  FontStyles.Normal, fontSize: Theme.ScaledOverlay(14));
+        // 0.9.2: progress-bar variant of the XP row. Anchored-stretched
+        // child Image gives clean proportional scaling regardless of panel
+        // width — no need to know the parent's rect on render. SetActive is
+        // toggled live each render based on Settings.ShowProgressBars.
+        _xpBar = MiniBar.Create(ContentRoot, "XpBar", out _xpBarFill,
+            fillColor: new UnityEngine.Color(0.4f, 0.85f, 1f, 0.95f));
+        _xpBar.SetActive(false);
         _classLabel    = AddRow("ClassLabel",    "Class —", FontStyles.Italic, fontSize: Theme.ScaledOverlay(13));
         // 0.8.3: EXO prestige row. Friend-testing surfaced that EXO data was
         // entirely missing from the overlay. Populated from PrestigeInfo
@@ -160,6 +170,13 @@ public class ExperienceOverlayPanel : ResizeablePanelBase
 
         _progressLabel.TextMesh.text = $"XP {(s.Progress * 100f):0.#}%";
         _classLabel.TextMesh.text    = $"Class: {s.Class}";
+
+        // 0.9.2: progress-bar visibility + fill. Re-read each render so the
+        // setting takes effect immediately without rebuild. ShowProgressBars
+        // default false → bar stays inactive.
+        bool showBar = Settings.ShowProgressBars;
+        if (_xpBar != null && _xpBar.activeSelf != showBar) _xpBar.SetActive(showBar);
+        if (showBar) MiniBar.SetProgress(_xpBarFill, s.Progress);
     }
 
     internal override void Reset()

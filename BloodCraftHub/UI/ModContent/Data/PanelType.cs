@@ -36,6 +36,7 @@ public enum PanelType
     QuickStartTab,
     VanillaAdminTab,
     AboutTab,
+    SettingsTab,
 
     // Secondary overlays (independent draggable panels):
     ExperienceOverlay,
