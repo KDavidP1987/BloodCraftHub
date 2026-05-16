@@ -1,5 +1,91 @@
 # Changelog
 
+## 0.11.2 — CRITICAL: panel can no longer grow larger than the screen
+
+Friend-test (severity: stuck-can't-play): a player resized the main panel
+into a fullscreen-stretched state, then either toggled Auto-resize OR
+clicked the panel border to manually resize. The panel grew larger than
+the screen, covering most of their display in red, and because they had
+the overlay-lock active they couldn't drag, resize, or close it. Save
+data persisted the bad state so reloading didn't recover. Visible BepInEx
+log spam:
+
+```
+[Error  :BloodCraftHub] Exception loading panel save data:
+System.ArgumentException: '3399.5' cannot be greater than -3399.5.
+   at System.Math.ThrowMinMaxException[T](T min, T max)
+   at PanelBase.EnsureValidPosition()
+   at PanelBase.SetDefaultSizeAndPosition()
+   at ResizeablePanelBase.ApplySaveData(String data)
+```
+
+### Root cause: stretched anchors invert sizeDelta semantics
+
+`SetFullscreen(true)` sets `anchorMin=(0,0)/anchorMax=(1,1)` (stretched).
+With stretched anchors, `RectTransform.sizeDelta` no longer represents
+the panel's pixel size — it represents the OFFSET from the parent on
+each axis. Setting `sizeDelta.y = 700` while in stretched mode means
+"make me 700 pixels TALLER than the parent canvas," producing a panel
+much larger than the screen.
+
+Two code paths assigned `sizeDelta.y` directly after the anchors had
+been stretched:
+
+1. `MainPanel.AutoResizeIfEnabled` — when the user toggled the
+   Auto-resize setting while already in fullscreen, the auto-resize
+   path computed `desired = contentHeight + chrome`, clamped it to
+   `Screen.height * 0.9` (a reasonable cap for centered anchors but
+   meaningless for stretched), then assigned it as `sizeDelta.y`.
+2. `PanelDragger`'s resize-drag handler — the moment the user clicked
+   the panel border with intent to resize, the dragger started writing
+   `Rect.sizeDelta = new Vector2(width, height)`. Same trap.
+
+Once the panel exceeded the screen, `EnsureValidPosition`'s
+`Math.Clamp(value, minPos, maxPos)` got bounds with `minPos > maxPos`
+and threw `ArgumentException`. The exception propagated up through
+`SetDefaultSizeAndPosition` → `ApplySaveData` → `LateConstructUI`, so
+even the "restore to default" fallback path crashed and the panel was
+left at whatever invalid state it landed in.
+
+### Fix in five layers
+
+1. **`PanelBase.EnsureValidSize` — hard cap to screen dimensions.** New
+   `GetMaxAllowedSize()` helper returns `referenceResolution / uiScale
+   - 10px margin`. Every panel now has a strict upper bound enforced
+   via `Rect.SetSizeWithCurrentAnchors`, which works correctly with
+   both centered AND stretched anchors. No panel can occupy more
+   space than the canvas, regardless of MaxWidth settings, save-data
+   corruption, or stretched-anchor sizeDelta misinterpretation.
+2. **`PanelBase.EnsureValidPosition` — handle min > max without
+   throwing.** When the panel is somehow larger than the screen on an
+   axis (e.g. mid-cleanup of a bad save), the position bounds invert.
+   Old code threw `ArgumentException`. New code returns position = 0
+   (center) on that axis when bounds are inverted. Belt-and-suspenders
+   alongside the size cap above.
+3. **`PanelBase.SetDefaultSizeAndPosition` — reorder.** Pre-0.11.2 the
+   sequence was `EnsureValidPosition()` then `EnsureValidSize()`. That
+   order required `Rect.rect.width/height` to already be ≤ screen for
+   the position clamp to work. Swapped: size first, position second.
+4. **`MainPanel.AutoResizeIfEnabled` — bail when fullscreen.**
+   Auto-resize doesn't make sense for a canvas-stretched panel; early-
+   return when `_isFullscreen == true`.
+5. **`MainPanel.SetFullscreen` — pin during fullscreen, don't
+   persist.** Force `IsPinned = true` while fullscreen; restore prior
+   pin state on exit. `PanelDragger.Update` early-returns when
+   pinned, blocking BOTH drag and edge-resize — only the maximize
+   button works. Also removed the trailing `OnFinishResize()` call so
+   the fullscreen state doesn't persist to config; closing the game
+   in fullscreen comes back in the pre-fullscreen layout.
+
+### Stuck users self-heal on next launch
+
+A player on 0.11.1 with the corrupted save state will, on next launch
+with 0.11.2 installed: `LateConstructUI` runs `ApplySaveData`,
+`EnsureValidSize` caps the restored panel to screen dimensions,
+`EnsureValidPosition` clamps position with valid bounds (no throw),
+panel comes up in a normal size at the center of the screen. The error
+log entry `'3399.5' cannot be greater than -3399.5` is gone.
+
 ## 0.11.1 — Shift overlay fixes + V-Blood overlay row cleanup
 
 Iterative friend-test fixes on top of 0.11.0. Five small commits worth of

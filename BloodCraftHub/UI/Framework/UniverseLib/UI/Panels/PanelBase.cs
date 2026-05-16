@@ -170,8 +170,14 @@ public abstract class PanelBase : UIBehaviourModel, IPanelBase
 
         LayoutRebuilder.ForceRebuildLayoutImmediate(Rect);
 
-        EnsureValidPosition();
+        // 0.11.2: size FIRST, then position. EnsureValidPosition's clamp
+        // requires Rect.rect.width/height to be ≤ screen dimensions — if
+        // the panel is oversized at this point the old order would throw
+        // ArgumentException ("3399.5 cannot be greater than -3399.5") from
+        // Math.Clamp. Capping size first guarantees valid bounds before
+        // position is computed.
         EnsureValidSize();
+        EnsureValidPosition();
 
         Dragger.OnEndResize();
     }
@@ -186,31 +192,74 @@ public abstract class PanelBase : UIBehaviourModel, IPanelBase
         if (Rect.rect.height < MinHeight)
             Rect.SetSizeWithCurrentAnchors(RectTransform.Axis.Vertical, MinHeight);
 
+        // 0.11.2: hard screen-size cap. No panel may exceed the canvas — not
+        // the main panel, not any overlay, regardless of MaxWidth. Without
+        // this clamp, a corrupted save OR the fullscreen-then-auto-resize
+        // bug (v0.11.1 friend-test) could blow the panel up bigger than the
+        // screen. If the panel is also pinned/locked at that point the user
+        // has no way to recover via the UI itself. SetSizeWithCurrentAnchors
+        // handles both centered and stretched anchor modes correctly.
+        var maxAllowed = GetMaxAllowedSize();
+        if (Rect.rect.width  > maxAllowed.x)
+            Rect.SetSizeWithCurrentAnchors(RectTransform.Axis.Horizontal, maxAllowed.x);
+        if (Rect.rect.height > maxAllowed.y)
+            Rect.SetSizeWithCurrentAnchors(RectTransform.Axis.Vertical,   maxAllowed.y);
+
         Dragger.OnEndResize();
+    }
+
+    /// <summary>0.11.2: largest size a panel is allowed to occupy, derived
+    /// from the canvas reference resolution divided by the current UI scale,
+    /// with a small margin so the resize-by-edge grip stays inside the
+    /// visible canvas. Used as the upper bound in EnsureValidSize.</summary>
+    private Vector2 GetMaxAllowedSize()
+    {
+        float scale = 1f;
+        try
+        {
+            scale = UniversalUI.uiBases.First().Panels.PanelHolder.GetComponent<RectTransform>().localScale.x;
+            if (scale <= 0.001f) scale = 1f;
+        }
+        catch { /* uiBases may be empty mid-init — fall back to scale=1 */ }
+        Vector2 dim = Owner.Scaler.referenceResolution / scale;
+        const float margin = 10f;
+        return new Vector2(
+            Math.Max(MinWidth,  dim.x - margin),
+            Math.Max(MinHeight, dim.y - margin));
     }
 
     public virtual void EnsureValidPosition()
     {
-        var scale = UniversalUI.uiBases.First().Panels.PanelHolder.GetComponent<RectTransform>().localScale.x;
-        // Prevent panel going outside screen bounds
+        float scale = 1f;
+        try
+        {
+            scale = UniversalUI.uiBases.First().Panels.PanelHolder.GetComponent<RectTransform>().localScale.x;
+            if (scale <= 0.001f) scale = 1f;
+        }
+        catch { /* fall through with scale=1 */ }
+
         Vector2 pos = Rect.anchoredPosition;
         Vector2 dimensions = Owner.Scaler.referenceResolution / scale;
         float halfW = dimensions.x * 0.5f;
         float halfH = dimensions.y * 0.5f;
 
-        // Account for localScale by multiplying width and height
         float scaledWidth = Rect.rect.width;
         float scaledHeight = Rect.rect.height;
 
-        // Calculate min/max positions accounting for scaled dimensions
         float minPosX = -halfW + scaledWidth * 0.5f;
         float maxPosX = halfW - scaledWidth * 0.5f;
         float minPosY = -halfH + scaledHeight * 0.5f;
         float maxPosY = halfH - scaledHeight * 0.5f;
 
-        // Apply clamping to keep the panel within screen bounds
-        pos.x = Math.Clamp(pos.x, minPosX, maxPosX);
-        pos.y = Math.Clamp(pos.y, minPosY, maxPosY);
+        // 0.11.2: when the panel is larger than the screen on an axis,
+        // minPos > maxPos and Math.Clamp throws ArgumentException. In that
+        // case the panel can't fit, so we center it on the axis instead.
+        // Combined with the screen-size cap in EnsureValidSize, this means
+        // an oversized panel always gets shrunk THEN centered — no more
+        // un-recoverable "panel covers the whole screen and can't be
+        // moved" situations.
+        pos.x = (minPosX > maxPosX) ? 0f : Math.Clamp(pos.x, minPosX, maxPosX);
+        pos.y = (minPosY > maxPosY) ? 0f : Math.Clamp(pos.y, minPosY, maxPosY);
         Rect.anchoredPosition = pos;
     }
 

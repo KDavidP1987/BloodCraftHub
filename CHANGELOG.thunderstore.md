@@ -7,6 +7,44 @@
 > bundled copy summarizes earlier versions and reproduces the most
 > recent release in full.
 
+## 0.11.2 — CRITICAL: panel can no longer grow larger than the screen
+
+Friend-test (severity: stuck-can't-play): a player resized the main panel
+into a fullscreen-stretched state, then either toggled Auto-resize OR
+clicked the border to resize manually. The panel grew larger than the
+screen — covering their display in red — and because they had overlay-
+lock active, they couldn't drag, resize, or close it. Save data
+persisted the bad state. BepInEx logged a recurring
+`'3399.5' cannot be greater than -3399.5` exception from
+`EnsureValidPosition`'s `Math.Clamp`.
+
+**Root cause:** `SetFullscreen(true)` sets stretched anchors, which
+inverts the semantics of `sizeDelta` — assigning `sizeDelta.y = 700`
+makes the panel 700 pixels TALLER than the canvas, not 700 pixels tall.
+Both `AutoResizeIfEnabled` and `PanelDragger`'s resize-drag handler hit
+this trap.
+
+**Fix in five layers:**
+
+- `PanelBase.EnsureValidSize` hard-caps every panel to canvas
+  dimensions via `SetSizeWithCurrentAnchors`, which works for both
+  centered and stretched anchors.
+- `PanelBase.EnsureValidPosition` returns position = 0 (center) when
+  the clamp bounds invert, instead of throwing `ArgumentException`.
+- `SetDefaultSizeAndPosition` reordered to call `EnsureValidSize`
+  before `EnsureValidPosition` so the position clamp always has
+  valid bounds.
+- `MainPanel.AutoResizeIfEnabled` early-returns when `_isFullscreen`.
+- `MainPanel.SetFullscreen` force-pins the panel while fullscreen
+  (`PanelDragger.Update` blocks drag/resize when pinned) and stops
+  persisting fullscreen state to config — fullscreen is now actually
+  transient as the original comment claimed.
+
+**Stuck users on 0.11.0 / 0.11.1 self-heal on next launch** once
+0.11.2 is installed — `EnsureValidSize` shrinks the restored panel
+to fit and `EnsureValidPosition` no longer throws. No manual config
+edit required.
+
 ## 0.11.1 — Shift overlay fixes + V-Blood row cleanup
 
 Iterative friend-test fixes on top of 0.11.0 (which never made it past

@@ -299,6 +299,11 @@ public partial class MainPanel : ResizeablePanelBase
     private UnityEngine.Vector2 _preFullscreenAnchorMin;
     private UnityEngine.Vector2 _preFullscreenAnchorMax;
     private UnityEngine.Vector2 _preFullscreenPivot;
+    // 0.11.2: store pre-fullscreen pin state so exit restores it. We force
+    // IsPinned=true during fullscreen to block PanelDragger drag/resize —
+    // stretched anchors break sizeDelta arithmetic, so the safest UX is
+    // "only the maximize button works while fullscreen."
+    private bool _preFullscreenPinned;
     private BloodCraftHub.UI.Framework.UniverseLib.UI.Models.ButtonRef _maximizeBtn;
 
     public bool IsFullscreen => _isFullscreen;
@@ -325,6 +330,7 @@ public partial class MainPanel : ResizeablePanelBase
             _preFullscreenAnchorMin   = Rect.anchorMin;
             _preFullscreenAnchorMax   = Rect.anchorMax;
             _preFullscreenPivot       = Rect.pivot;
+            _preFullscreenPinned      = IsPinned;
 
             // Stretch to fill the canvas. With anchorMin=(0,0)/anchorMax=(1,1)
             // sizeDelta becomes the margin (offset from each edge), so setting
@@ -337,6 +343,22 @@ public partial class MainPanel : ResizeablePanelBase
             Rect.offsetMin = new UnityEngine.Vector2(20f, 20f);
             Rect.offsetMax = new UnityEngine.Vector2(-20f, -20f);
 
+            // 0.11.2 critical fix: force IsPinned=true while fullscreen.
+            // Friend-test surfaced two bugs that both came from the same
+            // root cause — stretched anchors invert sizeDelta semantics:
+            //   (a) AutoResizeIfEnabled assigns sizeDelta.y = desired
+            //       height; with stretched anchors that means "make me
+            //       desired px LARGER than the parent" = panel becomes
+            //       screen.height + desired tall.
+            //   (b) PanelDragger's resize-drag does the same assignment,
+            //       so grabbing the edge to resize ALSO blows the panel
+            //       up the moment the mouse moves.
+            // Both vectors are eliminated by blocking PanelDragger
+            // entirely while fullscreen — IsPinned makes Update() early-
+            // return. The only safe interaction in fullscreen mode is
+            // the maximize button itself, which calls back into this
+            // method to exit fullscreen and restore IsPinned.
+            IsPinned = true;
             _isFullscreen = true;
         }
         else
@@ -346,14 +368,21 @@ public partial class MainPanel : ResizeablePanelBase
             Rect.pivot           = _preFullscreenPivot;
             Rect.sizeDelta       = _preFullscreenSizeDelta;
             Rect.anchoredPosition= _preFullscreenAnchoredPos;
+            IsPinned             = _preFullscreenPinned;
             _isFullscreen = false;
         }
 
         Dragger?.OnEndResize();
         UpdateMaximizeBtnVisuals();
-        // Any subscriber listening for resize completion saves panel state.
-        // Manually trigger so the new layout sticks across logouts.
-        OnFinishResize();
+        // 0.11.2 IMPORTANT: do NOT call OnFinishResize() here. The
+        // pre-0.11.2 code did, which persisted the fullscreen-mode
+        // sizeDelta to config — directly contradicting the comment at
+        // line 295 saying "fullscreen is treated as transient." If the
+        // user closed the game in fullscreen, next session restored the
+        // stretched anchors and oversized sizeDelta, immediately re-
+        // entering the broken state. Normal drag/resize still saves
+        // through PanelBase.OnFinishDrag/OnFinishResize when the user
+        // is NOT in fullscreen; the pre-fullscreen save is preserved.
     }
 
     private void UpdateMaximizeBtnVisuals()
@@ -5898,6 +5927,13 @@ public partial class MainPanel : ResizeablePanelBase
     private void AutoResizeIfEnabled()
     {
         if (!Settings.IsPanelAutoResizeEnabled) return;
+        // 0.11.2: bail in fullscreen mode. With stretched anchors (set by
+        // SetFullscreen), assigning sizeDelta.y makes the panel that-many
+        // pixels TALLER than the canvas — which is exactly the friend-
+        // test bug ("UI scaled up larger than the screen"). Auto-resize
+        // doesn't make sense when the panel is already canvas-sized;
+        // skip it cleanly.
+        if (_isFullscreen) return;
         if (!_tabContent.TryGetValue(ActiveTab, out var pageGo) || pageGo == null) return;
 
         // The visible tab GameObject is the ScrollView wrapper, but the actual
