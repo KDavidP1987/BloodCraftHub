@@ -87,8 +87,9 @@ public class DailyQuestOverlayPanel : ResizeablePanelBase
 
     private LabelRef AddRow(string name, string text, FontStyles style, int fontSize)
     {
+        // 0.10.2: alignment respects Settings.OverlayTextAlignment. See Theme.OverlayMidlineAlignment.
         var lbl = UIFactory.CreateLabel(ContentRoot, name, text,
-            TextAlignmentOptions.MidlineLeft, color: null, fontSize: fontSize);
+            Theme.OverlayMidlineAlignment(), color: null, fontSize: fontSize);
         UIFactory.SetLayoutElement(lbl.GameObject,
             minWidth: 240, preferredWidth: 260, flexibleWidth: 1,
             minHeight: 20, preferredHeight: 22, flexibleHeight: 0);

@@ -44,6 +44,41 @@ public class BCHubUIManager : UIManagerBase
 
     public bool IsMainPanelOpen => _mainPanel != null && _mainPanel.Enabled;
 
+    // 0.9.7: per-panel accessors so the Size & Positioning settings section
+    // can adjust each panel's width/height and reset-to-default. The Ensure*
+    // construction is on-demand by design (overlays don't exist until the
+    // user toggles them on), so these can return null and callers must
+    // null-check before invoking AdjustSize / SetDefaultSizeAndPosition.
+    public MainPanel                    MainPanel             => _mainPanel;
+    public ExperienceOverlayPanel       ExperienceOverlay     => _experienceOverlay;
+    public FamiliarOverlayPanel         FamiliarOverlay       => _familiarOverlay;
+    public FamiliarBrowserOverlayPanel  FamiliarBrowserOverlay => _familiarBrowserOverlay;
+    public DailyQuestOverlayPanel       DailyQuestOverlay     => _dailyQuestOverlay;
+    public ProfessionOverlayPanel       ProfessionOverlay     => _professionOverlay;
+
+    /// <summary>0.10.14: read the global Settings.LockOverlays toggle and
+    /// apply IsPinned to every currently-constructed overlay. Called when
+    /// the user flips the lock switch on the main panel — overlays not
+    /// yet constructed will pick up the same state via
+    /// ResizeablePanelBase.LateConstructUI when they're built.</summary>
+    public void ApplyOverlayLockState()
+    {
+        bool pinned = BloodCraftHub.Config.Settings.LockOverlays;
+        ApplyPinnedTo(_experienceOverlay, pinned);
+        ApplyPinnedTo(_familiarOverlay, pinned);
+        ApplyPinnedTo(_familiarBrowserOverlay, pinned);
+        ApplyPinnedTo(_dailyQuestOverlay, pinned);
+        ApplyPinnedTo(_professionOverlay, pinned);
+    }
+
+    private static void ApplyPinnedTo(ResizeablePanelBase panel, bool pinned)
+    {
+        if (panel == null) return;
+        // PanelDragger checks UIPanel.IsPinned on every Update — flipping
+        // it here takes effect immediately on the next frame.
+        panel.IsPinned = pinned;
+    }
+
     public override void Reset()
     {
         base.Reset();

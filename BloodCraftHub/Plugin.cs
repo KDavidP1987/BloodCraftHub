@@ -61,6 +61,15 @@ public class Plugin : BasePlugin
         UI.Framework.CustomLib.Util.Theme.OverlayFontMultiplier = BloodCraftHub.Config.Settings.OverlayTextScale;
 
         EclipseProtocolService.Initialize();
+        // 0.10.3 fix: VBloodScannerService.Initialize used to run here.
+        // Subscribing to MessageService.FamSearchCompleted from Plugin.Load
+        // triggered MessageService's cctor before V Rising's ECS World was
+        // up, and the cctor's ComponentType.ReadOnly calls NREd inside
+        // Unity.Entities.TypeManager.FindTypeIndex — aborting plugin load
+        // entirely. Defer to UIOnInitialize which fires once LocalCharacter
+        // is bound (i.e. the World is ready). MessageService is also made
+        // lazy as a defense-in-depth measure, but the deferral keeps the
+        // initialization order matching Eclipse-main's same pattern.
 
         UIManager = new BCHubUIManager();
         CoreUpdateBehavior = new CoreUpdateBehavior();
@@ -75,6 +84,10 @@ public class Plugin : BasePlugin
         // box content). Without this the parsed list sits in a buffer until
         // some other system message arrives to act as a terminator.
         CoreUpdateBehavior.Actions.Add(MessageService.TickInterceptTimeouts);
+
+        // 0.10.0: V-Blood scanner per-frame pump. No-op unless a scan is
+        // actively running; cheap when idle (one bool check + return).
+        CoreUpdateBehavior.Actions.Add(VBloodScannerService.Tick);
 
         // Tooltip hover loop. TickAll no-ops until the MainPanel sets
         // TooltipHover.Sink (during BuildTooltipFooter), so this is safe at
@@ -118,6 +131,14 @@ public class Plugin : BasePlugin
         // in 0.6.0 — pre-0.6.0 every overlay defaulted to off on every login
         // even if the user had toggled them on.
         UIManager.RestoreOverlaysFromSettings();
+        // 0.10.3: V-Blood scanner initialization moved here from Plugin.Load.
+        // Subscribing to MessageService.FamSearchCompleted at Load triggered
+        // MessageService's cctor before ECS was up, crashing plugin load.
+        // By the time UIOnInitialize fires, LocalCharacter is bound and the
+        // ECS World is fully available — both MessageService's lazy fields
+        // and the scanner's per-frame Tick (already registered on the
+        // CoreUpdateBehavior in Plugin.Load) are safe to use.
+        Services.VBloodScannerService.Initialize();
         LogUtils.LogInfo("UI Manager initialized.");
     }
 

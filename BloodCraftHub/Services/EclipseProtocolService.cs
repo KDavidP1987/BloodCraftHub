@@ -2,6 +2,7 @@ using System;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.RegularExpressions;
+using BepInEx.Unity.IL2CPP;
 using BloodCraftHub.Resources;
 using BloodCraftHub.Utils;
 using ProjectM.Network;
@@ -39,6 +40,11 @@ public static class EclipseProtocolService
     // signs responses for clients that announce "1.3.x" today.
     public const string PROTOCOL_VERSION = "1.3.13";
 
+    // BepInEx plugin GUID of the standalone Eclipse client mod (Eclipse-main).
+    // Used to detect coexistence so we don't destroy the chat entity before
+    // Eclipse's own ClientChatSystem prefix can read it. See IsEclipseModLoaded.
+    public const string ECLIPSE_PLUGIN_GUID = "io.zfolmt.Eclipse";
+
     private static readonly Regex _regexEventPrefix = new(@"^\[(\d+)\]:", RegexOptions.Compiled);
     private static readonly Regex _regexMacSuffix   = new(@";mac([^;]+)$", RegexOptions.Compiled);
 
@@ -57,6 +63,14 @@ public static class EclipseProtocolService
     public static bool   RegistrationPending { get; private set; }
     public static byte[] SharedKey { get; private set; }
 
+    // Cached Eclipse-mod-coexistence flag. Resolved lazily on first inbound
+    // chat tick — Plugin.Load runs before BepInEx finishes loading the other
+    // plugins (alphabetical: BCH < Eclipse), so the chainloader's Plugins
+    // dictionary may not contain Eclipse yet at Plugin.Load time. By the time
+    // the player is in-world and chat starts flowing, all plugins are loaded.
+    private static bool _eclipseModChecked;
+    private static bool _eclipseModLoaded;
+
     /// <summary>Load the shared HMAC key once at plugin startup. Returns true if a usable key was loaded.</summary>
     public static bool Initialize()
     {
@@ -74,6 +88,41 @@ public static class EclipseProtocolService
     {
         UserRegistered = false;
         RegistrationPending = false;
+    }
+
+    /// <summary>
+    /// True when the standalone Eclipse client mod (io.zfolmt.Eclipse) is also
+    /// installed in this BepInEx profile. Result is cached after the first call.
+    /// </summary>
+    /// <remarks>
+    /// Bloodcraft's server-side mod broadcasts a single MAC-signed
+    /// ProgressToClient/ConfigsToClient stream per player. Both BCH and Eclipse
+    /// independently Harmony-prefix ClientChatSystem.OnUpdate and consume that
+    /// stream. If BCH destroys the chat entity after processing (the default
+    /// when Eclipse isn't around — keeps chat noise out of the player's
+    /// chat window), Eclipse's prefix sees a destroyed entity and renders
+    /// zeroed-out bars. Callers should leave the entity intact when this
+    /// returns true; Eclipse's own prefix will destroy it after parsing.
+    /// </remarks>
+    public static bool IsEclipseModLoaded()
+    {
+        if (_eclipseModChecked) return _eclipseModLoaded;
+        try
+        {
+            var plugins = IL2CPPChainloader.Instance?.Plugins;
+            _eclipseModLoaded = plugins != null && plugins.ContainsKey(ECLIPSE_PLUGIN_GUID);
+            if (_eclipseModLoaded)
+                LogUtils.LogInfo($"Eclipse mod ({ECLIPSE_PLUGIN_GUID}) detected alongside BloodCraftHub — leaving MAC-signed chat entities intact so Eclipse can also process them.");
+            else
+                LogUtils.LogDebug($"Eclipse mod ({ECLIPSE_PLUGIN_GUID}) not installed; BCH will destroy MAC-signed chat entities after processing.");
+        }
+        catch (Exception ex)
+        {
+            LogUtils.LogWarning($"Eclipse mod detection failed; assuming not present: {ex.Message}");
+            _eclipseModLoaded = false;
+        }
+        _eclipseModChecked = true;
+        return _eclipseModLoaded;
     }
 
     // ---------- Inbound (server -> client) ----------
@@ -199,13 +248,20 @@ public static class EclipseProtocolService
         // [14..18] Familiar
         if (n >= 19)
         {
+            // 0.10.8: HasActive is the raw "name field is non-empty" signal —
+            // before the empty-string mask gets replaced with the "Familiar"
+            // placeholder for display. The Summon flow on the V-Bloods tab
+            // uses this to decide whether to pre-issue `.fam ub`.
+            string famNameRaw = p[17];
+            bool   famActive  = !string.IsNullOrEmpty(famNameRaw);
             PlayerStateService.UpdateFamiliar(new PlayerStateService.FamiliarState
             {
-                Progress = PlayerStateService.ParseProgress(p[14]),
-                Level    = Math.Max(1, PlayerStateService.ParseInt(p[15])),
-                Prestige = PlayerStateService.ParseInt(p[16]),
-                Name     = string.IsNullOrEmpty(p[17]) ? "Familiar" : p[17],
-                RawStats = p[18] ?? string.Empty,
+                Progress  = PlayerStateService.ParseProgress(p[14]),
+                Level     = Math.Max(1, PlayerStateService.ParseInt(p[15])),
+                Prestige  = PlayerStateService.ParseInt(p[16]),
+                Name      = famActive ? famNameRaw : "Familiar",
+                RawStats  = p[18] ?? string.Empty,
+                HasActive = famActive,
             });
         }
 

@@ -97,7 +97,7 @@ public class ProfessionOverlayPanel : ResizeablePanelBase
     private void AddHeader()
     {
         var lbl = UIFactory.CreateLabel(ContentRoot, "ProfHeader", "Professions",
-            TextAlignmentOptions.MidlineLeft, color: null, fontSize: Theme.ScaledOverlay(15));
+            Theme.OverlayMidlineAlignment(), color: null, fontSize: Theme.ScaledOverlay(15));
         UIFactory.SetLayoutElement(lbl.GameObject,
             minWidth: 240, preferredWidth: 260, flexibleWidth: 1,
             minHeight: 22, preferredHeight: 24, flexibleHeight: 0);
@@ -109,7 +109,7 @@ public class ProfessionOverlayPanel : ResizeablePanelBase
     private LabelRef AddRow(string name, string text)
     {
         var lbl = UIFactory.CreateLabel(ContentRoot, name, text,
-            TextAlignmentOptions.MidlineLeft, color: null, fontSize: Theme.ScaledOverlay(13));
+            Theme.OverlayMidlineAlignment(), color: null, fontSize: Theme.ScaledOverlay(13));
         UIFactory.SetLayoutElement(lbl.GameObject,
             minWidth: 240, preferredWidth: 260, flexibleWidth: 1,
             minHeight: 18, preferredHeight: 20, flexibleHeight: 0);

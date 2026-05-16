@@ -322,6 +322,15 @@ public static class PlayerStateService
         public string Name;
         public string RawStats;       // raw packed string; access via FamiliarStat* helpers below
 
+        // 0.10.8: HasActive distinguishes "no familiar summoned" (server sent
+        // empty name + level 0) from "familiar bound but not yet streamed".
+        // Pre-0.10.8, Level was floored to 1 and Name defaulted to "Familiar"
+        // by EclipseProtocolService, which made the V-Blood Summon button
+        // always think a familiar was active and unconditionally pre-issue
+        // `.fam ub` — producing a "Couldn't find familiar to unbind!" reply
+        // when none was actually bound.
+        public bool   HasActive;
+
         public int MaxHealth     => ExtractStat(RawStats, 0, 4);
         public int PhysicalPower => ExtractStat(RawStats, 4, 3);
         public int SpellPower    => ExtractStat(RawStats, 7, int.MaxValue);
@@ -497,6 +506,125 @@ public static class PlayerStateService
     {
         LastResponse = r;
         Fire(LastResponseChanged);
+    }
+
+    // 0.10.0: V-Blood collection tracking. Each entry tracks which of the 4
+    // possible variants (basic / shiny / primal / primal-shiny) the player
+    // has captured, plus location info for one-click summoning.
+    //
+    // 0.10.9: scanner reworked from a 130-query .fam s scan to a box-sweep
+    // (.fam boxes → for each box, .fam cb + .fam l). Each capture is now
+    // stored as a precise VBloodInstance with its exact (box, index) and
+    // per-entry shiny/school/primal/level/prestige metadata, so the chip
+    // view can render one row per CAPTURE (the user explicitly picks
+    // which variant to summon) and the summon path can target the exact
+    // index without the BestBox-guessing the 0.10.0..0.10.8 search-based
+    // scan relied on.
+    //
+    // The four HasBasic/HasShiny/HasPrimal/HasPrimalShiny flags are now
+    // derived from the Instances list. BestBox is the box of the FIRST
+    // captured instance — kept around so the existing Familiar Browser
+    // overlay's name-based smart-summon path still has a fallback target
+    // when the caller doesn't care which variant.
+    public struct VBloodInstance
+    {
+        public string Box;          // box this capture lives in (used by .fam cb)
+        public int    Index;        // 1-based slot inside Box (used by .fam b N)
+        public int    Level;        // current familiar level (0 if not parsed)
+        public int    Prestige;     // prestige tier (0 if none)
+        public bool   IsShiny;      // shiny buff present
+        public string ShinySchool;  // "Storm" / "Frost" / etc. (empty if not shiny or color unknown)
+        public bool   IsPrimal;     // localized name carried the "Primal " prefix
+    }
+
+    public struct VBloodCaptureStatus
+    {
+        public string Name;                                                    // canonical basename (matches VBloodRegistry.All entry)
+        public System.Collections.Generic.List<VBloodInstance> Instances;       // 0..N captures of this V-Blood across all boxes
+        public System.DateTime LastScanAt;                                      // when the scanner last updated this slot
+
+        // Derived convenience flags — read by the chip view's
+        // sort/filter buttons and by the legacy summon fallback.
+        public bool HasBasic         => HasVariant(isShiny: false, isPrimal: false);
+        public bool HasShiny         => HasVariant(isShiny: true,  isPrimal: false);
+        public bool HasPrimal        => HasVariant(isShiny: false, isPrimal: true);
+        public bool HasPrimalShiny   => HasVariant(isShiny: true,  isPrimal: true);
+        public string ShinySchool        => FirstSchool(isShiny: true,  isPrimal: false);
+        public string PrimalShinySchool  => FirstSchool(isShiny: true,  isPrimal: true);
+
+        /// <summary>Box of the first capture in any variant — used as a
+        /// fallback summon target by the Familiar Browser overlay's
+        /// name-based path. Empty when no instances.</summary>
+        public string BestBox
+        {
+            get
+            {
+                if (Instances == null || Instances.Count == 0) return "";
+                return Instances[0].Box;
+            }
+        }
+
+        /// <summary>1-based index of the first capture — paired with
+        /// BestBox for legacy summon path. 0 when no instances.</summary>
+        public int BestIndex
+        {
+            get
+            {
+                if (Instances == null || Instances.Count == 0) return 0;
+                return Instances[0].Index;
+            }
+        }
+
+        private bool HasVariant(bool isShiny, bool isPrimal)
+        {
+            if (Instances == null) return false;
+            foreach (var i in Instances)
+                if (i.IsShiny == isShiny && i.IsPrimal == isPrimal) return true;
+            return false;
+        }
+
+        private string FirstSchool(bool isShiny, bool isPrimal)
+        {
+            if (Instances == null) return "";
+            foreach (var i in Instances)
+                if (i.IsShiny == isShiny && i.IsPrimal == isPrimal && !string.IsNullOrEmpty(i.ShinySchool))
+                    return i.ShinySchool;
+            return "";
+        }
+
+        /// <summary>Look up the captured instance for an explicit
+        /// (isShiny, isPrimal) target. Returns false when no such variant
+        /// is captured.</summary>
+        public bool TryGetVariant(bool isShiny, bool isPrimal, out VBloodInstance result)
+        {
+            if (Instances != null)
+            {
+                foreach (var i in Instances)
+                    if (i.IsShiny == isShiny && i.IsPrimal == isPrimal)
+                    { result = i; return true; }
+            }
+            result = default;
+            return false;
+        }
+    }
+
+    // Keyed by canonical basename (VBloodRegistry.All entry). Read by the
+    // V-Bloods tab; written by VBloodScannerService.UpdateVBloodSlot.
+    public static System.Collections.Generic.Dictionary<string, VBloodCaptureStatus> VBloodCollection { get; private set; }
+        = new System.Collections.Generic.Dictionary<string, VBloodCaptureStatus>(System.StringComparer.OrdinalIgnoreCase);
+    public static event Action VBloodCollectionChanged;
+
+    internal static void UpdateVBloodSlot(in VBloodCaptureStatus s)
+    {
+        if (string.IsNullOrEmpty(s.Name)) return;
+        VBloodCollection[s.Name] = s;
+        Fire(VBloodCollectionChanged);
+    }
+
+    internal static void ResetVBloodCollection()
+    {
+        VBloodCollection.Clear();
+        Fire(VBloodCollectionChanged);
     }
 
     // =========================================================================

@@ -12,7 +12,7 @@
     <RootNamespace>BloodCraftHub</RootNamespace>
     <Authors>kdpen</Authors>
     <Description>Unified client UI for V Rising's Bloodcraft mod. Surfaces every Bloodcraft, KindredCommands, and KindredLogistics chat command as buttons + forms.</Description>
-    <Version>0.9.4</Version>
+    <Version>0.10.14</Version>
     <PackageId>$(Authors).$(AssemblyName)</PackageId>
     <PackageProjectUrl>https://github.com/KDavidP1987/BloodCraftHub</PackageProjectUrl>
 

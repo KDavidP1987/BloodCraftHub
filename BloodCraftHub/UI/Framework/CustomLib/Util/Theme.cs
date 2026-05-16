@@ -1,11 +1,21 @@
 using System;
 using BloodCraftHub.Utils;
+using TMPro;
 using UnityEngine;
 
 namespace BloodCraftHub.UI.Framework.CustomLib.Util;
 
 public static class Theme
 {
+    // 0.10.2: helper that reads the OverlayTextAlignment setting and returns
+    // the matching TMP alignment constant. Used by every overlay's row-
+    // creation path so cycling the setting + rebuilding overlays propagates
+    // the new alignment uniformly. Default is MidlineLeft (pre-0.10.2 behavior).
+    public static TextAlignmentOptions OverlayMidlineAlignment()
+        => BloodCraftHub.Config.Settings.OverlayTextAlignmentSetting == BloodCraftHub.Config.Settings.OverlayAlignment.Right
+            ? TextAlignmentOptions.MidlineRight
+            : TextAlignmentOptions.MidlineLeft;
+
     // Base colour palette
     public static Color Level1 {get; private set; }
     public static Color Level2 {get; private set; }
@@ -48,6 +58,50 @@ public static class Theme
     public static Color DropDownScrollbarPressed    {get; private set; }
     public static Color DropDownToggleNormal        {get; private set; }
     public static Color DropDownToggleHighlighted { get; private set; }
+
+    // 0.10.9: visual-polish palette.
+    //
+    // CardBackground is a subtle inset background applied behind grouped
+    // sections via UIFactory.AddCard. Pre-0.10.9 every tab was a single
+    // wall of labels on the dark-grey panel background — the user
+    // described it as "basic HTML on a red background." The card surface
+    // is ~50% lighter than PanelBackground but stays well below
+    // SelectableHighlighted so it reads as "section grouping" rather
+    // than "interactable element."
+    //
+    // MutedBody is for prose-hint labels (italic body text that explains
+    // what a section does). Muted enough to recede behind the bright
+    // primary labels but legible against PanelBackground.
+    //
+    // AccentMono is the inline-code color for command-name spans like
+    // `.wep cst` inside body text — picks a faint gold/cyan so they
+    // visually pop as "look here, this is the literal command" while
+    // staying readable in any TMPro fallback font (we ship no monospace
+    // font; the color does the emphasis work instead).
+    //
+    // DividerLine is for 1-px AddDivider hairlines between logical
+    // groups. Low-opacity so it reads as a subtle separator, not chrome.
+    //
+    // SystemTint* are 5%-opacity washes that color-code the four
+    // progression systems (XP / Legacy / Expertise / Familiar) on the
+    // Prestige and Levels tabs. The bright base tones come from Level1-5
+    // above; these are intentionally dim so labels stay readable on top.
+    public static Color CardBackground { get; private set; }
+    public static Color MutedBody      { get; private set; }
+    public static Color AccentMono     { get; private set; }
+    public static Color DividerLine    { get; private set; }
+    public static Color SystemTintXP        { get; private set; }
+    public static Color SystemTintLegacy    { get; private set; }
+    public static Color SystemTintExpertise { get; private set; }
+    public static Color SystemTintFamiliar  { get; private set; }
+    public static Color SystemTintProfession{ get; private set; }
+    public static Color SystemTintQuest     { get; private set; }
+
+    /// <summary>0.10.9: hex string for AccentMono usable inside TMPro
+    /// `&lt;color=#...&gt;` rich-text spans. Avoids per-callsite hex
+    /// duplication — change here, propagate everywhere.</summary>
+    public const string AccentMonoHex = "#9AC8D9"; // muted cyan, legible on dark grey
+    public const string MutedBodyHex  = "#8E8E8E"; // mid-grey, recedes vs DefaultText
 
     private static float _opacity;
     public static float Opacity
@@ -127,5 +181,23 @@ public static class Theme
         DropDownScrollbarPressed = new Color(0.4f, 0.4f, 0.4f, Opacity);
         DropDownToggleNormal = new Color(0.35f, 0.35f, 0.35f, Opacity);
         DropDownToggleHighlighted = new Color(0.25f, 0.25f, 0.25f, Opacity);
+
+        // 0.10.9 visual-polish colors. All tied to Opacity so they obey
+        // the same transparency curve as the rest of the panel chrome.
+        CardBackground = new Color(0.13f, 0.13f, 0.13f, Opacity);
+        MutedBody      = new Color(0.56f, 0.56f, 0.56f, 1f);   // body text — full alpha so it doesn't get re-multiplied by panel transparency
+        AccentMono     = new Color(0.60f, 0.78f, 0.85f, 1f);   // muted cyan for inline-command emphasis
+        DividerLine    = new Color(0.40f, 0.40f, 0.40f, 0.55f * Opacity);
+
+        // System-progress tints — drawn from the Level1..Level5 base
+        // palette, then multiplied down to ~5% alpha so the wash sits
+        // BEHIND text without competing for attention.
+        Color Wash(float r, float g, float b) => new Color(r, g, b, 0.06f * Opacity);
+        SystemTintXP        = Wash(0.18f, 0.53f, 0.67f); // cyan-blue (Level5)
+        SystemTintLegacy    = Wash(0.64f, 0.10f, 0.10f); // crimson  (Level1)
+        SystemTintExpertise = Wash(0.92f, 0.55f, 0.18f); // copper   (Level2-ish)
+        SystemTintFamiliar  = Wash(0.55f, 0.30f, 0.65f); // violet
+        SystemTintProfession= Wash(0.30f, 0.70f, 0.35f); // green    (Level4)
+        SystemTintQuest     = Wash(0.85f, 0.75f, 0.30f); // gold
     }
 }

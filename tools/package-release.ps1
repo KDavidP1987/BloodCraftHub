@@ -83,12 +83,26 @@ $readme     = Join-Path $repoRoot 'README.md'
 $license    = Join-Path $repoRoot 'LICENSE.txt'
 $changelog  = Join-Path $repoRoot 'CHANGELOG.md'
 
-Copy-Item $dll       (Join-Path $stageDir 'BloodCraftHub.dll')
-Copy-Item $manifest  (Join-Path $stageDir 'manifest.json')
-Copy-Item $icon      (Join-Path $stageDir 'icon.png')
-Copy-Item $readme    (Join-Path $stageDir 'README.md')
-Copy-Item $license   (Join-Path $stageDir 'LICENSE.txt')
-Copy-Item $changelog (Join-Path $stageDir 'CHANGELOG.md')
+# Thunderstore caps the bundled CHANGELOG.md at 100,000 characters
+# and rejects the upload otherwise. The full project changelog (every
+# version with full friend-test context) lives at the repo root for
+# GitHub; CHANGELOG.thunderstore.md is the abbreviated variant we
+# bundle into the zip when present. The full one stays the canonical
+# source — the abbreviated changelog's header links back to it.
+$thunderstoreChangelog = Join-Path $repoRoot 'CHANGELOG.thunderstore.md'
+$changelogForZip = if (Test-Path $thunderstoreChangelog) {
+    Write-Host "Using CHANGELOG.thunderstore.md (full CHANGELOG.md exceeds Thunderstore's 100k limit)." -ForegroundColor Yellow
+    $thunderstoreChangelog
+} else {
+    $changelog
+}
+
+Copy-Item $dll              (Join-Path $stageDir 'BloodCraftHub.dll')
+Copy-Item $manifest         (Join-Path $stageDir 'manifest.json')
+Copy-Item $icon             (Join-Path $stageDir 'icon.png')
+Copy-Item $readme           (Join-Path $stageDir 'README.md')
+Copy-Item $license          (Join-Path $stageDir 'LICENSE.txt')
+Copy-Item $changelogForZip  (Join-Path $stageDir 'CHANGELOG.md')
 
 # 5. Zip -------------------------------------------------------------------
 if (Test-Path $zipPath) { Remove-Item -Force $zipPath }

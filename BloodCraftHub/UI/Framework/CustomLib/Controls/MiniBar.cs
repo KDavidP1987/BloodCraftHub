@@ -26,6 +26,18 @@ public static class MiniBar
     /// out parameter (so the caller can later stretch it via SetProgress).</summary>
     public static GameObject Create(GameObject parent, string name, out RectTransform fillRect,
                                     Color fillColor, int height = DefaultHeight)
+        => CreateWithSubLine(parent, name, out fillRect, out _, fillColor, height);
+
+    /// <summary>0.10.7: Create a bar with an OPTIONAL inset sub-line for
+    /// secondary progress (e.g. prestige tier toward next tier). The sub-line
+    /// fill is a slim ~25%-height strip pinned to the bottom edge of the
+    /// container; consumers SetActive its parent ("_SubLine") to show/hide
+    /// and call <see cref="SetProgress"/> on the sub fill RT to update.
+    /// Both fills use the same Image-fill technique so progress drawing is
+    /// consistent. Returns the row container.</summary>
+    public static GameObject CreateWithSubLine(GameObject parent, string name,
+                                               out RectTransform fillRect, out RectTransform subFillRect,
+                                               Color fillColor, int height = DefaultHeight)
     {
         var row = UIFactory.CreateUIObject(name, parent);
         UIFactory.SetLayoutElement(row,
@@ -45,10 +57,9 @@ public static class MiniBar
         outline.effectColor = new Color(0.55f, 0.55f, 0.55f, 0.9f);
         outline.effectDistance = new Vector2(1f, -1f);
 
-        // Fill — anchored stretched horizontally; sized by anchorMax.x in
-        // SetProgress (0.0 = empty, 1.0 = full). Inset by 1px on each side
-        // so the fill sits inside the outline border instead of crashing
-        // through it.
+        // Main fill — anchored stretched vertically (full height) and sized
+        // by anchorMax.x in SetProgress. Inset by 1px on each side so the
+        // fill sits inside the outline border instead of crashing through it.
         var fillObj = UIFactory.CreateUIObject(name + "_Fill", row);
         var rt = fillObj.GetComponent<RectTransform>();
         rt.anchorMin = new Vector2(0f, 0f);
@@ -62,6 +73,28 @@ public static class MiniBar
         fill.color = fillColor;
 
         fillRect = rt;
+
+        // 0.10.7: prestige sub-line. Slim strip across the bottom 25% of the
+        // bar height, slightly lighter than the main fill so it reads as a
+        // secondary indicator without competing for attention. Anchored
+        // bottom-stretched-horizontal so it scales cleanly when the main bar
+        // gets thinner. Initially hidden — consumer activates when needed.
+        var subObj = UIFactory.CreateUIObject(name + "_SubLine", row);
+        var subRt = subObj.GetComponent<RectTransform>();
+        subRt.anchorMin = new Vector2(0f, 0f);
+        subRt.anchorMax = new Vector2(0f, 0.30f);
+        subRt.pivot = new Vector2(0f, 0.5f);
+        subRt.anchoredPosition = new Vector2(1f, 0f);
+        subRt.offsetMin = new Vector2(1f, 1f);
+        subRt.offsetMax = new Vector2(-1f, 0f);
+
+        var subFill = subObj.AddComponent<Image>();
+        // Slightly desaturated white-ish overlay so it works for any base fill color.
+        subFill.color = new Color(1f, 1f, 1f, 0.55f);
+
+        subObj.SetActive(false);
+        subFillRect = subRt;
+
         return row;
     }
 
@@ -75,5 +108,18 @@ public static class MiniBar
         var max = fillRect.anchorMax;
         max.x = clamped;
         fillRect.anchorMax = max;
+    }
+
+    /// <summary>0.10.7: Resize the bar's container height. Used when the
+    /// user toggles Settings.ProgressBarHeight while a bar is already
+    /// constructed. Idempotent — safe to call every render.</summary>
+    public static void SetHeight(GameObject row, int height)
+    {
+        if (row == null) return;
+        var le = row.GetComponent<UnityEngine.UI.LayoutElement>();
+        if (le == null) return;
+        if (le.minHeight == height && le.preferredHeight == height) return;
+        le.minHeight = height;
+        le.preferredHeight = height;
     }
 }

@@ -13,8 +13,10 @@ namespace BloodCraftHub.Patches;
 // Inbound chat-message pump. Hooks ClientChatSystem.OnUpdate; for each inbound
 // chat entity:
 //   1. If it's a signed Eclipse-protocol message → verify MAC, route to
-//      EclipseProtocolService, and DESTROY the entity so the player's chat
-//      window never sees the [1]:...;mac... noise.
+//      EclipseProtocolService, then destroy the entity (so the [1]:...;mac...
+//      noise never reaches the chat window) — UNLESS the standalone Eclipse
+//      mod is also installed, in which case we leave the entity intact so
+//      Eclipse's own prefix can read it too; Eclipse will destroy it.
 //   2. Otherwise leave it alone (real player chat, server announcements, etc.).
 //
 // Also fires the registration handshake once the player is in-world and
@@ -26,6 +28,13 @@ internal static class ClientChatPatch
 {
     [HarmonyPatch(typeof(ClientChatSystem), nameof(ClientChatSystem.OnUpdate))]
     [HarmonyPrefix]
+    // Run before Eclipse-main's same-target prefix (which is Priority.Normal).
+    // When Eclipse is also installed we leave the chat entity intact instead
+    // of destroying it (see EclipseProtocolService.IsEclipseModLoaded), but
+    // Eclipse's prefix needs to see and process the entity itself — if it
+    // ran first and destroyed, we'd see a dead entity and our overlays would
+    // stop updating. High priority guarantees BCH parses the payload first.
+    [HarmonyPriority(Priority.High)]
     private static void OnUpdate_Prefix(ClientChatSystem __instance)
     {
         // Don't try anything until MessageService has bound the local character/user.
@@ -66,8 +75,16 @@ internal static class ClientChatPatch
 
                 if (EclipseProtocolService.TryHandleServerMessage(text))
                 {
-                    // Eclipse consumed this message — destroy so it doesn't show in chat.
-                    Plugin.EntityManager.DestroyEntity(entity);
+                    // Normally we destroy here so the [N]:csv;mac... noise
+                    // doesn't surface in the player's chat window. BUT if the
+                    // standalone Eclipse mod is also installed, its own
+                    // ClientChatSystem prefix needs to read this same entity
+                    // to populate its overlay — destroying it now would leave
+                    // Eclipse rendering zeroed bars. Eclipse's prefix destroys
+                    // the entity itself after parsing, so chat-window noise
+                    // is still suppressed in that case.
+                    if (!EclipseProtocolService.IsEclipseModLoaded())
+                        Plugin.EntityManager.DestroyEntity(entity);
                     continue;
                 }
 

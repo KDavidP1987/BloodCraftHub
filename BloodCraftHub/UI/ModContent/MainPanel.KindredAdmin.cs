@@ -1186,14 +1186,28 @@ public partial class MainPanel
 
     private static void AddAdminWarningIntro(GameObject page, string body)
     {
-        var intro = UIFactory.CreateLabel(page, "AdminIntro", body,
-            TextAlignmentOptions.TopLeft, color: null, fontSize: Theme.ScaledUI(12));
-        UIFactory.SetLayoutElement(intro.GameObject,
+        // 0.10.12: wrap the intro paragraph in a card so it doesn't sit
+        // flush with the panel border. Italic-muted styling pulls it back
+        // visually so the forms below are the primary focus.
+        var card = UIFactory.CreateVerticalGroup(page, "AdminIntroCard",
+            forceWidth: true, forceHeight: false,
+            childControlWidth: true, childControlHeight: true,
+            spacing: 4, padding: new Vector4(8, 8, 10, 10),
+            bgColor: Theme.CardBackground);
+        UIFactory.SetLayoutElement(card,
             minWidth: 360, preferredWidth: 400, flexibleWidth: 1,
+            minHeight: 28, flexibleHeight: 0);
+
+        // 0.10.13: dropped italic and bumped font size 12 → 13 for legibility.
+        var intro = UIFactory.CreateLabel(card, "AdminIntro",
+            $"<color={Theme.MutedBodyHex}>{body}</color>",
+            TextAlignmentOptions.TopLeft, color: null, fontSize: Theme.ScaledUI(13));
+        UIFactory.SetLayoutElement(intro.GameObject,
+            minWidth: 320, preferredWidth: 380, flexibleWidth: 1,
             minHeight: 36, preferredHeight: 44, flexibleHeight: 0);
         intro.TextMesh.enableWordWrapping = true;
         intro.TextMesh.overflowMode = TextOverflowModes.Overflow;
-        intro.TextMesh.fontStyle = FontStyles.Italic;
+        intro.TextMesh.fontStyle = FontStyles.Normal;
     }
 
     // For "fill in one string, fire command" cases.

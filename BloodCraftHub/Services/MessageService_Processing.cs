@@ -44,11 +44,18 @@ public static partial class MessageService
     public const string BCCOM_FAM_ENABLE_EQUIP           = ".fam smartbind"; // legacy constant; smartbind takes a name (see BCCOM_FAM_SMARTBIND_FORMAT)
 
     // ---- 0.6.0 .fam audit additions ----
-    public const string BCCOM_FAM_SEARCH_FORMAT          = ".fam s {0}";       // search boxes by name
-    public const string BCCOM_FAM_SMARTBIND_FORMAT       = ".fam sb {0}";      // search and bind in one step
-    public const string BCCOM_FAM_SHINY_FORMAT           = ".fam shiny {0}";   // make active familiar shiny ([SpellSchool] = blood/storm/unholy/chaos/frost/illusion)
-    public const string BCCOM_FAM_OPTION_FORMAT          = ".fam option {0}";  // toggle a per-player familiar setting (e.g. shiny, vbloodemotes)
-    public const string BCCOM_FAM_ECHOES_FORMAT          = ".fam echoes {0}";  // purchase exo reward via VBlood essence
+    // 0.10.7: name-arg commands MUST quote the arg so VCF parses multi-word
+    // familiar names correctly. Pre-0.10.7 sent `.fam s Alpha the White Wolf`
+    // → VCF only consumed "Alpha" and printed the usage echo `.fam s [Name]`
+    // (the `usage:` value from Bloodcraft's [Command(usage: ...)] attribute),
+    // which broke the V-Blood scanner entirely and leaked usage echoes to
+    // chat regardless of suppression. The intercept-arming Substring parse
+    // strips the wrapping quotes so scanner correlation still works.
+    public const string BCCOM_FAM_SEARCH_FORMAT          = ".fam s \"{0}\"";       // search boxes by name (quoted)
+    public const string BCCOM_FAM_SMARTBIND_FORMAT       = ".fam sb \"{0}\"";      // search and bind in one step (quoted)
+    public const string BCCOM_FAM_SHINY_FORMAT           = ".fam shiny {0}";       // make active familiar shiny ([SpellSchool] = blood/storm/unholy/chaos/frost/illusion)
+    public const string BCCOM_FAM_OPTION_FORMAT          = ".fam option {0}";      // toggle a per-player familiar setting (e.g. shiny, vbloodemotes)
+    public const string BCCOM_FAM_ECHOES_FORMAT          = ".fam echoes \"{0}\"";  // purchase exo reward via VBlood essence (quoted)
     public const string BCCOM_FAM_RESET                  = ".fam reset";       // DESTRUCTIVE: destroy all entities in followerbuffer + clear active data
 
     // ---- 0.6.0 battle group commands ----
@@ -447,6 +454,15 @@ public static partial class MessageService
         // dedicated structured parse. See PlayerStateService.LastResponse.
         AwaitingGenericResponse,
         ReceivingGenericResponse,
+        // 0.10.0: structured parse for .fam s replies feeding the V-Blood
+        // collection tracker. Server replies with either:
+        //   "Matching familiar(s) found in: <color=white>box1</color>, <color=white>box3</color><color=#AA336A>*</color>"
+        //   "VBlood familiar(s) found in: ..."  (when query == "vblood")
+        //   "Couldn't find any matches..."
+        //   "Couldn't find matching familiar in boxes."
+        // The reply is a single line; we parse + emit + return to Idle immediately
+        // so there's no need for a separate "Receiving" state.
+        AwaitingFamSearch,
     }
 
     private static InterceptFlag _intercept = InterceptFlag.Idle;
@@ -460,6 +476,60 @@ public static partial class MessageService
     // can show "last response from `.wep get`: ..." if useful.
     private static readonly List<string> _genericResponseBuffer = new();
     private static string _genericResponseCommand = "";
+    // 0.10.0: the .fam s query currently armed. We need to remember it so
+    // the FamSearchCompleted event tells the scanner which name resolved.
+    private static string _famSearchQuery = "";
+
+    // 0.10.2 / 0.10.6: chat-suppression decision system.
+    //
+    // The 0.10.2 design used a single bool (_suppressCurrentCaptureChat) set
+    // by EnqueueMessageSilent before arming the intercept. 0.10.6 generalizes
+    // this to a per-category model so the Settings → Chat Logging section can
+    // expose user-controllable visibility per command-source group:
+    //   BchAuto    — BCH's own auto-fired traffic (V-Blood scanner, refresh
+    //                tickers). EnqueueMessageSilent forces this category.
+    //                Default suppressed.
+    //   Bloodcraft — user-initiated Bloodcraft commands. HasBchUIDisplay=true
+    //                for commands whose reply BCH renders structurally (.bl
+    //                get, .wep get, .prestige get, .fam boxes/l/s/gl). Other
+    //                Bloodcraft commands (action confirmations) get
+    //                HasBchUIDisplay=false and STAY VISIBLE regardless of
+    //                the toggle — losing them would leave the user blind to
+    //                server responses BCH has no UI for.
+    //   Kindred    — same as Bloodcraft but for KindredCommands /
+    //                KindredLogistics. Today no Kindred replies are
+    //                structurally parsed (HasBchUIDisplay=false for all), so
+    //                the toggle is currently a no-op. Reserved for future
+    //                structured parsing.
+    //   Other      — unknown / unclassified. Always visible.
+    //
+    // Receive-side decision (in each intercept handler):
+    //   destroy = (HasBchUIDisplay && !ShowChatForCategory(category))
+    //          || Settings.ClearServerMessages;
+    //
+    // Safety vs Eclipse: this only affects plain colored chat entities that
+    // Eclipse already ignores (Eclipse only consumes MAC-signed [ECLIPSE]
+    // entities). Confirmed in Eclipse's ClientChatSystemPatch — its CheckMAC
+    // gate rejects every line we'd ever suppress.
+    internal static bool _nextCommandIsBchAuto; // set by MessageService.EnqueueMessageSilent
+    private static CommandCategory _currentCaptureCategory = CommandCategory.Other;
+    private static bool            _currentCaptureHasBchUI;
+
+    /// <summary>0.10.6: returns true if the chat copy of the current intercept's
+    /// reply should be destroyed based on Category + HasBchUIDisplay + the
+    /// user's Chat Logging toggles. Does NOT take ClearServerMessages into
+    /// account — callers OR that in separately to preserve legacy behavior.</summary>
+    private static bool ShouldSuppressByCategory()
+    {
+        if (!_currentCaptureHasBchUI) return false; // BCH doesn't display this — keep chat visible
+        return _currentCaptureCategory switch
+        {
+            CommandCategory.BchAuto    => !Config.Settings.ShowChatBchAuto,
+            CommandCategory.Bloodcraft => !Config.Settings.ShowChatBloodcraft,
+            CommandCategory.Kindred    => !Config.Settings.ShowChatKindred,
+            _ => false,
+        };
+    }
 
     // 0.9.1: action-confirmation suppress window. Independent of the intercept
     // state machine — action commands (.fam b / .fam ub / .fam t / .fam cb
@@ -474,6 +544,20 @@ public static partial class MessageService
 
     private static bool IsActionSuppressActive() =>
         UnityEngine.Time.realtimeSinceStartupAsDouble < _actionSuppressUntil;
+
+    // 0.10.10: parallel force-suppress window. Set by NoteOutboundForIntercept
+    // when a familiar-action command is being sent via EnqueueMessageSilent
+    // (i.e. the caller WANTS the reply hidden regardless of the user's
+    // SuppressFamiliarActionChatter setting). Pre-0.10.10 the V-Blood
+    // scanner's `.fam cb` confirmations leaked into chat whenever the
+    // user had SuppressFamiliarActionChatter off — because the silent
+    // flag only flowed into the BchAuto category for STRUCTURED intercepts,
+    // not the action-confirmation suppress branch. This flag fills that
+    // gap so scan-issued action confirmations are unconditionally eaten.
+    private static double _actionForceSuppressUntil;
+
+    private static bool IsActionForceSuppressActive() =>
+        UnityEngine.Time.realtimeSinceStartupAsDouble < _actionForceSuppressUntil;
 
     /// <summary>0.9.3: pattern-match Bloodcraft's literal action-confirmation
     /// reply strings (from `LearningMods/Bloodcraft-main/Commands/FamiliarCommands.cs`
@@ -503,6 +587,21 @@ public static partial class MessageService
         // Pattern is loose because Bloodcraft has multiple bind paths.
         if (text.Contains("now bound!")) return true;
         if (text.Contains("now active!")) return true;
+        // 0.10.8: Bloodcraft's .fam ub negative-path replies. Action-chat
+        // suppression now covers both the success message ("...unbound!")
+        // and the failure messages users see when they try to unbind with
+        // no active familiar. The V-Bloods Summon flow used to leak this
+        // line into chat even with chat-suppression on, because the
+        // upstream "always send unbind" call was reaching Bloodcraft when
+        // no familiar was bound. 0.10.8 also stops sending unbind in that
+        // case, but keeping the pattern recognized here is defense in
+        // depth for any other code path that might unbind speculatively.
+        if (text.Contains("Couldn't find familiar to unbind")) return true;
+        if (text.Contains("Couldn't find familiar actives")) return true;
+        // .fam reset hint that Bloodcraft appends to the active/unbind
+        // error path. Suppress it as part of the same action-chat window
+        // — it's the second sentence of the unbind-failure message.
+        if (text.Contains("Active familiar doesn't exist")) return true;
         return false;
     }
 
@@ -576,6 +675,86 @@ public static partial class MessageService
     private static readonly Regex _boxNameRegex         = new(BOX_NAME_REGEX,          RegexOptions.Compiled);
     private static readonly Regex _boxContentEntryRegex = new(BOX_CONTENT_ENTRY_REGEX, RegexOptions.Compiled);
 
+    // 0.10.5: per-command plain-text leading-header recognition. Some
+    // Bloodcraft commands reply with a first line that starts in plain
+    // English even though the rest of the line contains <color=...> tags
+    // for inline emphasis. The generic-capture .StartsWith("<color") filter
+    // misses these, so before 0.10.5 the silent-mode suppression let those
+    // first lines leak into chat (most-info-bearing line of every silent
+    // refresh — exactly what the user noticed for repeated .wep get).
+    //
+    // Each entry is a list of safe prefixes to match against. Pattern is
+    // intentionally string.StartsWith rather than regex so the check stays
+    // O(prefix-length) per line. Keep entries narrow enough that an
+    // unrelated server announcement wouldn't accidentally match — anything
+    // less specific would risk eating legitimate other system chat that
+    // happens to fall inside our 0.6s intercept window.
+    //
+    // To add a new command's plain-leading reply: confirm the EXACT prefix
+    // from Bloodcraft's Commands/*.cs and add a line here. Avoid duplicates
+    // with any structured intercept (.fam boxes, .bl get, etc. — those
+    // route through their own intercept state, not AwaitingGenericResponse).
+    private static readonly Dictionary<string, string[]> _genericReplyPlainHeaders =
+        new(System.StringComparer.Ordinal)
+        {
+            // Bloodcraft v1.13.x WeaponCommands.cs:62 / 83 / 88
+            [".wep get"] = new[]
+            {
+                "Your weapon expertise is",
+                "No bonuses from currently equipped",
+                "You haven't gained any expertise for",
+            },
+            // Future commands with similar patterns can be added here.
+        };
+
+    private static bool LooksLikePlainReplyHeaderForCommand(string text, string command)
+    {
+        if (string.IsNullOrEmpty(text) || string.IsNullOrEmpty(command)) return false;
+        if (!_genericReplyPlainHeaders.TryGetValue(command, out var prefixes)) return false;
+        foreach (var p in prefixes)
+            if (text.StartsWith(p, System.StringComparison.Ordinal)) return true;
+        return false;
+    }
+
+    // 0.10.0: .fam s reply parsing for the V-Blood collection scanner.
+    // Server formats (Bloodcraft v1.13.x, Commands/FamiliarCommands.cs:1085 / 1049 / 1054 / 1090):
+    //   "Matching familiar(s) found in: <color=white>boxN</color>[<color=#AA336A>*</color>], ..."
+    //   "VBlood familiar(s) found in: ..."           (when query == "vblood")
+    //   "Couldn't find any matches..."               (regular query, nothing found)
+    //   "Couldn't find matching familiar in boxes." (vblood query, nothing found)
+    // The list portion is comma-separated tokens; each token is a colored box-name
+    // followed by an OPTIONAL pink-star shiny marker. The shiny marker means
+    // "some familiar in that box matching the query is shiny" — we surface it
+    // as a per-box bool in the parsed result.
+    private static readonly Regex _famSearchSuccessRegex = new(
+        @"^(?:Matching|VBlood) familiar\(s\) found in:\s*(?<list>.+)$",
+        RegexOptions.Compiled);
+    // 0.10.4: added the "no unlocks yet" path. Bloodcraft replies with
+    // "You don't have any unlocked familiars yet." (FamiliarCommands.cs:1096)
+    // when the player has zero captured familiars at all. Pre-0.10.4 the
+    // scanner timed out 0.6s per search waiting for a match that would never
+    // come — 130 names × ~0.6s = ~80s of wasted timeouts on a fresh
+    // character. Catching this pattern lets the scanner finish each search
+    // immediately and move on.
+    private static readonly Regex _famSearchNoMatchRegex = new(
+        @"^(Couldn't find (any matches|matching familiar)|You don't have any unlocked familiars)",
+        RegexOptions.Compiled);
+    private static readonly Regex _famSearchBoxTokenRegex = new(
+        @"<color=white>(?<name>[^<]+)</color>(?<shiny><color=[^>]+>\*</color>)?",
+        RegexOptions.Compiled);
+    // 0.10.7: VCF prints a command's `usage:` template when an arg-required
+    // command is dispatched with empty/malformed args. Pre-0.10.7 the
+    // scanner sent unquoted ".fam s Alpha the White Wolf"; VCF only
+    // consumed "Alpha" as the (positional) name, hit the next-arg
+    // boundary, and printed Bloodcraft's `usage: .fam s [Name]` template
+    // literally. Even with the 0.10.7 quoting fix this can still fire if
+    // a user manually clears the textbox and submits, or types something
+    // with a stray quote — so we explicitly recognize the echo here and
+    // treat it as no-match (advances the queue, suppresses the line).
+    private static readonly Regex _famSearchUsageEchoRegex = new(
+        @"\.fam s \[Name\]|\.familiar search.*\.fam s \[Name\]",
+        RegexOptions.Compiled);
+
     /// <summary>
     /// Called from EnqueueMessage / SendRaw when our UI dispatches a command we
     /// know triggers a parseable reply. Sets the intercept flag so the next
@@ -590,22 +769,41 @@ public static partial class MessageService
         // _actionSuppressUntil + IsActionSuppressActive.
         if (IsFamiliarActionCommand(command))
         {
-            _actionSuppressUntil = UnityEngine.Time.realtimeSinceStartupAsDouble + ACTION_SUPPRESS_WINDOW_SECONDS;
+            double now = UnityEngine.Time.realtimeSinceStartupAsDouble;
+            _actionSuppressUntil = now + ACTION_SUPPRESS_WINDOW_SECONDS;
+            // 0.10.10: silent-enqueue path (V-Blood scanner, overlay
+            // auto-fires) wants the reply hidden whether the user has
+            // SuppressFamiliarActionChatter on or off. _nextCommandIsBchAuto
+            // is the flag MessageService.EnqueueMessageSilent sets just
+            // before calling us; arm a parallel force-suppress window so
+            // HandleInboundChat eats the reply unconditionally for as long
+            // as a normal action-suppress window lasts.
+            if (_nextCommandIsBchAuto)
+            {
+                _actionForceSuppressUntil = now + ACTION_SUPPRESS_WINDOW_SECONDS;
+            }
         }
 
         if (command.Equals(BCCOM_FAM_BOXES, System.StringComparison.Ordinal))
         {
             _intercept = InterceptFlag.AwaitingBoxList;
             _boxListBuffer.Clear();
+            // 0.10.10: classify so the BoxList receive handler can ask
+            // ShouldSuppressByCategory — needed for the V-Blood scanner's
+            // initial `.fam boxes` to stay silent in chat.
+            ClassifyAndStoreCategory(command);
             _interceptLastLineTime = UnityEngine.Time.realtimeSinceStartupAsDouble;
-            LogUtils.LogInfo("Intercept armed: AwaitingBoxList");
+            LogUtils.LogInfo($"Intercept armed: AwaitingBoxList ({_currentCaptureCategory})");
         }
         else if (command.Equals(BCCOM_FAM_LIST_CURRENT_BOX, System.StringComparison.Ordinal))
         {
             _intercept = InterceptFlag.AwaitingBoxContent;
             _boxContentBuffer.Clear();
+            // 0.10.10: classify so the per-entry `.fam l` rows can be
+            // suppressed when the scanner fires them silently.
+            ClassifyAndStoreCategory(command);
             _interceptLastLineTime = UnityEngine.Time.realtimeSinceStartupAsDouble;
-            LogUtils.LogInfo("Intercept armed: AwaitingBoxContent");
+            LogUtils.LogInfo($"Intercept armed: AwaitingBoxContent ({_currentCaptureCategory})");
         }
         else if (command.StartsWith(".prestige get ", System.StringComparison.Ordinal))
         {
@@ -630,8 +828,39 @@ public static partial class MessageService
             {
                 StatLines = new System.Collections.Generic.List<string>(),
             };
+            ClassifyAndStoreCategory(command);
             _interceptLastLineTime = UnityEngine.Time.realtimeSinceStartupAsDouble;
-            LogUtils.LogInfo("Intercept armed: AwaitingBloodInfo");
+            LogUtils.LogInfo($"Intercept armed: AwaitingBloodInfo ({_currentCaptureCategory}, hasUI={_currentCaptureHasBchUI})");
+        }
+        // 0.10.0: .fam s / .fam search → V-Blood scanner reply. Single-line
+        // response so we parse + emit + return to Idle inside HandleInboundChat.
+        // Manual user searches via the UI form pass through the same path; the
+        // FamSearchCompleted event is fired regardless of caller. We strip
+        // off the "/.fam s " prefix so the event payload carries just the
+        // queried name (e.g. "Alpha the White Wolf" or "Primal Alpha the White Wolf").
+        else if (command.StartsWith(".fam s ", System.StringComparison.Ordinal)
+              || command.StartsWith(".fam search ", System.StringComparison.Ordinal))
+        {
+            _intercept = InterceptFlag.AwaitingFamSearch;
+            // 0.10.7: BCCOM_FAM_SEARCH_FORMAT now wraps the query in quotes
+            // (`.fam s "Alpha the White Wolf"`) so VCF parses multi-word
+            // names. Strip the surrounding quotes when capturing the query
+            // so scanner correlation (string.Equals with the unquoted form)
+            // still matches.
+            var rawArg = command.StartsWith(".fam search ", System.StringComparison.Ordinal)
+                ? command.Substring(".fam search ".Length).Trim()
+                : command.Substring(".fam s ".Length).Trim();
+            if (rawArg.Length >= 2 && rawArg[0] == '"' && rawArg[rawArg.Length - 1] == '"')
+                rawArg = rawArg.Substring(1, rawArg.Length - 2);
+            _famSearchQuery = rawArg;
+            // 0.10.4: honor the silent-enqueue flag so scanner-fired searches
+            // don't dump 130 "Matching familiar(s)..." or "Couldn't find..."
+            // lines into the player's chat box during a full V-Blood scan.
+            // Manual user searches via the UI form continue to use the
+            // regular EnqueueMessage path and stay visible in chat.
+            ClassifyAndStoreCategory(command);
+            _interceptLastLineTime = UnityEngine.Time.realtimeSinceStartupAsDouble;
+            LogUtils.LogInfo($"Intercept armed: AwaitingFamSearch ('{_famSearchQuery}', {_currentCaptureCategory})");
         }
         // Fallback: arm the generic capture for known read-data commands so
         // their replies land in the UI's "Last server response" sections
@@ -644,8 +873,9 @@ public static partial class MessageService
             _intercept = InterceptFlag.AwaitingGenericResponse;
             _genericResponseBuffer.Clear();
             _genericResponseCommand = command;
+            ClassifyAndStoreCategory(command);
             _interceptLastLineTime = UnityEngine.Time.realtimeSinceStartupAsDouble;
-            LogUtils.LogInfo($"Intercept armed: AwaitingGenericResponse ('{command}')");
+            LogUtils.LogInfo($"Intercept armed: AwaitingGenericResponse ('{command}', {_currentCaptureCategory}, hasUI={_currentCaptureHasBchUI})");
         }
     }
 
@@ -666,6 +896,25 @@ public static partial class MessageService
             || command.StartsWith(".fam actions",    System.StringComparison.Ordinal)
             || command.StartsWith(".fam bgs",        System.StringComparison.Ordinal)
             || command.StartsWith(".fam bg ",        System.StringComparison.Ordinal)
+            // 0.10.12: .fam sb (smart-bind) reply varies — single match
+            // produces a bind confirmation, multiple matches produce a
+            // clarification list, no match produces "couldn't find...".
+            // Capturing here surfaces the list/error in the global
+            // LastResponse panel when chat suppression is on.
+            || command.StartsWith(".fam sb ",        System.StringComparison.Ordinal)
+            // 0.10.12: .class l / .class s / .class csp configuration
+            // queries and the .class info queries already covered by the
+            // ".class l" prefix below. Adding .class lst explicitly
+            // (handled by ".class l" prefix) and .class lsp (also
+            // covered). Leaving as-is — the prefix match is correct.
+            // 0.10.12: .lvl log / .quest log / .prof log / .misc
+            // remindme — TOGGLES that return the new state. User wants
+            // to see the new state in the UI.
+            || command.Equals(".lvl log",            System.StringComparison.Ordinal)
+            || command.Equals(".quest log",          System.StringComparison.Ordinal)
+            || command.Equals(".prof log",           System.StringComparison.Ordinal)
+            || command.Equals(".misc silence",       System.StringComparison.Ordinal)
+            || command.StartsWith(".misc sct ",      System.StringComparison.Ordinal)
             || command.StartsWith(".prestige l",     System.StringComparison.Ordinal)
             || command.StartsWith(".prestige lb ",   System.StringComparison.Ordinal)
             || command.StartsWith(".bl l",           System.StringComparison.Ordinal) // .bl l + .bl lst
@@ -721,8 +970,13 @@ public static partial class MessageService
         // prefix; box-list header is the literal "Familiar Boxes" string; etc.)
         // that we can fire the suppress even when an intercept is armed
         // without risk of clobbering a legitimate structured response.
+        // 0.10.10: suppress when the user has opted-in via the setting OR
+        // when the action was force-flagged by a silent-enqueue (V-Blood
+        // scanner, overlay auto-fires, etc.). Without the force branch the
+        // scanner's `.fam cb`/`.fam l` confirmations leaked into chat for
+        // any user who hadn't turned SuppressFamiliarActionChatter on.
         if (IsActionSuppressActive()
-            && Config.Settings.SuppressFamiliarActionChatter
+            && (Config.Settings.SuppressFamiliarActionChatter || IsActionForceSuppressActive())
             && IsKnownFamiliarActionConfirmation(text))
         {
             return true;
@@ -753,7 +1007,9 @@ public static partial class MessageService
                                 _boxListBuffer.Add(name);
                         }
                         _interceptLastLineTime = UnityEngine.Time.realtimeSinceStartupAsDouble;
-                        return Config.Settings.ClearServerMessages;
+                        // 0.10.10: scanner-initiated `.fam boxes` is classified
+                        // BchAuto and ShouldSuppressByCategory eats it.
+                        return ShouldSuppressByCategory() || Config.Settings.ClearServerMessages;
                     }
                     // Non-color line in the middle: ignore (don't flush yet).
                     // Some other system announcement arriving between batches
@@ -809,7 +1065,9 @@ public static partial class MessageService
                         _bloodInfoBuffer.ProgressPct = hm.Groups["pct"].Value;
                         _intercept = InterceptFlag.ReceivingBloodInfo;
                         _interceptLastLineTime = UnityEngine.Time.realtimeSinceStartupAsDouble;
-                        return Config.Settings.ClearServerMessages;
+                        // 0.10.2: silent path destroys chat copy regardless of
+                        // the global ClearServerMessages setting.
+                        return ShouldSuppressByCategory() || Config.Settings.ClearServerMessages;
                     }
                     return false;
                 }
@@ -822,7 +1080,7 @@ public static partial class MessageService
                         if (!string.IsNullOrEmpty(clean))
                             _bloodInfoBuffer.StatLines.Add(clean);
                         _interceptLastLineTime = UnityEngine.Time.realtimeSinceStartupAsDouble;
-                        return Config.Settings.ClearServerMessages;
+                        return ShouldSuppressByCategory() || Config.Settings.ClearServerMessages;
                     }
                     return false;
                 }
@@ -834,20 +1092,81 @@ public static partial class MessageService
                     // helpers always wrap their reply text in <color=...> tags;
                     // plain unstyled lines tend to be unrelated system chatter
                     // (player joins, broadcast etc.) and would just be noise.
-                    if (text.StartsWith("<color", System.StringComparison.Ordinal))
+                    // 0.10.5: ALSO match the per-command plain-leading header
+                    // patterns (see _genericReplyPlainHeaders below) so that
+                    // Bloodcraft replies whose first line is unstyled text
+                    // (".wep get" starts with "Your weapon expertise is...")
+                    // get destroyed by the silent flag too. Without this match
+                    // the FIRST and most-informative line of every silent
+                    // refresh still surfaces in chat.
+                    bool isReplyLine =
+                        text.StartsWith("<color", System.StringComparison.Ordinal)
+                     || LooksLikePlainReplyHeaderForCommand(text, _genericResponseCommand);
+                    if (isReplyLine)
                     {
                         _intercept = InterceptFlag.ReceivingGenericResponse;
                         _genericResponseBuffer.Add(text);
                         _interceptLastLineTime = UnityEngine.Time.realtimeSinceStartupAsDouble;
-                        // 0.8.3: never consume the chat copy here. The user's
-                        // ClearServerMessages setting is meant for the
-                        // structured intercepts above where the UI display
-                        // fully replaces the chat copy. The generic capture is
-                        // additive — we mirror to UI but keep the chat line
-                        // so terminology like "<color>+5</color> XP gained!"
-                        // still scrolls in the chat history.
-                        return false;
+                        // 0.10.2: silent-mode auto-fires destroy the chat copy
+                        // so overlay/tab refresh traffic doesn't spam chat. The
+                        // 0.8.3 default (return false) is preserved for any
+                        // capture armed without the silent flag, so manual user
+                        // clicks (Refresh button etc.) still see their reply in
+                        // chat as before.
+                        return ShouldSuppressByCategory();
                     }
+                    return false;
+                }
+
+                case InterceptFlag.AwaitingFamSearch:
+                {
+                    // 0.10.0: single-line reply, parse + emit + return to Idle.
+                    // 0.10.4: honor the silent flag so scanner replies get
+                    // destroyed and don't surface in the chat window.
+                    bool suppress = ShouldSuppressByCategory();
+                    var successMatch = _famSearchSuccessRegex.Match(text);
+                    if (successMatch.Success)
+                    {
+                        var listPart = successMatch.Groups["list"].Value;
+                        var boxes = new System.Collections.Generic.List<(string box, bool shiny)>();
+                        foreach (Match tok in _famSearchBoxTokenRegex.Matches(listPart))
+                        {
+                            var name = tok.Groups["name"].Value;
+                            if (string.IsNullOrEmpty(name)) continue;
+                            bool shiny = tok.Groups["shiny"].Success;
+                            boxes.Add((name, shiny));
+                        }
+                        FireFamSearchCompleted(_famSearchQuery, boxes, hadAnyMatch: true);
+                        _famSearchQuery = "";
+                        _intercept = InterceptFlag.Idle;
+                        ResetCaptureCategory();
+                        return suppress || Config.Settings.ClearServerMessages;
+                    }
+                    if (_famSearchNoMatchRegex.IsMatch(text))
+                    {
+                        FireFamSearchCompleted(_famSearchQuery, new System.Collections.Generic.List<(string, bool)>(), hadAnyMatch: false);
+                        _famSearchQuery = "";
+                        _intercept = InterceptFlag.Idle;
+                        ResetCaptureCategory();
+                        return suppress || Config.Settings.ClearServerMessages;
+                    }
+                    // 0.10.7: VCF usage echo (".fam s [Name]") — treat as
+                    // no-match so the scanner advances. Always suppress
+                    // this line regardless of category visibility because
+                    // it's never user-actionable (it's our own bug
+                    // surfacing if it fires at all).
+                    if (_famSearchUsageEchoRegex.IsMatch(text))
+                    {
+                        LogUtils.LogWarning($"VCF usage echo while AwaitingFamSearch '{_famSearchQuery}' — advancing as no-match.");
+                        FireFamSearchCompleted(_famSearchQuery, new System.Collections.Generic.List<(string, bool)>(), hadAnyMatch: false);
+                        _famSearchQuery = "";
+                        _intercept = InterceptFlag.Idle;
+                        ResetCaptureCategory();
+                        return true;
+                    }
+                    // Some other server message arrived while we were awaiting.
+                    // Don't transition out — keep waiting for the actual reply or
+                    // until TickInterceptTimeouts gives up.
                     return false;
                 }
 
@@ -873,7 +1192,13 @@ public static partial class MessageService
                         if (!_boxContentBuffer.Exists(e => e.Index == entry.Index))
                             _boxContentBuffer.Add(entry);
                         _interceptLastLineTime = UnityEngine.Time.realtimeSinceStartupAsDouble;
-                        return Config.Settings.ClearServerMessages;
+                        // 0.10.10: scanner-initiated `.fam l` is classified
+                        // BchAuto so each per-entry row is suppressed via
+                        // ShouldSuppressByCategory. Without this, the silent
+                        // box-sweep leaked ~10 entry lines per box (×~15
+                        // boxes) into chat for users who hadn't enabled
+                        // ClearServerMessages.
+                        return ShouldSuppressByCategory() || Config.Settings.ClearServerMessages;
                     }
                     // Non-entry line in the middle: ignore (don't flush yet).
                     // The timeout in TickInterceptTimeouts() handles end-of-list.
@@ -930,8 +1255,79 @@ public static partial class MessageService
                 LogUtils.LogWarning($"Intercept '{_intercept}' timed out with no server reply; resetting.");
                 _intercept = InterceptFlag.Idle;
                 if (_intercept == InterceptFlag.AwaitingGenericResponse) _genericResponseBuffer.Clear();
+                ResetCaptureCategory();
+                break;
+            case InterceptFlag.AwaitingFamSearch:
+                // 0.10.0: emit a "no match" result so the scanner moves on instead
+                // of hanging on this name forever. Treating timeout as a soft
+                // "not captured" is safer than retrying — Bloodcraft replies
+                // quickly when the query is well-formed.
+                LogUtils.LogWarning($"Intercept 'AwaitingFamSearch' timed out for '{_famSearchQuery}'; treating as no-match.");
+                FireFamSearchCompleted(_famSearchQuery, new System.Collections.Generic.List<(string, bool)>(), hadAnyMatch: false);
+                _famSearchQuery = "";
+                _intercept = InterceptFlag.Idle;
+                ResetCaptureCategory();
                 break;
         }
+    }
+
+    /// <summary>
+    /// 0.10.0: lightweight event payload for a parsed .fam s reply. The scanner
+    /// (or any other consumer) subscribes via PlayerStateService.FamSearchCompleted
+    /// and gets the search name back plus the list of matching boxes — each box
+    /// carries a flag for whether the server included the pink-star shiny marker
+    /// (meaning "at least one familiar in this box matching the query is shiny").
+    /// </summary>
+    public readonly struct FamSearchResult
+    {
+        public readonly string Query;
+        public readonly System.Collections.Generic.IReadOnlyList<(string Box, bool HasShiny)> Boxes;
+        public readonly bool HadAnyMatch;
+        public FamSearchResult(string query, System.Collections.Generic.IReadOnlyList<(string, bool)> boxes, bool hadAnyMatch)
+        {
+            Query = query; Boxes = boxes; HadAnyMatch = hadAnyMatch;
+        }
+    }
+
+    public static event System.Action<FamSearchResult> FamSearchCompleted;
+
+    private static void FireFamSearchCompleted(string query, System.Collections.Generic.List<(string, bool)> boxes, bool hadAnyMatch)
+    {
+        try { FamSearchCompleted?.Invoke(new FamSearchResult(query ?? "", boxes, hadAnyMatch)); }
+        catch (System.Exception ex)
+        {
+            LogUtils.LogError($"FamSearchCompleted subscriber threw: {ex}");
+        }
+    }
+
+    // 0.10.6: every flush path resets the category tracking so it doesn't
+    // leak into the NEXT intercept arming. Called by every flush + the
+    // timeout reset. Replaces the 0.10.2 ResetCaptureSuppressionFlag().
+    private static void ResetCaptureCategory()
+    {
+        _currentCaptureCategory = CommandCategory.Other;
+        _currentCaptureHasBchUI = false;
+    }
+
+    /// <summary>0.10.6: classify an outbound command and store the result in
+    /// _currentCaptureCategory / _currentCaptureHasBchUI so the receive-side
+    /// handlers can make a suppression decision via ShouldSuppressByCategory.
+    /// Consumes _nextCommandIsBchAuto (set by EnqueueMessageSilent) before
+    /// falling back to prefix-based user-fire classification.</summary>
+    private static void ClassifyAndStoreCategory(string command)
+    {
+        CommandClassification cls;
+        if (_nextCommandIsBchAuto)
+        {
+            cls = CommandClassifier.ForBchAuto();
+            _nextCommandIsBchAuto = false;
+        }
+        else
+        {
+            cls = CommandClassifier.ForUserFire(command);
+        }
+        _currentCaptureCategory = cls.Category;
+        _currentCaptureHasBchUI = cls.HasBchUIDisplay;
     }
 
     private static void FlushGenericResponse()
@@ -948,6 +1344,7 @@ public static partial class MessageService
         _genericResponseBuffer.Clear();
         _genericResponseCommand = "";
         _intercept = InterceptFlag.Idle;
+        ResetCaptureCategory();
         PlayerStateService.UpdateLastResponse(snapshot);
         LogUtils.LogInfo($"Captured {snapshot.Lines.Count} server response line(s) for '{snapshot.Command}'.");
     }
@@ -972,6 +1369,7 @@ public static partial class MessageService
             StatLines = new System.Collections.Generic.List<string>(),
         };
         _intercept = InterceptFlag.Idle;
+        ResetCaptureCategory();
         PlayerStateService.UpdateBloodInfo(snapshot);
         LogUtils.LogInfo($"Parsed blood info for '{snapshot.BloodType}' (level {snapshot.Level} prestige {snapshot.Prestige}, {snapshot.StatLines?.Count ?? 0} stat lines).");
     }
@@ -981,6 +1379,7 @@ public static partial class MessageService
         var snapshot = new List<string>(_boxListBuffer);
         _boxListBuffer.Clear();
         _intercept = InterceptFlag.Idle;
+        ResetCaptureCategory(); // 0.10.10: classify-on-arm needs reset-on-flush
         PlayerStateService.UpdateBoxList(snapshot);
         LogUtils.LogInfo($"Parsed {snapshot.Count} familiar box name(s).");
     }
@@ -990,6 +1389,7 @@ public static partial class MessageService
         var snapshot = new List<PlayerStateService.FamiliarBoxEntry>(_boxContentBuffer);
         _boxContentBuffer.Clear();
         _intercept = InterceptFlag.Idle;
+        ResetCaptureCategory(); // 0.10.10: classify-on-arm needs reset-on-flush
         var box = PlayerStateService.ActiveBox;
         if (!string.IsNullOrEmpty(box))
             PlayerStateService.UpdateBoxContents(box, snapshot);

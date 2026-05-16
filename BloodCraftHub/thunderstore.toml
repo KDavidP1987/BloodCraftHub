@@ -11,7 +11,7 @@ v-rising = ["mods", "client"]
 [package]
 namespace = "kdpen"
 name = "BloodCraftHub"
-versionNumber = "0.9.4"
+versionNumber = "0.10.14"
 description = "Unified client UI for V Rising's Bloodcraft mod. Surfaces every Bloodcraft, KindredCommands, and KindredLogistics chat command as buttons + forms."
 websiteUrl = "https://github.com/KDavidP1987/BloodCraftHub"
 containsNsfwContent = false

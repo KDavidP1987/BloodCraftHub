@@ -185,6 +185,31 @@ if ($Mode -eq 'Release') {
     } else {
         Fail "Release build failed. Last 20 lines:`n$($buildOut[-20..-1] -join "`n")"
     }
+
+    # 10. Built DLL AssemblyVersion must match csproj <Version>. Catches the
+    #     v0.10.6 failure mode: csproj bumped to a new version but the DLL
+    #     was built before the bump, so PLUGIN_VERSION (and the About tab)
+    #     still showed the old version after deploy. Reads metadata only —
+    #     does not load the assembly into the PS AppDomain.
+    if ($csprojVersion) {
+        $dll = Join-Path $repoRoot 'BloodCraftHub\bin\Release\net6.0\BloodCraftHub.dll'
+        if (-not (Test-Path $dll)) {
+            Fail "Built DLL not found at $dll — release build did not produce expected output."
+        } else {
+            try {
+                $built = [System.Reflection.AssemblyName]::GetAssemblyName($dll).Version.ToString()
+                $expected1 = $csprojVersion           # "0.10.7"
+                $expected2 = "$csprojVersion.0"       # ".NET appends revision 0"
+                if ($built -eq $expected1 -or $built -eq $expected2) {
+                    Pass "DLL AssemblyVersion ($built) matches csproj <Version> ($csprojVersion)."
+                } else {
+                    Fail "DLL AssemblyVersion drift: built=$built, csproj=$csprojVersion. Did you forget to rebuild after bump-version.ps1?"
+                }
+            } catch {
+                Warn "Could not inspect DLL AssemblyVersion: $($_.Exception.Message)"
+            }
+        }
+    }
 }
 
 # ---- Summary ----

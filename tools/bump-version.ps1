@@ -1,23 +1,33 @@
 <#
 .SYNOPSIS
-    Bump BloodCraftHub's version atomically across all the places it lives.
+    Bump BloodCraftHub's version atomically across all the places it lives,
+    then re-build so the deployed DLL embeds the new version.
 
 .DESCRIPTION
     Updates:
       - <Version> in BloodCraftHub/BloodCraftHub.csproj
       - versionNumber in BloodCraftHub/thunderstore.toml
       - Prepends a "## <new> — TODO" stub entry to CHANGELOG.md
+      - Runs dotnet build -c Release so the bin/Release DLL is in sync.
+        (Skip with -NoBuild if you only want to update the version files.)
 
     Stages all three files but does NOT commit — review before committing.
 
+    Why the auto-build: pre-0.10.7 the script left rebuilding to the user;
+    v0.10.6 shipped a DLL still embedding PLUGIN_VERSION=0.10.5 because
+    the bump happened AFTER the last build. The About-tab version
+    surfaced 0.10.5 in-game even though every text file said 0.10.6.
+
 .EXAMPLE
     .\tools\bump-version.ps1 -To 0.2.0
+    .\tools\bump-version.ps1 -To 0.2.0 -NoBuild
 #>
 
 [CmdletBinding()]
 param(
     [Parameter(Mandatory = $true)]
-    [string]$To
+    [string]$To,
+    [switch]$NoBuild
 )
 
 $ErrorActionPreference = 'Stop'
@@ -83,7 +93,41 @@ if ($existing -match "(?m)^##\s+$([regex]::Escape($To))\b") {
 & git add $csproj $toml $changelog | Out-Null
 
 Write-Host ""
-Write-Host "Version bumped to $To. Staged for commit." -ForegroundColor Green
+Write-Host "Version files bumped to $To. Staged for commit." -ForegroundColor Green
+
+if ($NoBuild) {
+    Write-Host "Skipping build (-NoBuild specified)." -ForegroundColor Yellow
+    Write-Host "Remember to run dotnet build before deploying or the DLL will embed the OLD version."
+} else {
+    $sln = Join-Path $repoRoot 'BloodCraftHub.sln'
+    Write-Host ""
+    Write-Host "Rebuilding so the DLL embeds PLUGIN_VERSION=$To ..." -ForegroundColor Cyan
+    & dotnet build $sln -c Release --nologo
+    if ($LASTEXITCODE -ne 0) {
+        Write-Error "dotnet build failed after version bump. The version files are bumped but the DLL was NOT rebuilt — fix the build, then re-run dotnet build before deploying."
+        exit 4
+    }
+    # Sanity-check the built DLL reports the right version.
+    $dll = Join-Path $repoRoot 'BloodCraftHub\bin\Release\net6.0\BloodCraftHub.dll'
+    if (Test-Path $dll) {
+        try {
+            $asmName = [System.Reflection.AssemblyName]::GetAssemblyName($dll)
+            $built = $asmName.Version
+            $expected = "$To.0" # .NET appends a 4th part (revision) of 0
+            if ($built.ToString() -eq $expected -or $built.ToString() -eq $To) {
+                Write-Host "DLL AssemblyVersion: $built (matches $To)" -ForegroundColor Green
+            } else {
+                Write-Warning "DLL AssemblyVersion is $built but bump target was $To. Check that <Version> wasn't reverted in csproj."
+            }
+        } catch {
+            Write-Warning "Could not read AssemblyVersion from $dll : $($_.Exception.Message)"
+        }
+    } else {
+        Write-Warning "Built DLL not found at $dll — something went wrong with the build target output path."
+    }
+}
+
+Write-Host ""
 Write-Host "Next steps:"
 Write-Host "  1. Edit CHANGELOG.md to replace 'TODO' with real notes."
 Write-Host "  2. .\tools\preflight.ps1 -Mode Release"

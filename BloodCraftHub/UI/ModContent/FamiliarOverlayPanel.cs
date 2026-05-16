@@ -68,8 +68,9 @@ public class FamiliarOverlayPanel : ResizeablePanelBase
 
     private LabelRef AddRow(string name, string text, FontStyles style, int fontSize)
     {
+        // 0.10.2: alignment respects Settings.OverlayTextAlignment. See Theme.OverlayMidlineAlignment.
         var lbl = UIFactory.CreateLabel(ContentRoot, name, text,
-            TextAlignmentOptions.MidlineLeft, color: null, fontSize: fontSize);
+            Theme.OverlayMidlineAlignment(), color: null, fontSize: fontSize);
         UIFactory.SetLayoutElement(lbl.GameObject,
             minWidth: 220, preferredWidth: 240, flexibleWidth: 1,
             minHeight: 20, preferredHeight: 22, flexibleHeight: 0);
@@ -85,8 +86,11 @@ public class FamiliarOverlayPanel : ResizeablePanelBase
     {
         if (_nameLabel == null) return;
 
-        bool active = s.Level > 0 || !string.IsNullOrEmpty(s.Name);
-        _nameLabel.TextMesh.text = string.IsNullOrEmpty(s.Name) ? "(no familiar bound)" : s.Name;
+        // 0.10.8: HasActive is the raw Eclipse-protocol "is bound" signal.
+        // The display Name is masked to "Familiar" placeholder when nothing
+        // is bound, so we can't infer activity from it anymore.
+        bool active = s.HasActive;
+        _nameLabel.TextMesh.text = s.HasActive ? s.Name : "(no familiar bound)";
         _progressLabel.TextMesh.text = active
             ? (s.Prestige > 0
                 ? $"Lv {s.Level} ({s.Progress * 100f:0.#}%)   Pr {s.Prestige}"

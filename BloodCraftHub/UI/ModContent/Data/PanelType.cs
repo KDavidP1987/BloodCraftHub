@@ -12,6 +12,7 @@ public enum PanelType
     // Primary-overlay tabs (the main UI):
     FamiliarsTab,
     BoxesTab,
+    VBloodsTab,             // 0.10.0: collection tracker for V-Blood familiars across all boxes
     ClassTab,
     ExpertiseTab,
     BloodLegacyTab,

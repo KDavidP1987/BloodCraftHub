@@ -39,6 +39,9 @@ public partial class MainPanel : ResizeablePanelBase
     public override PanelDragger.ResizeTypes CanResize => PanelDragger.ResizeTypes.All;
     public override float Opacity => Settings.UITransparency;
     public override bool ResizeWholePanel => false;
+    // 0.10.14: the "Lock overlays" toggle pins the five overlays; the
+    // main panel is NOT an overlay and must stay drag/resize-enabled.
+    protected override bool RespectsLockOverlays => false;
 
     public PanelType ActiveTab { get; private set; } = PanelType.FamiliarsTab;
 
@@ -60,6 +63,13 @@ public partial class MainPanel : ResizeablePanelBase
     private TextMeshProUGUI _famProgressLabel;
     private TextMeshProUGUI _famStatsLabel;
     private bool _famSubscribed;
+    // 0.10.11: in-panel search-result display. The .fam s reply was
+    // previously visible only in chat — invisible when the user had BCH
+    // chat-suppression on. These fields hold the result-panel labels +
+    // dynamic list container that subscribes to FamSearchCompleted.
+    private TextMeshProUGUI _famSearchResultHeader;
+    private GameObject      _famSearchResultList;
+    private bool            _famSearchSubscribed;
 
     // Class-tab live labels
     private TextMeshProUGUI _classNameLabel;
@@ -70,12 +80,41 @@ public partial class MainPanel : ResizeablePanelBase
     private TextMeshProUGUI _wepTypeLabel;
     private TextMeshProUGUI _wepProgressLabel;
     private TextMeshProUGUI _wepBonusLabel;
+    // 0.9.6: stat-values line populated from the most recent .wep get reply
+    // (cached via LastResponseChanged). Renders below the existing bonus-name
+    // line so the header shows both "which stats are chosen" and "what their
+    // current values are at this level".
+    private TextMeshProUGUI _wepStatsValuesLabel;
     private bool _wepSubscribed;
+    private bool _wepLastResponseSubscribed;
+    private System.Collections.Generic.List<string> _cachedWepGetLines;
+
+    // 0.10.0: V-Bloods tab — collection tracker fed by VBloodScannerService.
+    // Each registry entry gets one row built once; refresh re-binds labels in
+    // place rather than tearing down + rebuilding, so the list stays scrolled
+    // and responsive while the scanner streams in results across ~4 minutes.
+    // 0.10.9: chip view rebuilt around the box-sweep scanner's per-variant
+    // VBloodInstance records. One row per captured variant (basic / shiny /
+    // primal / primal-shiny) — the user picks which variant to summon
+    // explicitly. "Missing" filter renders un-captured V-Blood names as
+    // their own placeholder rows. The 0.10.7 dual-view toggle (Chips /
+    // Instances) is retired because the new single view does both jobs.
+    private TextMeshProUGUI _vbProgressLabel;          // "23 / 65 captured + 4 primals"
+    private ButtonRef       _vbScanButton;             // "Scan all" / "Cancel" toggle
+    private TextMeshProUGUI _vbScanStatusLabel;        // "Scanning… box 3 / 14: BoxName"
+    private ButtonRef       _vbSortButton;             // 0.10.1: cycle button, shows current sort mode
+    private GameObject      _vbRowContainer;           // VerticalLayoutGroup holding all variant + missing rows
+    private bool            _vbSubscribed;
+    private enum VBloodFilter { All, Captured, Missing, ShinyOnly }
+    private VBloodFilter    _vbFilter = VBloodFilter.All;
 
     // Blood-Legacy-tab live labels
     private TextMeshProUGUI _blTypeLabel;
     private TextMeshProUGUI _blProgressLabel;
     private TextMeshProUGUI _blBonusLabel;
+    // 0.9.6: stat-values line populated from BloodInfoLatest. Equivalent
+    // to _wepStatsValuesLabel above.
+    private TextMeshProUGUI _blStatsValuesLabel;
     private bool _blSubscribed;
 
     // In-UI Blood Info display (parsed from `.bl get [Type]` reply).
@@ -180,6 +219,7 @@ public partial class MainPanel : ResizeablePanelBase
             {
                 (PanelType.FamiliarsTab,    "Familiars"),
                 (PanelType.BoxesTab,        "Boxes"),
+                (PanelType.VBloodsTab,      "V-Bloods"),
                 (PanelType.ClassTab,        "Class"),
                 (PanelType.ExpertiseTab,    "Weapon Expertise"),
                 (PanelType.BloodLegacyTab,  "Blood Legacy"),
@@ -206,7 +246,12 @@ public partial class MainPanel : ResizeablePanelBase
         },
         new TabGroupDef
         {
-            Title = "Help",
+            // 0.9.8: was "Help"; renamed because friend-testing surfaced that
+            // users didn't notice there was a Settings page under what looked
+            // like a documentation-only group. The Settings tab is the more
+            // actionable child here — putting it in the group name makes the
+            // group worth expanding.
+            Title = "Settings and Help",
             StartExpanded = false,
             Tabs = new[]
             {
@@ -243,10 +288,140 @@ public partial class MainPanel : ResizeablePanelBase
     // the user can re-open.
     protected override void OnClosePanelClicked() => SetActive(false);
 
+    // 0.9.7: fullscreen toggle state. Snapshot of pre-fullscreen Rect data so
+    // we can restore exactly what the user had after toggling off. NOT
+    // persisted across sessions — fullscreen is treated as transient.
+    private bool _isFullscreen;
+    private UnityEngine.Vector2 _preFullscreenSizeDelta;
+    private UnityEngine.Vector2 _preFullscreenAnchoredPos;
+    private UnityEngine.Vector2 _preFullscreenAnchorMin;
+    private UnityEngine.Vector2 _preFullscreenAnchorMax;
+    private UnityEngine.Vector2 _preFullscreenPivot;
+    private BloodCraftHub.UI.Framework.UniverseLib.UI.Models.ButtonRef _maximizeBtn;
+
+    public bool IsFullscreen => _isFullscreen;
+
+    /// <summary>0.9.7: toggle the main panel between its current size+pos and
+    /// a stretched fullscreen layout (a small inset preserves border-grab
+    /// for the resize handle in case the user wants to exit by dragging).
+    /// Snapshots the prior layout so a second toggle restores it pixel-for-
+    /// pixel. Only applies to the Primary UI — overlays are size-only.</summary>
+    public void ToggleFullscreen() => SetFullscreen(!_isFullscreen);
+
+    public void SetFullscreen(bool fullscreen)
+    {
+        if (Rect == null) return;
+        if (fullscreen == _isFullscreen) return;
+
+        if (fullscreen)
+        {
+            // Snapshot every Rect field that's about to change. anchorMin/Max
+            // pivot tend to be (0.5, 0.5) by default for this panel, but we
+            // don't assume — restore exactly what was there.
+            _preFullscreenSizeDelta   = Rect.sizeDelta;
+            _preFullscreenAnchoredPos = Rect.anchoredPosition;
+            _preFullscreenAnchorMin   = Rect.anchorMin;
+            _preFullscreenAnchorMax   = Rect.anchorMax;
+            _preFullscreenPivot       = Rect.pivot;
+
+            // Stretch to fill the canvas. With anchorMin=(0,0)/anchorMax=(1,1)
+            // sizeDelta becomes the margin (offset from each edge), so setting
+            // it to zero makes the panel exactly canvas-sized; the small inset
+            // applied via offsetMin/offsetMax leaves room for resize-by-edge
+            // gestures so the user can manually shrink back if needed.
+            Rect.anchorMin = UnityEngine.Vector2.zero;
+            Rect.anchorMax = UnityEngine.Vector2.one;
+            Rect.pivot     = new UnityEngine.Vector2(0.5f, 0.5f);
+            Rect.offsetMin = new UnityEngine.Vector2(20f, 20f);
+            Rect.offsetMax = new UnityEngine.Vector2(-20f, -20f);
+
+            _isFullscreen = true;
+        }
+        else
+        {
+            Rect.anchorMin       = _preFullscreenAnchorMin;
+            Rect.anchorMax       = _preFullscreenAnchorMax;
+            Rect.pivot           = _preFullscreenPivot;
+            Rect.sizeDelta       = _preFullscreenSizeDelta;
+            Rect.anchoredPosition= _preFullscreenAnchoredPos;
+            _isFullscreen = false;
+        }
+
+        Dragger?.OnEndResize();
+        UpdateMaximizeBtnVisuals();
+        // Any subscriber listening for resize completion saves panel state.
+        // Manually trigger so the new layout sticks across logouts.
+        OnFinishResize();
+    }
+
+    private void UpdateMaximizeBtnVisuals()
+    {
+        if (_maximizeBtn == null) return;
+        // Plain text glyphs known to render in V Rising's TMPro fallback set
+        // (see docs/LESSONS_LEARNED.md). "[ ]" reads as "make window full" and
+        // "[X]" as "restore" without needing icon glyph support.
+        _maximizeBtn.ButtonText.text = _isFullscreen ? "[X]" : "[ ]";
+    }
+
+    /// <summary>0.9.7: insert a maximize/restore button to the LEFT of the close
+    /// button in the PanelBase-built title bar. Called once at end of
+    /// ConstructPanelContent — by then the base class has built TitleBar and
+    /// CloseButton (see PanelBase.ConstructUI which builds the title bar
+    /// before invoking the subclass ConstructPanelContent).</summary>
+    private void BuildMaximizeButton()
+    {
+        if (CloseButton == null) return; // title bar was hidden by subclass override
+
+        // The CloseButton GameObject is actually the right-aligned HOLDER
+        // containing the actual close button. Add a sibling button inside
+        // the same holder so both share the right-aligned cluster — and put
+        // our button at sibling index 0 so it renders LEFT of the close.
+        _maximizeBtn = BloodCraftHub.UI.Framework.UniverseLib.UI.UIFactory.CreateButton(
+            CloseButton, "MaximizeButton", _isFullscreen ? "[X]" : "[ ]");
+        UnityEngine.Object.Destroy(_maximizeBtn.Component.gameObject.GetComponent<UnityEngine.UI.Outline>());
+        BloodCraftHub.UI.Framework.UniverseLib.UI.UIFactory.SetLayoutElement(
+            _maximizeBtn.Component.gameObject,
+            minHeight: 25, minWidth: 36, flexibleWidth: 0);
+        _maximizeBtn.Component.colors = new UnityEngine.UI.ColorBlock()
+        {
+            normalColor    = BloodCraftHub.UI.Framework.CustomLib.Util.Theme.SliderHandle,
+            colorMultiplier = 1,
+        };
+        _maximizeBtn.OnClick += ToggleFullscreen;
+        // Move to the leftmost position inside CloseHolder so it appears
+        // before the existing "—" close button. CreateButton appended at end;
+        // SetSiblingIndex(0) pulls it to the front.
+        _maximizeBtn.Component.gameObject.transform.SetSiblingIndex(0);
+    }
+
     protected override void ConstructPanelContent()
     {
+        // 0.10.13 fix (vertical analog of the 0.9.8 horizontal fix below):
+        // ContentRoot's VLG was created with childForceExpandHeight=true in
+        // PanelBase.CreatePanel. Unity's vertical layout distributes any
+        // extra space EQUALLY among all children when forceExpand is true,
+        // regardless of per-child flexibleHeight — so the LastResponse
+        // panel + OverlayFooter + TooltipFooter all grew alongside the
+        // tab content area when the user dragged the panel taller, even
+        // though only `body` (flex=1) was supposed to absorb extra space.
+        // Friend-test: "the tooltip area grows unnecessarily when the
+        // settings/text pane is what should grow." Force-expand=false
+        // makes only flex>0 children absorb extra space — `body` gets it
+        // all, and the footers stay at their preferred sizes.
+        var rootVlg = ContentRoot.GetComponent<UnityEngine.UI.VerticalLayoutGroup>();
+        if (rootVlg != null) rootVlg.childForceExpandHeight = false;
+
+        // 0.9.8 fix: forceExpandWidth was true through 0.9.7. Unity's
+        // HorizontalLayoutGroup ignores per-child flexibleWidth=0 when the
+        // parent has childForceExpandWidth=true — every child gets an equal
+        // share of extra space regardless. That's why the 0.9.7 attempt to
+        // cap the tab strip via flexibleWidth=0 + preferredWidth=180 didn't
+        // hold: as the main panel widened, the strip kept getting half the
+        // extra width even though it was supposed to stay at 180. The right
+        // content area still expands cleanly without forceExpandWidth because
+        // BuildContentArea sets flexibleWidth=1 on the content's LayoutElement.
         var body = UIFactory.CreateHorizontalGroup(ContentRoot, "Body",
-            forceExpandWidth: true, forceExpandHeight: true,
+            forceExpandWidth: false, forceExpandHeight: true,
             childControlWidth: true, childControlHeight: true,
             spacing: 4, padding: new Vector4(6, 6, 6, 6));
         UIFactory.SetLayoutElement(body, flexibleHeight: 1, flexibleWidth: 1);
@@ -256,8 +431,20 @@ public partial class MainPanel : ResizeablePanelBase
         BuildLastResponsePanel(ContentRoot);
         BuildOverlayFooter(ContentRoot);
         BuildTooltipFooter(ContentRoot);
+        // 0.9.7: maximize/restore button in the title bar, left of "—".
+        BuildMaximizeButton();
 
         ShowTab(ActiveTab);
+
+        // 0.9.6: per-frame ticker that auto-refreshes the wep / blood-legacy
+        // stat-values on a 10s cadence while their tab is the active page.
+        // Cheap when no relevant tab is active (one ActiveTab compare + one
+        // time check). Registered once; Reset() unregisters.
+        if (_tabAutoRefreshTicker == null)
+        {
+            _tabAutoRefreshTicker = TickTabAutoRefresh;
+            BloodCraftHub.Behaviors.CoreUpdateBehavior.Actions.Add(_tabAutoRefreshTicker);
+        }
     }
 
     private void BuildTooltipFooter(GameObject parent)
@@ -273,15 +460,19 @@ public partial class MainPanel : ResizeablePanelBase
             spacing: 4, padding: new Vector4(8, 8, 4, 4));
         UIFactory.SetLayoutElement(footer, minHeight: 56, preferredHeight: 56, flexibleHeight: 0, flexibleWidth: 1);
 
+        // 0.10.13: dropped italic and bumped font size 12 → 13 for legibility.
+        // Friend-test: italic at standard text scale is hard to read.
         var lbl = UIFactory.CreateLabel(footer, "TooltipText",
             TooltipHover.IdlePlaceholder,
-            TextAlignmentOptions.MidlineLeft, color: null, fontSize: Theme.ScaledUI(12));
+            TextAlignmentOptions.MidlineLeft, color: null, fontSize: Theme.ScaledUI(13));
         UIFactory.SetLayoutElement(lbl.GameObject,
             minWidth: 400, preferredWidth: 600, flexibleWidth: 1,
             minHeight: 48, preferredHeight: 52, flexibleHeight: 0);
-        lbl.TextMesh.fontStyle = FontStyles.Italic;
+        lbl.TextMesh.fontStyle = FontStyles.Normal;
         lbl.TextMesh.enableWordWrapping = true;
         lbl.TextMesh.overflowMode = TextOverflowModes.Ellipsis;
+        // Apply muted color so the tooltip text reads as secondary/contextual.
+        lbl.TextMesh.color = Theme.MutedBody;
 
         // Wire the static Sink so the per-frame TooltipHover.TickAll updates
         // this label. The TickAll action itself is registered in Plugin.Load,
@@ -428,6 +619,14 @@ public partial class MainPanel : ResizeablePanelBase
     // Tab strip (left rail)
     // -----------------------------------------------------------------------
 
+    // 0.9.7: max width applied to the tab strip so it doesn't grow
+    // proportionally when the main panel widens (or when UI text scales up).
+    // 0.10.2 bump: 180 → 220. The v0.9.8 "Help" → "SETTINGS AND HELP" rename
+    // pushed the longest group header to ~17 chars ("SETTINGS AND HELP") plus
+    // the ▶/▼ prefix, which overlapped the rail edge at Standard scale and
+    // truncated at Large scale. 220 covers Large scale with margin.
+    private const float TAB_STRIP_MAX_WIDTH = 220f;
+
     private void BuildTabStrip(GameObject parent)
     {
         // childControlHeight: true is required - the strip stacks group headers
@@ -438,7 +637,16 @@ public partial class MainPanel : ResizeablePanelBase
             forceWidth: false, forceHeight: false,
             childControlWidth: true, childControlHeight: true,
             spacing: 2, padding: new Vector4(2, 2, 2, 2));
-        UIFactory.SetLayoutElement(strip, minWidth: 150, flexibleWidth: 0, flexibleHeight: 1);
+        // 0.9.7: pin preferredWidth = minWidth = TAB_STRIP_MAX_WIDTH so the
+        // strip doesn't expand past the cap regardless of panel width. The
+        // body's HorizontalLayoutGroup with childControlWidth=true respects
+        // preferredWidth, so the right content area absorbs all the extra
+        // horizontal space.
+        UIFactory.SetLayoutElement(strip,
+            minWidth: (int)TAB_STRIP_MAX_WIDTH,
+            preferredWidth: (int)TAB_STRIP_MAX_WIDTH,
+            flexibleWidth: 0,
+            flexibleHeight: 1);
         _tabStripGo = strip;
 
         foreach (var group in TabGroups)
@@ -600,6 +808,9 @@ public partial class MainPanel : ResizeablePanelBase
                 case PanelType.BoxesTab:
                     BuildBoxesTab(page);
                     break;
+                case PanelType.VBloodsTab:
+                    BuildVBloodsTab(page);
+                    break;
                 case PanelType.ClassTab:
                     BuildClassTab(page);
                     break;
@@ -726,17 +937,25 @@ public partial class MainPanel : ResizeablePanelBase
 
     private void BuildFamiliarsTab(GameObject page)
     {
-        AddSectionHeading(page, "Active Familiar");
+        // 0.10.9: card-wrapped sections. Pre-0.10.9 this was the densest
+        // tab — 8 action buttons, an emote-binding wall, and 6 collapsible
+        // forms all stacked on the same panel background. Cards give the
+        // four conceptual zones (current state / quick actions / emotes
+        // reference / more actions / battle groups) explicit grouping.
 
-        _famNameLabel     = AddInfoLabel(page, "FamName",     "—", FontStyles.Bold,   fontSize: Theme.ScaledUI(18));
-        _famProgressLabel = AddInfoLabel(page, "FamProgress", "Level — ", FontStyles.Normal, fontSize: Theme.ScaledUI(14));
-        _famStatsLabel    = AddInfoLabel(page, "FamStats",    "HP —  PP —  SP —", FontStyles.Normal, fontSize: Theme.ScaledUI(14));
+        // ── Active Familiar ─────────────────────────────────────────────
+        var activeCard = AddCard(page, "FamActiveCard", Theme.SystemTintFamiliar);
+        AddSectionHeading(activeCard, "★  Active Familiar");
+        _famNameLabel     = AddInfoLabel(activeCard, "FamName",     "—", FontStyles.Bold,   fontSize: Theme.ScaledUI(18));
+        _famProgressLabel = AddInfoLabel(activeCard, "FamProgress", "Level — ", FontStyles.Normal, fontSize: Theme.ScaledUI(14));
+        _famStatsLabel    = AddInfoLabel(activeCard, "FamStats",    "HP —  PP —  SP —", FontStyles.Normal, fontSize: Theme.ScaledUI(14));
 
-        AddSpacer(page, 4);
-        AddSectionHeading(page, "Actions");
+        AddSpacer(page, 6);
 
-        // Row 1 — common, safe actions.
-        var row1 = UIFactory.CreateHorizontalGroup(page, "FamActionsRow1",
+        // ── Quick actions ───────────────────────────────────────────────
+        var actionsCard = AddCard(page, "FamActionsCard");
+        AddSectionHeading(actionsCard, "Actions");
+        var row1 = UIFactory.CreateHorizontalGroup(actionsCard, "FamActionsRow1",
             forceExpandWidth: true, forceExpandHeight: false,
             childControlWidth: true, childControlHeight: true,
             spacing: 6, padding: new Vector4(0, 0, 0, 0));
@@ -752,35 +971,29 @@ public partial class MainPanel : ResizeablePanelBase
         AddCommandButton(row1, "List Emotes", MessageService.BCCOM_FAM_LIST_EMOTES,
             "List the current emote→action bindings (.fam actions). Tells you which emote does what (e.g. clap = open inventory).");
 
-        AddSpacer(page, 4);
-
-        // Row 2 — irreversible actions. Destroy is red and requires a second click.
-        var row2 = UIFactory.CreateHorizontalGroup(page, "FamActionsRow2",
+        var row2 = UIFactory.CreateHorizontalGroup(actionsCard, "FamActionsRow2",
             forceExpandWidth: true, forceExpandHeight: false,
             childControlWidth: true, childControlHeight: true,
             spacing: 6, padding: new Vector4(0, 0, 0, 0));
         UIFactory.SetLayoutElement(row2,
             minWidth: 360, preferredWidth: 400, flexibleWidth: 1,
             minHeight: 32, preferredHeight: 32, flexibleHeight: 0);
-        AddCommandButton(row2, "Prestige", MessageService.BCCOM_FAM_PRESTIGE,
+        AddCommandButton(row2, "★  Prestige", MessageService.BCCOM_FAM_PRESTIGE,
             "Prestige the active familiar (.fam pr). Requires max level; resets level and grants permanent bonuses.");
         AddCommandButton(row2, "Unbind", MessageService.BCCOM_FAM_UNBIND,
             "Unbind the active familiar (.fam ub). The in-world entity is released but the familiar STAYS in your box — you can re-bind it from the Boxes tab any time. Use this to free the bind slot so you can summon a different familiar. To permanently delete a familiar from your collection, use the Boxes tab → Permanently Delete form.");
 
-        AddSpacer(page, 4);
-        var note = UIFactory.CreateLabel(page, "FamNote",
-            "Switch to the Boxes tab to browse your familiar boxes and click-to-bind.",
-            TextAlignmentOptions.TopLeft, color: null, fontSize: Theme.ScaledUI(12));
-        UIFactory.SetLayoutElement(note.GameObject,
-            minWidth: 360, preferredWidth: 400, flexibleWidth: 1,
-            minHeight: 24, preferredHeight: 28, flexibleHeight: 0);
-        note.TextMesh.enableWordWrapping = true;
-        note.TextMesh.overflowMode = TextOverflowModes.Overflow;
+        AddDivider(actionsCard);
+        AddBodyText(actionsCard, "Switch to the Boxes tab to browse your familiar boxes and click-to-bind.");
 
         AddSpacer(page, 6);
-        AddSectionHeading(page, "Emote Bindings (perform these in-world)");
-        var emoteRef = UIFactory.CreateLabel(page, "FamEmoteRef",
-            "Bloodcraft binds these emotes to familiar actions. Trigger by performing the emote in-world (e.g. /clap), NOT via this UI — there's no chat command to invoke an emote programmatically. Toggle Emotes (above) enables/disables the whole system.\n\n" +
+
+        // ── Emote bindings reference ────────────────────────────────────
+        var emoteCard = AddCard(page, "FamEmoteCard");
+        AddSectionHeading(emoteCard, "Emote Bindings (perform these in-world)");
+        AddBodyText(emoteCard,
+            "Bloodcraft binds these emotes to familiar actions. Trigger by performing the emote in-world (e.g. /clap), NOT via this UI — there's no chat command to invoke an emote programmatically. Toggle Emotes (above) enables/disables the whole system.");
+        var emoteRef = UIFactory.CreateLabel(emoteCard, "FamEmoteRef",
             "  • Wave   →  Recall / Dismiss\n" +
             "  • Salute →  Toggle Combat Mode\n" +
             "  • Clap   →  Bind / Unbind active familiar\n" +
@@ -788,35 +1001,37 @@ public partial class MainPanel : ResizeablePanelBase
             TextAlignmentOptions.TopLeft, color: null, fontSize: Theme.ScaledUI(12));
         UIFactory.SetLayoutElement(emoteRef.GameObject,
             minWidth: 360, preferredWidth: 400, flexibleWidth: 1,
-            minHeight: 110, preferredHeight: 130, flexibleHeight: 0);
+            minHeight: 80, preferredHeight: 96, flexibleHeight: 0);
         emoteRef.TextMesh.enableWordWrapping = true;
         emoteRef.TextMesh.overflowMode = TextOverflowModes.Overflow;
 
-        // ---- 0.6.0: extra .fam commands the audit caught ----
         AddSpacer(page, 6);
-        AddSectionHeading(page, "More Familiar Actions");
 
-        CollapsibleSection.Build(page,
+        // ── More familiar actions (collapsibles) ────────────────────────
+        var moreActionsCard = AddCard(page, "FamMoreActionsCard");
+        AddSectionHeading(moreActionsCard, "More Familiar Actions");
+
+        CollapsibleSection.Build(moreActionsCard,
             title: "Search boxes by name (.fam s)",
             startExpanded: false,
             tooltip: "Search across ALL your boxes for familiars whose name matches the text. Reply appears in chat.",
             buildContent: c => FormBuilder.Build(c,
                 title: "Search familiars",
-                commandTemplate: ".fam s {name}",
+                commandTemplate: ".fam s \"{name}\"",
                 new TextField("name", "Name (substring)", placeholder: "Wolf",
                     tooltip: "Substring of the familiar's display name. Bloodcraft does case-insensitive matching across boxes.")));
 
-        CollapsibleSection.Build(page,
+        CollapsibleSection.Build(moreActionsCard,
             title: "Smart bind by name (.fam sb)",
             startExpanded: false,
             tooltip: "Search + bind in one step. If multiple matches are found Bloodcraft returns the list for clarification (no destructive action). Will fail if you already have a familiar bound.",
             buildContent: c => FormBuilder.Build(c,
                 title: "Smart bind",
-                commandTemplate: ".fam sb {name}",
+                commandTemplate: ".fam sb \"{name}\"",
                 new TextField("name", "Name (substring)", placeholder: "Wolf",
                     tooltip: "Substring of the familiar's display name to bind.")));
 
-        CollapsibleSection.Build(page,
+        CollapsibleSection.Build(moreActionsCard,
             title: "Make active familiar shiny (.fam shiny)",
             startExpanded: false,
             tooltip: "Spends vampiric dust to permanently mark your CURRENT active familiar with a shiny buff of the chosen school. Requires an active familiar bound first.",
@@ -827,7 +1042,7 @@ public partial class MainPanel : ResizeablePanelBase
                     defaultValue: PlayerStateService.FamiliarShinySchoolChoice.Storm,
                     tooltip: "The shiny element to apply. Each school has a flavour (Storm = stun, Blood = leech, etc.).")));
 
-        CollapsibleSection.Build(page,
+        CollapsibleSection.Build(moreActionsCard,
             title: "Toggle a familiar setting (.fam option)",
             startExpanded: false,
             tooltip: "Flips one of Bloodcraft's per-player familiar settings. Common settings: 'shiny' (apply shiny visuals), 'vbloodemotes' (familiar plays VBlood emotes). Bloodcraft's reply tells you what's now on/off.",
@@ -837,17 +1052,17 @@ public partial class MainPanel : ResizeablePanelBase
                 new TextField("setting", "Setting name", placeholder: "shiny",
                     tooltip: "Name of the setting to toggle. Server replies with the new state in chat.")));
 
-        CollapsibleSection.Build(page,
+        CollapsibleSection.Build(moreActionsCard,
             title: "Buy V-Blood echoes (.fam echoes)",
             startExpanded: false,
             tooltip: "Spend V-Blood essence to purchase the exo reward tied to the named V-Blood unit. Cost scales with unit tier.",
             buildContent: c => FormBuilder.Build(c,
                 title: "Buy echoes",
-                commandTemplate: ".fam echoes {vblood}",
+                commandTemplate: ".fam echoes \"{vblood}\"",
                 new TextField("vblood", "V-Blood name", placeholder: "Quincey the Bandit King",
                     tooltip: "Exact display name of the V-Blood whose echo reward you want.")));
 
-        CollapsibleSection.Build(page,
+        CollapsibleSection.Build(moreActionsCard,
             title: "Reset all familiar entities (.fam reset) — DESTRUCTIVE",
             startExpanded: false,
             tooltip: "Destroys every entity in your follower buffer and clears your familiar-actives state. Use to recover from a bugged or stuck familiar bind. Required confirm checkbox.",
@@ -858,20 +1073,24 @@ public partial class MainPanel : ResizeablePanelBase
                     tooltip: "Required. Box records and unlock data are NOT touched — this only clears in-world entities + active state. Re-bind from a box to summon again.",
                     requireTrue: true)));
 
-        // ---- 0.6.0: battle group system ----
-        AddSpacer(page, 6);
-        AddSectionHeading(page, "Battle Groups");
-        var bgIntro = UIFactory.CreateLabel(page, "FamBgIntro",
-            "Battle groups are pre-built lineups of familiars for PvP challenges. List shows the groups you've made; create one, slot familiars into it, then challenge another player.",
-            TextAlignmentOptions.TopLeft, color: null, fontSize: Theme.ScaledUI(11));
-        UIFactory.SetLayoutElement(bgIntro.GameObject,
-            minWidth: 360, preferredWidth: 400, flexibleWidth: 1,
-            minHeight: 32, preferredHeight: 40, flexibleHeight: 0);
-        bgIntro.TextMesh.fontStyle = FontStyles.Italic;
-        bgIntro.TextMesh.enableWordWrapping = true;
-        bgIntro.TextMesh.overflowMode = TextOverflowModes.Overflow;
+        // 0.10.11: in-panel results display for the .fam s search above.
+        // Pre-0.10.11 the only place results showed up was chat — when
+        // the user had BCH chat-suppression on (Settings → Chat Logging
+        // → Bloodcraft toggle off, or ClearServerMessages), the reply
+        // landed nowhere visible. The parser already fires
+        // MessageService.FamSearchCompleted for every .fam s reply, so
+        // we just need a subscriber that surfaces the result in the UI.
+        BuildFamSearchResultPanel(moreActionsCard);
 
-        var bgRow1 = UIFactory.CreateHorizontalGroup(page, "FamBgRow1",
+        AddSpacer(page, 6);
+
+        // ── Battle groups ───────────────────────────────────────────────
+        var bgCard = AddCard(page, "FamBgCard");
+        AddSectionHeading(bgCard, "Battle Groups");
+        AddBodyText(bgCard,
+            "Battle groups are pre-built lineups of familiars for PvP challenges. List shows the groups you've made; create one, slot familiars into it, then challenge another player.");
+
+        var bgRow1 = UIFactory.CreateHorizontalGroup(bgCard, "FamBgRow1",
             forceExpandWidth: true, forceExpandHeight: false,
             childControlWidth: true, childControlHeight: true,
             spacing: 6, padding: new Vector4(0, 0, 0, 0));
@@ -881,7 +1100,7 @@ public partial class MainPanel : ResizeablePanelBase
         AddCommandButton(bgRow1, "List Groups", MessageService.BCCOM_FAM_BG_LIST,
             "List your battle groups (.fam bgs).");
 
-        CollapsibleSection.Build(page,
+        CollapsibleSection.Build(bgCard,
             title: "Show battle group details (.fam bg)",
             startExpanded: false,
             tooltip: "Show the contents of a battle group. Leave blank to inspect your active group.",
@@ -890,7 +1109,7 @@ public partial class MainPanel : ResizeablePanelBase
                 commandTemplate: ".fam bg {group}",
                 new TextField("group", "Group name (blank = active)")));
 
-        CollapsibleSection.Build(page,
+        CollapsibleSection.Build(bgCard,
             title: "Choose active battle group (.fam cbg)",
             startExpanded: false,
             tooltip: "Sets which battle group is your active one (used by .fam challenge).",
@@ -899,7 +1118,7 @@ public partial class MainPanel : ResizeablePanelBase
                 commandTemplate: ".fam cbg {group}",
                 new TextField("group", "Group name", placeholder: "MyTeam")));
 
-        CollapsibleSection.Build(page,
+        CollapsibleSection.Build(bgCard,
             title: "Create battle group (.fam abg)",
             startExpanded: false,
             tooltip: "Create a new (empty) battle group. Use Slot Familiar below to fill it.",
@@ -908,7 +1127,7 @@ public partial class MainPanel : ResizeablePanelBase
                 commandTemplate: ".fam abg {group}",
                 new TextField("group", "New group name", placeholder: "MyTeam")));
 
-        CollapsibleSection.Build(page,
+        CollapsibleSection.Build(bgCard,
             title: "Slot active familiar into group (.fam sbg)",
             startExpanded: false,
             tooltip: "Assigns your CURRENTLY-bound familiar to a slot in the named group. Bind the familiar you want to slot first.",
@@ -919,7 +1138,7 @@ public partial class MainPanel : ResizeablePanelBase
                 new IntField("slot", "Slot (1-3)", min: 1, max: 3,
                     tooltip: "Which slot in the group to put the familiar.")));
 
-        CollapsibleSection.Build(page,
+        CollapsibleSection.Build(bgCard,
             title: "Delete battle group (.fam dbg) — DESTRUCTIVE",
             startExpanded: false,
             tooltip: "Permanently removes the battle group. The slotted familiars themselves are NOT destroyed (only the grouping). Required confirm checkbox.",
@@ -931,7 +1150,7 @@ public partial class MainPanel : ResizeablePanelBase
                     tooltip: "Required. The slotted familiars stay in your boxes; only the group definition is removed.",
                     requireTrue: true)));
 
-        CollapsibleSection.Build(page,
+        CollapsibleSection.Build(bgCard,
             title: "Challenge a player (.fam challenge)",
             startExpanded: false,
             tooltip: "Initiate (or accept/queue) a battle-group fight against another player. Leave blank to view the current queue.",
@@ -946,9 +1165,85 @@ public partial class MainPanel : ResizeablePanelBase
             PlayerStateService.FamiliarChanged += OnFamiliarChanged;
             _famSubscribed = true;
         }
+        // 0.10.11: subscribe to the parser's FamSearchCompleted event so
+        // the in-panel result list updates whenever a .fam s reply lands.
+        if (!_famSearchSubscribed)
+        {
+            MessageService.FamSearchCompleted += OnFamSearchCompletedForFamTab;
+            _famSearchSubscribed = true;
+        }
     }
 
     private void OnFamiliarChanged() => RenderFamiliar(PlayerStateService.Familiar);
+
+    /// <summary>0.10.11: build the in-panel result display for the .fam s
+    /// search form above. Mounted at the bottom of the More Actions card
+    /// so it's visually adjacent to the form that produces its data.</summary>
+    private void BuildFamSearchResultPanel(GameObject parent)
+    {
+        AddDivider(parent);
+        AddSectionHeading(parent, "Last search result");
+
+        _famSearchResultHeader = AddInfoLabel(parent, "FamSearchResultHeader",
+            "(submit a search above to populate)", FontStyles.Italic, fontSize: Theme.ScaledUI(12));
+        _famSearchResultHeader.color = new UnityEngine.Color(0.7f, 0.7f, 0.7f);
+
+        _famSearchResultList = UIFactory.CreateVerticalGroup(parent, "FamSearchResultList",
+            forceWidth: true, forceHeight: false,
+            childControlWidth: true, childControlHeight: true,
+            spacing: 2, padding: new Vector4(0, 0, 6, 4));
+        UIFactory.SetLayoutElement(_famSearchResultList,
+            minWidth: 360, preferredWidth: 400, flexibleWidth: 1,
+            minHeight: 0, flexibleHeight: 0);
+    }
+
+    /// <summary>0.10.11: render a FamSearchCompleted payload into the
+    /// Last-search-result panel. Each matching box renders as its own
+    /// row with a shiny indicator when the server attached the pink-star
+    /// marker. No-match results show a single italic "no matches" line.
+    /// Cheap rebuild: typical reply has 0-5 boxes.</summary>
+    private void OnFamSearchCompletedForFamTab(MessageService.FamSearchResult r)
+    {
+        if (_famSearchResultHeader == null || _famSearchResultList == null) return;
+
+        // Header: "Search: 'name' → N match(es)" or "no matches".
+        if (string.IsNullOrEmpty(r.Query))
+        {
+            _famSearchResultHeader.text = "(submit a search above to populate)";
+        }
+        else if (!r.HadAnyMatch || r.Boxes == null || r.Boxes.Count == 0)
+        {
+            _famSearchResultHeader.text = $"Search: \"{r.Query}\"  →  no matches.";
+        }
+        else
+        {
+            _famSearchResultHeader.text = $"Search: \"{r.Query}\"  →  {r.Boxes.Count} box{(r.Boxes.Count == 1 ? "" : "es")}.";
+        }
+        _famSearchResultHeader.color = new UnityEngine.Color(0.9f, 0.9f, 0.9f);
+
+        // Wipe and rebuild the box list.
+        for (int i = _famSearchResultList.transform.childCount - 1; i >= 0; --i)
+            UnityEngine.Object.Destroy(_famSearchResultList.transform.GetChild(i).gameObject);
+
+        if (r.HadAnyMatch && r.Boxes != null)
+        {
+            foreach (var b in r.Boxes)
+            {
+                string suffix = b.HasShiny
+                    ? $"   <color=#FFA0F0>★ shiny</color>"
+                    : "";
+                var line = UIFactory.CreateLabel(_famSearchResultList, "ResultRow",
+                    $"<color=#9AC8D9>•</color>  {b.Box}{suffix}",
+                    TextAlignmentOptions.MidlineLeft, color: null, fontSize: Theme.ScaledUI(12));
+                UIFactory.SetLayoutElement(line.GameObject,
+                    minWidth: 360, preferredWidth: 400, flexibleWidth: 1,
+                    minHeight: 20, preferredHeight: 22, flexibleHeight: 0);
+                line.TextMesh.enableWordWrapping = false;
+                line.TextMesh.overflowMode = TextOverflowModes.Overflow;
+            }
+        }
+        AutoResizeIfEnabled();
+    }
 
     // -----------------------------------------------------------------------
     // Boxes tab
@@ -956,24 +1251,18 @@ public partial class MainPanel : ResizeablePanelBase
 
     private void BuildBoxesTab(GameObject page)
     {
-        // Compact active-box label always shown at the top.
-        _boxesActiveBoxLabel = AddInfoLabel(page, "ActiveBox",
+        // 0.10.11: wrap the active-box header + tip in a card so the
+        // bold "Active Box: …" label isn't flush with the panel border,
+        // and the italic Tip body has muted styling that recedes
+        // visually next to the bold header.
+        var headerCard = AddCard(page, "BoxesHeaderCard", Theme.SystemTintFamiliar);
+        _boxesActiveBoxLabel = AddInfoLabel(headerCard, "ActiveBox",
             "Active Box: (none selected)",
             FontStyles.Bold, fontSize: Theme.ScaledUI(14));
+        AddBodyText(headerCard,
+            "Tip: click Refresh to pull your box list, click a box to see its familiars, click a familiar to bind it. Use ← Back to return.");
 
-        // Hint text near the top so it can never be overlapped by a long box
-        // list further down. Phrased as a one-liner so it doesn't dominate.
-        var note = UIFactory.CreateLabel(page, "BoxesNote",
-            "Tip: click Refresh to pull your box list, click a box to see its familiars, click a familiar to bind it. Use ← Back to return.",
-            TextAlignmentOptions.TopLeft, color: null, fontSize: Theme.ScaledUI(11));
-        UIFactory.SetLayoutElement(note.GameObject,
-            minWidth: 360, preferredWidth: 400, flexibleWidth: 1,
-            minHeight: 22, preferredHeight: 32, flexibleHeight: 0);
-        note.TextMesh.enableWordWrapping = true;
-        note.TextMesh.overflowMode = TextOverflowModes.Overflow;
-        note.TextMesh.fontStyle = FontStyles.Italic;
-
-        AddSpacer(page, 4);
+        AddSpacer(page, 6);
 
         // ---------------- Picker section (visible when no box selected) ----------------
         // childControlHeight: true is crucial here - without it the layout group
@@ -1485,15 +1774,18 @@ public partial class MainPanel : ResizeablePanelBase
 
     private void BuildClassTab(GameObject page)
     {
-        AddSectionHeading(page, "Active Class");
+        // 0.10.11: card-wrap the three sections so the tab reads as
+        // grouped content instead of one stacked column.
+        var currentCard = AddCard(page, "ClassCurrentCard", Theme.SystemTintExpertise);
+        AddSectionHeading(currentCard, "Active Class");
+        _classNameLabel  = AddInfoLabel(currentCard, "ClassName",  "—",       FontStyles.Bold,   fontSize: Theme.ScaledUI(18));
+        _classLevelLabel = AddInfoLabel(currentCard, "ClassLevel", "Level —", FontStyles.Normal, fontSize: Theme.ScaledUI(14));
 
-        _classNameLabel  = AddInfoLabel(page, "ClassName",  "—",       FontStyles.Bold,   fontSize: Theme.ScaledUI(18));
-        _classLevelLabel = AddInfoLabel(page, "ClassLevel", "Level —", FontStyles.Normal, fontSize: Theme.ScaledUI(14));
+        AddSpacer(page, 6);
 
-        AddSpacer(page, 4);
-        AddSectionHeading(page, "Actions");
-
-        var actions = UIFactory.CreateHorizontalGroup(page, "ClassActions",
+        var actionsCard = AddCard(page, "ClassActionsCard");
+        AddSectionHeading(actionsCard, "Actions");
+        var actions = UIFactory.CreateHorizontalGroup(actionsCard, "ClassActions",
             forceExpandWidth: true, forceExpandHeight: false,
             childControlWidth: true, childControlHeight: true,
             spacing: 6, padding: new Vector4(0, 0, 0, 0));
@@ -1510,9 +1802,10 @@ public partial class MainPanel : ResizeablePanelBase
             "Toggle whether the class spell occupies your shift-slot (.class shift).");
 
         AddSpacer(page, 6);
-        AddSectionHeading(page, "Change Class");
 
-        CollapsibleSection.Build(page,
+        var changeCard = AddCard(page, "ClassChangeCard");
+        AddSectionHeading(changeCard, "Change Class");
+        CollapsibleSection.Build(changeCard,
             title: "Select / change your class (.class s)",
             startExpanded: false,
             tooltip: "Pick a class from the dropdown and Submit. Some servers may rate-limit class changes or require a cost — Bloodcraft replies in chat with success or the rejection reason.",
@@ -1523,7 +1816,7 @@ public partial class MainPanel : ResizeablePanelBase
                     defaultValue: PlayerStateService.BloodcraftClassChoice.BloodKnight,
                     tooltip: "The class you want active. Bloodcraft's six built-in classes are listed.")));
 
-        CollapsibleSection.Build(page,
+        CollapsibleSection.Build(changeCard,
             title: "Choose class shift spell (.class csp)",
             startExpanded: false,
             tooltip: "Set which of your class's spells occupies your shift slot. Use 'List Spells' above to see the available spells (numbered) for your current class, then enter the spell's 1-based index here.",
@@ -1533,16 +1826,9 @@ public partial class MainPanel : ResizeablePanelBase
                 new IntField("index", "Spell #", min: 1, max: 32,
                     tooltip: "1-based index of the class spell. Run 'List Spells' to see what each number maps to before submitting.")));
 
-        AddSpacer(page, 2);
-        var note = UIFactory.CreateLabel(page, "ClassNote",
-            "Tip: List Spells / List Stats above describe what each class grants before you commit.",
-            TextAlignmentOptions.TopLeft, color: null, fontSize: Theme.ScaledUI(11));
-        UIFactory.SetLayoutElement(note.GameObject,
-            minWidth: 360, preferredWidth: 400, flexibleWidth: 1,
-            minHeight: 22, preferredHeight: 26, flexibleHeight: 0);
-        note.TextMesh.fontStyle = FontStyles.Italic;
-        note.TextMesh.enableWordWrapping = true;
-        note.TextMesh.overflowMode = TextOverflowModes.Overflow;
+        AddDivider(changeCard);
+        AddBodyText(changeCard,
+            $"Tip: {Mono("List Spells")} / {Mono("List Stats")} above describe what each class grants before you commit.");
 
         RenderClass(PlayerStateService.Experience);
         if (!_classSubscribed)
@@ -1569,18 +1855,670 @@ public partial class MainPanel : ResizeablePanelBase
     // Weapon Expertise tab
     // -----------------------------------------------------------------------
 
+    // -----------------------------------------------------------------------
+    // 0.10.0: V-Bloods tab. Collection tracker for the 65 named V-Bloods
+    // listed in VBloodRegistry. Rows are built once at tab-construct time,
+    // refreshed in place when PlayerStateService.VBloodCollection changes or
+    // when the scanner ticks. Filter buttons re-show/hide the existing row
+    // GameObjects rather than rebuilding — keeps scroll position stable
+    // across filter switches.
+    //
+    // Status chips per row:
+    //   B  — basic variant captured
+    //   S  — basic + shiny captured
+    //   P  — Primal variant captured
+    //   PS — Primal + shiny captured
+    //
+    // Each chip is one of:
+    //   green "[B]" = captured     gray "[B]" = not captured (yet)
+    // We pack all four chips into a single TMP label using <color> tags so
+    // each row only needs one label instead of four, keeping layout cheap.
+    // -----------------------------------------------------------------------
+    // 0.10.9: V-Bloods tab rebuilt around the box-sweep scanner. One row
+    // per CAPTURED VARIANT (basic / shiny / primal / primal-shiny) with
+    // explicit per-variant Summon. Pre-0.10.9 the chip view rendered a
+    // single row per V-Blood name with 4 status chips and a single
+    // ambiguous Summon button — users had no way to choose which variant
+    // to bind. The 0.10.7 "Instances" view sourced data from BoxContents
+    // (required manual box navigation); the new scanner populates
+    // BoxContents AND a precise per-variant index, so the two views are
+    // collapsed back into one.
+    private void BuildVBloodsTab(GameObject page)
+    {
+        // 0.10.10: every section wrapped in a card so progress / filter
+        // controls aren't flush with the panel edge anymore (friend-test
+        // feedback: "X / Y captured is flush left against the border").
+
+        // Header card — Section heading + help text inside.
+        var headerCard = AddCard(page, "VBloodsHeaderCard");
+        AddSectionHeading(headerCard, "V-Blood Collection");
+        AddBodyText(headerCard,
+            "One row per captured V-Blood variant (basic / shiny / primal / primal shiny). " +
+            $"Scan walks each of your familiar boxes once via {Mono(".fam boxes")} + {Mono(".fam l")} — your active box is restored when it finishes. " +
+            "Filter shows All / Captured / Missing / Shiny only.");
+
+        AddSpacer(page, 6);
+
+        // Progress + Scan card.
+        var progressCard = AddCard(page, "VBloodsProgressCard");
+        var headerRow = UIFactory.CreateHorizontalGroup(progressCard, "VBloodsHeader",
+            forceExpandWidth: true, forceExpandHeight: false,
+            childControlWidth: true, childControlHeight: true,
+            spacing: 6, padding: new Vector4(0, 0, 0, 0));
+        UIFactory.SetLayoutElement(headerRow,
+            minWidth: 360, preferredWidth: 400, flexibleWidth: 1,
+            minHeight: 30, preferredHeight: 32, flexibleHeight: 0);
+
+        _vbProgressLabel = AddInfoLabel(headerRow, "VBProgress", "0 / 65 captured",
+            FontStyles.Bold, fontSize: Theme.ScaledUI(13));
+        UIFactory.SetLayoutElement(_vbProgressLabel.gameObject,
+            minWidth: 180, preferredWidth: 240, flexibleWidth: 1,
+            minHeight: 24, preferredHeight: 28, flexibleHeight: 0);
+
+        _vbScanButton = UIFactory.CreateButton(headerRow, "VBScanBtn", "Scan all");
+        UIFactory.SetLayoutElement(_vbScanButton.GameObject,
+            minWidth: 90, preferredWidth: 110, flexibleWidth: 0,
+            minHeight: 28, preferredHeight: 30, flexibleHeight: 0);
+        var scanBtnText = _vbScanButton.Component.GetComponentInChildren<TextMeshProUGUI>();
+        if (scanBtnText != null) { scanBtnText.fontSize = Theme.ScaledUI(12); scanBtnText.alignment = TextAlignmentOptions.Center; }
+        TooltipHover.Attach(_vbScanButton.GameObject,
+            "Sweep every familiar box via .fam boxes + .fam cb + .fam l — populates the V-Blood collection AND per-box contents in one pass. ~30–60s. Your active box is restored when the sweep finishes. Cancel halts the sweep mid-flight.");
+        _vbScanButton.OnClick = () =>
+        {
+            if (VBloodScannerService.Scanning) VBloodScannerService.CancelScan();
+            else                                VBloodScannerService.StartScan();
+            RefreshVBScanButton();
+        };
+
+        _vbScanStatusLabel = AddInfoLabel(progressCard, "VBScanStatus", "",
+            FontStyles.Italic, fontSize: Theme.ScaledUI(11));
+        _vbScanStatusLabel.gameObject.SetActive(false);
+
+        AddSpacer(page, 6);
+
+        // Filter + Sort card.
+        var filterCard = AddCard(page, "VBloodsFilterCard");
+        var filterRow = UIFactory.CreateHorizontalGroup(filterCard, "VBloodsFilters",
+            forceExpandWidth: true, forceExpandHeight: false,
+            childControlWidth: true, childControlHeight: true,
+            spacing: 4, padding: new Vector4(0, 0, 0, 0));
+        UIFactory.SetLayoutElement(filterRow,
+            minWidth: 360, preferredWidth: 400, flexibleWidth: 1,
+            minHeight: 26, preferredHeight: 28, flexibleHeight: 0);
+        AddVBFilterButton(filterRow, "All",      VBloodFilter.All);
+        AddVBFilterButton(filterRow, "Captured", VBloodFilter.Captured);
+        AddVBFilterButton(filterRow, "Missing",  VBloodFilter.Missing);
+        AddVBFilterButton(filterRow, "Shiny",    VBloodFilter.ShinyOnly);
+
+        _vbSortButton = UIFactory.CreateButton(filterRow, "VBSortBtn", FormatVBSortButtonText());
+        UIFactory.SetLayoutElement(_vbSortButton.GameObject,
+            minWidth: 100, preferredWidth: 130, flexibleWidth: 1,
+            minHeight: 24, preferredHeight: 26, flexibleHeight: 0);
+        var sortTxt = _vbSortButton.Component.GetComponentInChildren<TextMeshProUGUI>();
+        if (sortTxt != null) { sortTxt.fontSize = Theme.ScaledUI(12); sortTxt.alignment = TextAlignmentOptions.Center; }
+        TooltipHover.Attach(_vbSortButton.GameObject,
+            "Cycle sort order: Default (alpha by name) → Alphabetical → By level (descending across all captured instances) → By region.");
+        _vbSortButton.OnClick = () =>
+        {
+            var current = Config.Settings.FamiliarSortOrderSetting;
+            var next = current switch
+            {
+                Config.Settings.FamiliarSortOrder.Default      => Config.Settings.FamiliarSortOrder.Alphabetical,
+                Config.Settings.FamiliarSortOrder.Alphabetical => Config.Settings.FamiliarSortOrder.Level,
+                Config.Settings.FamiliarSortOrder.Level        => Config.Settings.FamiliarSortOrder.Location,
+                Config.Settings.FamiliarSortOrder.Location     => Config.Settings.FamiliarSortOrder.Default,
+                _                                               => Config.Settings.FamiliarSortOrder.Default,
+            };
+            Config.Settings.SetFamiliarSortOrder(next);
+            RefreshVBSortButtonText();
+            RebuildVBRows();
+            // The overlay also reads this setting; ping it so its list re-orders too.
+            try { Plugin.UIManager?.FamiliarBrowserOverlay?.NotifySortOrderChanged(); }
+            catch { /* overlay may not be open */ }
+        };
+
+        AddSpacer(page, 6);
+
+        // Rows card — section heading + column-header row + the dynamic
+        // rows themselves. Pre-0.10.10 the rows lived flush against the
+        // panel edge and shifted column widths because the shiny-school
+        // chip was conditionally rendered.
+        var rowsCard = AddCard(page, "VBloodsRowsCard", padding: 4, innerSpacing: 2);
+        AddSectionHeading(rowsCard, "V-Bloods");
+        BuildVBColumnHeader(rowsCard); // 0.10.10: column labels above the rows for clarity
+
+        // Rows are dynamic — rebuilt each time the collection / filter / sort
+        // changes. Cheap; the registry caps at ~65 names plus 0..N variants
+        // each (typical owned ~10-30 instances, so list is small).
+        _vbRowContainer = UIFactory.CreateVerticalGroup(rowsCard, "VBloodRows",
+            forceWidth: true, forceHeight: false,
+            childControlWidth: true, childControlHeight: true,
+            spacing: 2, padding: new Vector4(0, 0, 2, 2));
+        UIFactory.SetLayoutElement(_vbRowContainer,
+            minWidth: 360, preferredWidth: 400, flexibleWidth: 1,
+            minHeight: 60, flexibleHeight: 0);
+
+        if (!_vbSubscribed)
+        {
+            PlayerStateService.VBloodCollectionChanged += OnVBloodCollectionChanged;
+            VBloodScannerService.ScanStateChanged      += OnVBloodScanStateChanged;
+            _vbSubscribed = true;
+        }
+
+        // 0.10.10: auto-scan is now opt-in. Friend-testing 0.10.9: the scan
+        // walks the box list and the `.fam cb`/`.fam l` confirmations leaked
+        // into chat (suppression-flag gap fixed below, but the unannounced
+        // box-switching was still surprising). Pre-0.10.10 we triggered
+        // StartScan unconditionally when VBloodCollection was empty; now
+        // the user clicks "Scan all" (or can opt back in via Display
+        // Settings → "Auto-scan on tab open").
+        if (Config.Settings.AutoScanVBloodsOnTabOpen
+            && PlayerStateService.VBloodCollection.Count == 0
+            && !VBloodScannerService.Scanning)
+        {
+            System.Action deferStart = null;
+            deferStart = () =>
+            {
+                BloodCraftHub.Behaviors.CoreUpdateBehavior.Actions.Remove(deferStart);
+                if (MessageService.IsInitialized && PlayerStateService.VBloodCollection.Count == 0)
+                    VBloodScannerService.StartScan();
+                RefreshVBScanButton();
+            };
+            BloodCraftHub.Behaviors.CoreUpdateBehavior.Actions.Add(deferStart);
+        }
+
+        RebuildVBRows();
+        RefreshVBHeader();
+        RefreshVBScanButton();
+    }
+
+    /// <summary>0.10.9: subscribed to VBloodCollectionChanged. Cheap, but
+    /// rebuilds the entire row list — fine because typical scenarios have
+    /// at most a few dozen instances.</summary>
+    private void OnVBloodCollectionChanged()
+    {
+        RebuildVBRows();
+        RefreshVBHeader();
+    }
+
+    private void OnVBloodScanStateChanged()
+    {
+        RefreshVBScanButton();
+        RefreshVBHeader();
+    }
+
+    private void RefreshVBScanButton()
+    {
+        if (_vbScanButton == null) return;
+        var t = _vbScanButton.Component.GetComponentInChildren<TextMeshProUGUI>();
+        if (t != null) t.text = VBloodScannerService.Scanning ? "Cancel" : "Scan all";
+    }
+
+    private void RefreshVBHeader()
+    {
+        if (_vbProgressLabel == null) return;
+        int total = Resources.VBloodRegistry.All.Length;
+        int capturedNames = 0, primalNames = 0, shinyInstances = 0, totalInstances = 0;
+        foreach (var slot in PlayerStateService.VBloodCollection.Values)
+        {
+            if (slot.Instances == null || slot.Instances.Count == 0) continue;
+            capturedNames++;
+            if (slot.HasPrimal || slot.HasPrimalShiny) primalNames++;
+            foreach (var i in slot.Instances)
+            {
+                totalInstances++;
+                if (i.IsShiny) shinyInstances++;
+            }
+        }
+        string text = $"{capturedNames} / {total} captured  ·  {totalInstances} instance{(totalInstances == 1 ? "" : "s")}";
+        if (primalNames    > 0) text += $"  ·  {primalNames} primal";
+        if (shinyInstances > 0) text += $"  ·  {shinyInstances} shiny";
+        _vbProgressLabel.text = text;
+
+        if (_vbScanStatusLabel != null)
+        {
+            if (VBloodScannerService.Scanning)
+            {
+                string box = VBloodScannerService.CurrentBoxBeingScanned;
+                string suffix = string.IsNullOrEmpty(box) ? "" : $" — {box}";
+                _vbScanStatusLabel.text = $"Scanning… box {VBloodScannerService.CompletedForCurrentScan + 1} / {VBloodScannerService.TotalForCurrentScan}{suffix}";
+                if (!_vbScanStatusLabel.gameObject.activeSelf) _vbScanStatusLabel.gameObject.SetActive(true);
+            }
+            else if (_vbScanStatusLabel.text != null && _vbScanStatusLabel.text.StartsWith("Scanning"))
+            {
+                _vbScanStatusLabel.gameObject.SetActive(false);
+            }
+        }
+    }
+
+    /// <summary>0.10.9: full teardown + rebuild. Sorts rows per the
+    /// FamiliarSortOrder setting and applies the current filter. Captured
+    /// variants render with full detail + Summon; un-captured V-Bloods (in
+    /// All / Missing filter) render as a muted placeholder row with no
+    /// Summon button.</summary>
+    private void RebuildVBRows()
+    {
+        if (_vbRowContainer == null) return;
+
+        // Tear down all existing rows.
+        for (int i = _vbRowContainer.transform.childCount - 1; i >= 0; --i)
+        {
+            var child = _vbRowContainer.transform.GetChild(i);
+            if (child == null) continue;
+            UnityEngine.Object.Destroy(child.gameObject);
+        }
+
+        // Build the row list. Each row is either a captured variant
+        // (VBRow with Name + variant tag + stats + box + Summon) or a
+        // missing-name placeholder (VBRowMissing — name only, dim).
+        var rows = new List<VBRowSpec>();
+        bool includeMissing = _vbFilter == VBloodFilter.All || _vbFilter == VBloodFilter.Missing;
+        bool includeCaptured = _vbFilter != VBloodFilter.Missing;
+        bool shinyOnly = _vbFilter == VBloodFilter.ShinyOnly;
+
+        if (includeCaptured)
+        {
+            foreach (var kv in PlayerStateService.VBloodCollection)
+            {
+                var slot = kv.Value;
+                if (slot.Instances == null) continue;
+                foreach (var inst in slot.Instances)
+                {
+                    if (shinyOnly && !inst.IsShiny) continue;
+                    if (_vbFilter == VBloodFilter.Captured && shinyOnly) continue; // already shiny path
+                    rows.Add(new VBRowSpec { Name = slot.Name, Instance = inst, IsMissing = false });
+                }
+            }
+        }
+        if (includeMissing)
+        {
+            foreach (var name in Resources.VBloodRegistry.All)
+            {
+                if (PlayerStateService.VBloodCollection.TryGetValue(name, out var slot)
+                    && slot.Instances != null && slot.Instances.Count > 0) continue;
+                rows.Add(new VBRowSpec { Name = name, IsMissing = true });
+            }
+        }
+
+        SortVBRows(rows);
+
+        if (rows.Count == 0)
+        {
+            var empty = UIFactory.CreateLabel(_vbRowContainer, "VBEmpty",
+                _vbFilter == VBloodFilter.Missing
+                    ? "Nothing missing — every registered V-Blood has at least one capture. Nice work."
+                    : "No captures match the current filter. Try Scan or switch filter to All.",
+                TextAlignmentOptions.MidlineLeft, color: null, fontSize: Theme.ScaledUI(11));
+            UIFactory.SetLayoutElement(empty.GameObject,
+                minWidth: 360, preferredWidth: 400, flexibleWidth: 1,
+                minHeight: 28, preferredHeight: 32, flexibleHeight: 0);
+            empty.TextMesh.fontStyle = FontStyles.Italic;
+            return;
+        }
+
+        foreach (var spec in rows)
+        {
+            if (spec.IsMissing) BuildVBMissingRow(_vbRowContainer, spec.Name);
+            else                BuildVBVariantRow(_vbRowContainer, spec.Name, spec.Instance);
+        }
+    }
+
+    private struct VBRowSpec
+    {
+        public string Name;
+        public PlayerStateService.VBloodInstance Instance;
+        public bool   IsMissing;
+    }
+
+    private static void SortVBRows(List<VBRowSpec> rows)
+    {
+        var mode = Config.Settings.FamiliarSortOrderSetting;
+        // Always: captured before missing in the All filter so the user
+        // sees their actual collection at the top.
+        rows.Sort((a, b) =>
+        {
+            int missCmp = a.IsMissing.CompareTo(b.IsMissing);
+            if (missCmp != 0) return missCmp; // false < true → captured first
+            switch (mode)
+            {
+                case Config.Settings.FamiliarSortOrder.Alphabetical:
+                {
+                    int c = string.Compare(a.Name, b.Name, System.StringComparison.OrdinalIgnoreCase);
+                    if (c != 0) return c;
+                    return CompareVariantOrder(a, b);
+                }
+                case Config.Settings.FamiliarSortOrder.Level:
+                {
+                    if (a.IsMissing || b.IsMissing)
+                        return string.Compare(a.Name, b.Name, System.StringComparison.OrdinalIgnoreCase);
+                    int c = b.Instance.Level.CompareTo(a.Instance.Level);
+                    if (c != 0) return c;
+                    c = b.Instance.Prestige.CompareTo(a.Instance.Prestige);
+                    if (c != 0) return c;
+                    return string.Compare(a.Name, b.Name, System.StringComparison.OrdinalIgnoreCase);
+                }
+                case Config.Settings.FamiliarSortOrder.Location:
+                {
+                    int ra = Resources.VBloodRegistry.RegionOrderFor(a.Name);
+                    int rb = Resources.VBloodRegistry.RegionOrderFor(b.Name);
+                    if (ra != rb) return ra.CompareTo(rb);
+                    int c = string.Compare(a.Name, b.Name, System.StringComparison.OrdinalIgnoreCase);
+                    if (c != 0) return c;
+                    return CompareVariantOrder(a, b);
+                }
+                case Config.Settings.FamiliarSortOrder.Default:
+                default:
+                {
+                    int c = string.Compare(a.Name, b.Name, System.StringComparison.OrdinalIgnoreCase);
+                    if (c != 0) return c;
+                    return CompareVariantOrder(a, b);
+                }
+            }
+        });
+    }
+
+    /// <summary>Stable variant ordering within one V-Blood name: basic →
+    /// shiny → primal → primal-shiny. Keeps the chip view readable when
+    /// the player has 2+ variants of the same name back-to-back.</summary>
+    private static int CompareVariantOrder(VBRowSpec a, VBRowSpec b)
+    {
+        if (a.IsMissing || b.IsMissing) return 0;
+        int va = VariantOrder(a.Instance);
+        int vb = VariantOrder(b.Instance);
+        return va.CompareTo(vb);
+    }
+    private static int VariantOrder(PlayerStateService.VBloodInstance i)
+        => (i.IsPrimal ? 2 : 0) + (i.IsShiny ? 1 : 0); // basic 0, shiny 1, primal 2, primal-shiny 3
+
+    private static string FormatVBSortButtonText()
+    {
+        var mode = Config.Settings.FamiliarSortOrderSetting;
+        return mode switch
+        {
+            Config.Settings.FamiliarSortOrder.Alphabetical => "Sort: Alpha",
+            Config.Settings.FamiliarSortOrder.Level        => "Sort: Level",
+            Config.Settings.FamiliarSortOrder.Location     => "Sort: Region",
+            _                                              => "Sort: Default",
+        };
+    }
+
+    private void RefreshVBSortButtonText()
+    {
+        if (_vbSortButton == null) return;
+        var t = _vbSortButton.Component.GetComponentInChildren<TextMeshProUGUI>();
+        if (t != null) t.text = FormatVBSortButtonText();
+    }
+
+    private void AddVBFilterButton(GameObject parent, string label, VBloodFilter mode)
+    {
+        var btn = UIFactory.CreateButton(parent, $"VBFilter_{label}", label);
+        UIFactory.SetLayoutElement(btn.GameObject,
+            minWidth: 70, preferredWidth: 90, flexibleWidth: 1,
+            minHeight: 24, preferredHeight: 26, flexibleHeight: 0);
+        var t = btn.Component.GetComponentInChildren<TextMeshProUGUI>();
+        if (t != null) { t.fontSize = Theme.ScaledUI(12); t.alignment = TextAlignmentOptions.Center; }
+        btn.OnClick = () =>
+        {
+            _vbFilter = mode;
+            RebuildVBRows();
+        };
+    }
+
+    // Variant-tag color palette. Bright captured colors stand out against
+    // the muted "missing" rows; primal gets a warmer gold-orange and shiny
+    // / primal-shiny inherit cyan to echo the school-color convention used
+    // in the Boxes tab. Picked for contrast against the panel background,
+    // not lifted from Theme.Level* (those are for system-progress tinting).
+    private const string VB_VARIANT_BASIC_HEX        = "#7CDA7C"; // green
+    private const string VB_VARIANT_SHINY_HEX        = "#9AE0FF"; // light cyan
+    private const string VB_VARIANT_PRIMAL_HEX       = "#FFC066"; // gold-orange
+    private const string VB_VARIANT_PRIMAL_SHINY_HEX = "#FFA0F0"; // pink — Bloodcraft's own shiny-marker hue
+    private const string VB_MISSING_HEX              = "#888888"; // mid-grey
+
+    private static string VariantTag(PlayerStateService.VBloodInstance i)
+    {
+        string label = i.IsPrimal
+            ? (i.IsShiny ? "PS" : "P")
+            : (i.IsShiny ? "S"  : "B");
+        string hex = i.IsPrimal
+            ? (i.IsShiny ? VB_VARIANT_PRIMAL_SHINY_HEX : VB_VARIANT_PRIMAL_HEX)
+            : (i.IsShiny ? VB_VARIANT_SHINY_HEX        : VB_VARIANT_BASIC_HEX);
+        return $"<color={hex}><b>[{label}]</b></color>";
+    }
+
+    // 0.10.10: strict column widths so the rows form a real table. Pre-
+    // 0.10.10 the shiny-school chip was OMITTED for non-shiny rows, which
+    // collapsed that column — name and box shifted left and the layout
+    // looked ragged. Every row now reserves all columns even when blank;
+    // BuildVBColumnHeader uses these exact constants too.
+    private const int VB_COL_TAG_W     = 36;
+    private const int VB_COL_LV_W      = 70;
+    private const int VB_COL_SHINY_W   = 96;
+    private const int VB_COL_BOX_W     = 100;
+    private const int VB_COL_SUMMON_W  = 78;
+    private const int VB_ROW_SPACING   = 6;
+
+    /// <summary>0.10.10: tabular column-header row that lives just above
+    /// the rows. Uses the same widths as BuildVBVariantRow /
+    /// BuildVBMissingRow so the visual columns line up.</summary>
+    private static void BuildVBColumnHeader(GameObject parent)
+    {
+        var row = UIFactory.CreateHorizontalGroup(parent, "VBColHeader",
+            forceExpandWidth: true, forceExpandHeight: false,
+            childControlWidth: true, childControlHeight: true,
+            spacing: VB_ROW_SPACING, padding: new Vector4(2, 2, 1, 2));
+        UIFactory.SetLayoutElement(row,
+            minWidth: 360, preferredWidth: 400, flexibleWidth: 1,
+            minHeight: 18, preferredHeight: 20, flexibleHeight: 0);
+
+        void Col(string label, int w, TextAlignmentOptions align)
+        {
+            var l = UIFactory.CreateLabel(row, $"H_{label}",
+                $"<color={Theme.MutedBodyHex}>{label}</color>",
+                align, color: null, fontSize: Theme.ScaledUI(10));
+            UIFactory.SetLayoutElement(l.GameObject,
+                minWidth: w, preferredWidth: w, flexibleWidth: 0,
+                minHeight: 18, preferredHeight: 20, flexibleHeight: 0);
+            l.TextMesh.enableWordWrapping = false;
+            l.TextMesh.overflowMode = TextOverflowModes.Overflow;
+            l.TextMesh.fontStyle = FontStyles.Bold | FontStyles.SmallCaps;
+        }
+
+        Col("Type", VB_COL_TAG_W, TextAlignmentOptions.Midline);
+
+        // Name column is flex so it absorbs the leftover space.
+        var nameHdr = UIFactory.CreateLabel(row, "H_Name",
+            $"<color={Theme.MutedBodyHex}>Name</color>",
+            TextAlignmentOptions.MidlineLeft, color: null, fontSize: Theme.ScaledUI(10));
+        UIFactory.SetLayoutElement(nameHdr.GameObject,
+            minWidth: 100, preferredWidth: 140, flexibleWidth: 1,
+            minHeight: 18, preferredHeight: 20, flexibleHeight: 0);
+        nameHdr.TextMesh.enableWordWrapping = false;
+        nameHdr.TextMesh.overflowMode = TextOverflowModes.Overflow;
+        nameHdr.TextMesh.fontStyle = FontStyles.Bold | FontStyles.SmallCaps;
+
+        Col("Lv",     VB_COL_LV_W,     TextAlignmentOptions.Midline);
+        Col("Shiny",  VB_COL_SHINY_W,  TextAlignmentOptions.Midline);
+        Col("Box",    VB_COL_BOX_W,    TextAlignmentOptions.MidlineLeft);
+        Col("",       VB_COL_SUMMON_W, TextAlignmentOptions.Midline); // summon column has no header label
+    }
+
+    private void BuildVBVariantRow(GameObject parent, string name, PlayerStateService.VBloodInstance instance)
+    {
+        var row = UIFactory.CreateHorizontalGroup(parent,
+            $"VBRow_{name}_{(instance.IsPrimal ? 'P' : 'B')}{(instance.IsShiny ? 'S' : '_')}_{instance.Box}_{instance.Index}",
+            forceExpandWidth: true, forceExpandHeight: false,
+            childControlWidth: true, childControlHeight: true,
+            spacing: VB_ROW_SPACING, padding: new Vector4(2, 2, 2, 2));
+        UIFactory.SetLayoutElement(row,
+            minWidth: 360, preferredWidth: 400, flexibleWidth: 1,
+            minHeight: 24, preferredHeight: 26, flexibleHeight: 0);
+
+        // Type column — variant tag.
+        var tag = UIFactory.CreateLabel(row, "Tag", VariantTag(instance),
+            TextAlignmentOptions.Midline, color: null, fontSize: Theme.ScaledUI(11));
+        UIFactory.SetLayoutElement(tag.GameObject,
+            minWidth: VB_COL_TAG_W, preferredWidth: VB_COL_TAG_W, flexibleWidth: 0,
+            minHeight: 22, preferredHeight: 24, flexibleHeight: 0);
+        tag.TextMesh.enableWordWrapping = false;
+        tag.TextMesh.overflowMode = TextOverflowModes.Overflow;
+
+        // Name column — flex.
+        var nameLbl = AddInfoLabel(row, "Name", name,
+            FontStyles.Normal, fontSize: Theme.ScaledUI(12));
+        nameLbl.alignment = TextAlignmentOptions.MidlineLeft;
+        UIFactory.SetLayoutElement(nameLbl.gameObject,
+            minWidth: 100, preferredWidth: 140, flexibleWidth: 1,
+            minHeight: 22, preferredHeight: 24, flexibleHeight: 0);
+        nameLbl.enableWordWrapping = false;
+        nameLbl.overflowMode = TextOverflowModes.Ellipsis;
+
+        // Level column — fixed width, center-aligned.
+        string statsTxt = instance.Prestige > 0
+            ? $"Lv {instance.Level}  Pr {instance.Prestige}"
+            : (instance.Level > 0 ? $"Lv {instance.Level}" : "—");
+        var statsLbl = AddInfoLabel(row, "Stats", statsTxt,
+            FontStyles.Normal, fontSize: Theme.ScaledUI(11));
+        statsLbl.alignment = TextAlignmentOptions.Midline;
+        UIFactory.SetLayoutElement(statsLbl.gameObject,
+            minWidth: VB_COL_LV_W, preferredWidth: VB_COL_LV_W, flexibleWidth: 0,
+            minHeight: 22, preferredHeight: 24, flexibleHeight: 0);
+        statsLbl.enableWordWrapping = false;
+        statsLbl.overflowMode = TextOverflowModes.Overflow;
+
+        // Shiny column — ALWAYS rendered (with "—" placeholder when not
+        // shiny) so the box and Summon columns stay column-aligned across
+        // rows. Pre-0.10.10 the column was omitted entirely when not
+        // shiny, which collapsed the layout for that row only.
+        string schoolTxt = instance.IsShiny
+            ? (string.IsNullOrEmpty(instance.ShinySchool) ? "★" : $"★ {instance.ShinySchool}")
+            : $"<color={Theme.MutedBodyHex}>—</color>";
+        var schoolLbl = UIFactory.CreateLabel(row, "School", schoolTxt,
+            TextAlignmentOptions.Midline, color: null, fontSize: Theme.ScaledUI(11));
+        UIFactory.SetLayoutElement(schoolLbl.GameObject,
+            minWidth: VB_COL_SHINY_W, preferredWidth: VB_COL_SHINY_W, flexibleWidth: 0,
+            minHeight: 22, preferredHeight: 24, flexibleHeight: 0);
+        schoolLbl.TextMesh.fontStyle = FontStyles.Italic;
+        schoolLbl.TextMesh.enableWordWrapping = false;
+        schoolLbl.TextMesh.overflowMode = TextOverflowModes.Overflow;
+
+        // Box column.
+        var boxLbl = AddInfoLabel(row, "Box", instance.Box,
+            FontStyles.Italic, fontSize: Theme.ScaledUI(11));
+        boxLbl.alignment = TextAlignmentOptions.MidlineLeft;
+        UIFactory.SetLayoutElement(boxLbl.gameObject,
+            minWidth: VB_COL_BOX_W, preferredWidth: VB_COL_BOX_W, flexibleWidth: 0,
+            minHeight: 22, preferredHeight: 24, flexibleHeight: 0);
+        boxLbl.enableWordWrapping = false;
+        boxLbl.overflowMode = TextOverflowModes.Ellipsis;
+
+        // Summon button — fixed column.
+        var summonBtn = UIFactory.CreateButton(row, "Summon", "Summon");
+        UIFactory.SetLayoutElement(summonBtn.GameObject,
+            minWidth: VB_COL_SUMMON_W, preferredWidth: VB_COL_SUMMON_W, flexibleWidth: 0,
+            minHeight: 22, preferredHeight: 24, flexibleHeight: 0);
+        var sbt = summonBtn.Component.GetComponentInChildren<TextMeshProUGUI>();
+        if (sbt != null) { sbt.fontSize = Theme.ScaledUI(11); sbt.alignment = TextAlignmentOptions.Center; }
+        string capturedName    = name;
+        bool   capturedShiny   = instance.IsShiny;
+        bool   capturedPrimal  = instance.IsPrimal;
+        summonBtn.OnClick = () => OnVBSummonVariantClicked(capturedName, capturedShiny, capturedPrimal);
+    }
+
+    private void BuildVBMissingRow(GameObject parent, string name)
+    {
+        var row = UIFactory.CreateHorizontalGroup(parent, $"VBMissingRow_{name}",
+            forceExpandWidth: true, forceExpandHeight: false,
+            childControlWidth: true, childControlHeight: true,
+            spacing: VB_ROW_SPACING, padding: new Vector4(2, 2, 2, 2));
+        UIFactory.SetLayoutElement(row,
+            minWidth: 360, preferredWidth: 400, flexibleWidth: 1,
+            minHeight: 22, preferredHeight: 24, flexibleHeight: 0);
+
+        // Type column.
+        var tag = UIFactory.CreateLabel(row, "Tag", $"<color={VB_MISSING_HEX}>—</color>",
+            TextAlignmentOptions.Midline, color: null, fontSize: Theme.ScaledUI(11));
+        UIFactory.SetLayoutElement(tag.GameObject,
+            minWidth: VB_COL_TAG_W, preferredWidth: VB_COL_TAG_W, flexibleWidth: 0,
+            minHeight: 20, preferredHeight: 22, flexibleHeight: 0);
+
+        // Name column.
+        var nameLbl = UIFactory.CreateLabel(row, "Name",
+            $"<color={VB_MISSING_HEX}>{name}</color>",
+            TextAlignmentOptions.MidlineLeft, color: null, fontSize: Theme.ScaledUI(12));
+        UIFactory.SetLayoutElement(nameLbl.GameObject,
+            minWidth: 100, preferredWidth: 140, flexibleWidth: 1,
+            minHeight: 20, preferredHeight: 22, flexibleHeight: 0);
+        nameLbl.TextMesh.fontStyle = FontStyles.Italic;
+        nameLbl.TextMesh.enableWordWrapping = false;
+        nameLbl.TextMesh.overflowMode = TextOverflowModes.Ellipsis;
+
+        // Empty Lv / Shiny / Box columns reserved so the row column-aligns
+        // with captured rows even when there's no data to display.
+        void EmptyCol(string label, int w)
+        {
+            var l = UIFactory.CreateLabel(row, label,
+                $"<color={VB_MISSING_HEX}>—</color>",
+                TextAlignmentOptions.Midline, color: null, fontSize: Theme.ScaledUI(11));
+            UIFactory.SetLayoutElement(l.GameObject,
+                minWidth: w, preferredWidth: w, flexibleWidth: 0,
+                minHeight: 20, preferredHeight: 22, flexibleHeight: 0);
+            l.TextMesh.fontStyle = FontStyles.Italic;
+        }
+        EmptyCol("LvEmpty",    VB_COL_LV_W);
+        EmptyCol("ShinyEmpty", VB_COL_SHINY_W);
+        EmptyCol("BoxEmpty",   VB_COL_BOX_W);
+
+        // Status label in the Summon-button column slot.
+        var statusLbl = UIFactory.CreateLabel(row, "Status",
+            $"<color={VB_MISSING_HEX}>not captured</color>",
+            TextAlignmentOptions.Midline, color: null, fontSize: Theme.ScaledUI(10));
+        UIFactory.SetLayoutElement(statusLbl.GameObject,
+            minWidth: VB_COL_SUMMON_W, preferredWidth: VB_COL_SUMMON_W, flexibleWidth: 0,
+            minHeight: 20, preferredHeight: 22, flexibleHeight: 0);
+        statusLbl.TextMesh.fontStyle = FontStyles.Italic;
+        statusLbl.TextMesh.enableWordWrapping = false;
+        statusLbl.TextMesh.overflowMode = TextOverflowModes.Overflow;
+    }
+
+    private void OnVBSummonVariantClicked(string name, bool isShiny, bool isPrimal)
+    {
+        if (!_vbSummonStatusSubscribed)
+        {
+            Services.VBloodSummonService.StatusChanged += OnVBSummonStatusChanged;
+            _vbSummonStatusSubscribed = true;
+        }
+        Services.VBloodSummonService.SummonVariant(name, isShiny, isPrimal);
+    }
+
+    private bool _vbSummonStatusSubscribed;
+
+    private void OnVBSummonStatusChanged(string status)
+    {
+        if (_vbScanStatusLabel == null) return;
+        _vbScanStatusLabel.text = status;
+        if (!_vbScanStatusLabel.gameObject.activeSelf) _vbScanStatusLabel.gameObject.SetActive(true);
+    }
+
     private void BuildExpertiseTab(GameObject page)
     {
-        AddSectionHeading(page, "Current Weapon Expertise");
+        // 0.10.9: card-wrapped current state for visual breathing room.
+        var currentCard = AddCard(page, "WepCurrentCard", Theme.SystemTintExpertise);
+        AddSectionHeading(currentCard, "Current Weapon Expertise");
 
-        _wepTypeLabel     = AddInfoLabel(page, "WepType",     "—",                  FontStyles.Bold,   fontSize: Theme.ScaledUI(18));
-        _wepProgressLabel = AddInfoLabel(page, "WepProgress", "Level —",            FontStyles.Normal, fontSize: Theme.ScaledUI(14));
-        _wepBonusLabel    = AddInfoLabel(page, "WepBonus",    "Bonus Stats: —",     FontStyles.Normal, fontSize: Theme.ScaledUI(13));
+        _wepTypeLabel     = AddInfoLabel(currentCard, "WepType",     "—",                  FontStyles.Bold,   fontSize: Theme.ScaledUI(18));
+        _wepProgressLabel = AddInfoLabel(currentCard, "WepProgress", "Level —",            FontStyles.Normal, fontSize: Theme.ScaledUI(14));
+        _wepBonusLabel    = AddInfoLabel(currentCard, "WepBonus",    "Bonus Stats: —",     FontStyles.Normal, fontSize: Theme.ScaledUI(13));
+        _wepStatsValuesLabel = AddInfoLabel(currentCard, "WepStatsValues", "", FontStyles.Italic, fontSize: Theme.ScaledUI(12));
+        _wepStatsValuesLabel.gameObject.SetActive(false);
+        _wepStatsValuesLabel.enableWordWrapping = true;
+        _wepStatsValuesLabel.overflowMode = TextOverflowModes.Overflow;
 
-        AddSpacer(page, 4);
-        AddSectionHeading(page, "Actions");
+        AddSpacer(page, 6);
 
-        var actions = UIFactory.CreateHorizontalGroup(page, "WepActions",
+        var actionsCard = AddCard(page, "WepActionsCard");
+        AddSectionHeading(actionsCard, "Actions");
+        var actions = UIFactory.CreateHorizontalGroup(actionsCard, "WepActions",
             forceExpandWidth: true, forceExpandHeight: false,
             childControlWidth: true, childControlHeight: true,
             spacing: 6, padding: new Vector4(0, 0, 0, 0));
@@ -1599,9 +2537,10 @@ public partial class MainPanel : ResizeablePanelBase
             "Lock in the next spells you equip to use as your unarmed slot spells (.wep locksp).");
 
         AddSpacer(page, 6);
-        AddSectionHeading(page, "Choose Bonus Stat");
 
-        CollapsibleSection.Build(page,
+        var statCard = AddCard(page, "WepStatPickerCard");
+        AddSectionHeading(statCard, "Choose Bonus Stat");
+        CollapsibleSection.Build(statCard,
             title: "Set bonus stat for a weapon (.wep cst)",
             startExpanded: false,
             tooltip: "Pick the weapon type AND the bonus stat you want to lock in for it. Bloodcraft applies the chosen stat scaled by your expertise level for that weapon. Each weapon tracks up to 3 chosen stats; submit again to add more (or use Reset Stats to clear).",
@@ -1616,16 +2555,9 @@ public partial class MainPanel : ResizeablePanelBase
                     defaultValue: PlayerStateService.WeaponBonusStat.PhysicalPower,
                     tooltip: "The stat to enhance. Bloodcraft expects a 1-12 index; the dropdown sends it for you.")));
 
-        AddSpacer(page, 4);
-        var note = UIFactory.CreateLabel(page, "WepNote",
-            "Bloodcraft only streams the EQUIPPED weapon's expertise to the client — there's no command to query stats for weapons you're not currently holding. Switch weapons to see each one's level + chosen stats above.",
-            TextAlignmentOptions.TopLeft, color: null, fontSize: Theme.ScaledUI(11));
-        UIFactory.SetLayoutElement(note.GameObject,
-            minWidth: 360, preferredWidth: 400, flexibleWidth: 1,
-            minHeight: 32, preferredHeight: 44, flexibleHeight: 0);
-        note.TextMesh.fontStyle = FontStyles.Italic;
-        note.TextMesh.enableWordWrapping = true;
-        note.TextMesh.overflowMode = TextOverflowModes.Overflow;
+        AddDivider(statCard);
+        AddBodyText(statCard,
+            $"Bloodcraft only streams the EQUIPPED weapon's expertise. Switch weapons to see each one's level + chosen stats above. The {Mono(".wep l")} button lists every weapon type you can level.");
 
         RenderExpertise(PlayerStateService.Expertise);
         if (!_wepSubscribed)
@@ -1633,9 +2565,63 @@ public partial class MainPanel : ResizeablePanelBase
             PlayerStateService.ExpertiseChanged += OnExpertiseChanged;
             _wepSubscribed = true;
         }
+        if (!_wepLastResponseSubscribed)
+        {
+            PlayerStateService.LastResponseChanged += OnLastResponseChangedForWep;
+            _wepLastResponseSubscribed = true;
+        }
+        // Seed from any LastResponse already on file in case the user opens
+        // this tab AFTER a .wep get fired (e.g. the overlay's bonus-stats
+        // ticker has been running, or they clicked Refresh and switched away
+        // before the reply landed).
+        var seed = PlayerStateService.LastResponse;
+        if (seed.Command == ".wep get" && seed.Lines != null && seed.Lines.Count > 0)
+        {
+            _cachedWepGetLines = new System.Collections.Generic.List<string>(seed.Lines);
+            RenderWepStatsValues();
+        }
     }
 
-    private void OnExpertiseChanged() => RenderExpertise(PlayerStateService.Expertise);
+    private void OnLastResponseChangedForWep()
+    {
+        var r = PlayerStateService.LastResponse;
+        if (r.Command != ".wep get" || r.Lines == null) return;
+        _cachedWepGetLines = new System.Collections.Generic.List<string>(r.Lines);
+        RenderWepStatsValues();
+        AutoResizeIfEnabled();
+    }
+
+    // 0.9.6: render the cached .wep get reply (raw color-tagged lines) into
+    // the stats-values label. Hidden while we have no data so the tab stays
+    // visually tidy on cold opens.
+    private void RenderWepStatsValues()
+    {
+        if (_wepStatsValuesLabel == null) return;
+        if (_cachedWepGetLines == null || _cachedWepGetLines.Count == 0)
+        {
+            if (_wepStatsValuesLabel.gameObject.activeSelf) _wepStatsValuesLabel.gameObject.SetActive(false);
+            return;
+        }
+        _wepStatsValuesLabel.text = "• " + string.Join("\n• ", _cachedWepGetLines);
+        if (!_wepStatsValuesLabel.gameObject.activeSelf) _wepStatsValuesLabel.gameObject.SetActive(true);
+    }
+
+    private void OnExpertiseChanged()
+    {
+        var e = PlayerStateService.Expertise;
+        // 0.10.2: weapon-swap detection — fast-refresh the bonus-stat values
+        // by zeroing the auto-fetch cooldown so the next TickTabAutoRefresh
+        // sends .wep get immediately, instead of waiting up to 10s.
+        if (_wepTabTypeBaseline && e.Type != _wepTabLastType)
+        {
+            _lastWepAutoFetchAt = 0;
+            _cachedWepGetLines = null; // hide stale values while reply is in-flight
+            if (_wepStatsValuesLabel != null) RenderWepStatsValues();
+        }
+        _wepTabLastType = e.Type;
+        _wepTabTypeBaseline = true;
+        RenderExpertise(e);
+    }
 
     // -----------------------------------------------------------------------
     // Blood Legacy tab
@@ -1652,18 +2638,26 @@ public partial class MainPanel : ResizeablePanelBase
 
     private void BuildBloodLegacyTab(GameObject page)
     {
-        AddSectionHeading(page, "Current Blood Legacy");
+        // 0.10.9: tinted card for current legacy state.
+        var currentCard = AddCard(page, "BlCurrentCard", Theme.SystemTintLegacy);
+        AddSectionHeading(currentCard, "Current Blood Legacy");
 
-        _blTypeLabel     = AddInfoLabel(page, "BlType",     "—",                  FontStyles.Bold,   fontSize: Theme.ScaledUI(18));
+        _blTypeLabel     = AddInfoLabel(currentCard, "BlType",     "—",                  FontStyles.Bold,   fontSize: Theme.ScaledUI(18));
         _blTypeLabel.color = new Color(1f, 0.4f, 0.4f); // Bloodcraft uses red for blood headings
         ApplyStrongAccentOutline(_blTypeLabel);
-        _blProgressLabel = AddInfoLabel(page, "BlProgress", "Level —",            FontStyles.Normal, fontSize: Theme.ScaledUI(14));
-        _blBonusLabel    = AddInfoLabel(page, "BlBonus",    "Bonus Stats: —",     FontStyles.Normal, fontSize: Theme.ScaledUI(13));
+        _blProgressLabel = AddInfoLabel(currentCard, "BlProgress", "Level —",            FontStyles.Normal, fontSize: Theme.ScaledUI(14));
+        _blBonusLabel    = AddInfoLabel(currentCard, "BlBonus",    "Bonus Stats: —",     FontStyles.Normal, fontSize: Theme.ScaledUI(13));
+        _blStatsValuesLabel = AddInfoLabel(currentCard, "BlStatsValues", "", FontStyles.Italic, fontSize: Theme.ScaledUI(12));
+        _blStatsValuesLabel.gameObject.SetActive(false);
+        ApplyStrongAccentOutline(_blStatsValuesLabel);
+        _blStatsValuesLabel.enableWordWrapping = true;
+        _blStatsValuesLabel.overflowMode = TextOverflowModes.Overflow;
 
-        AddSpacer(page, 4);
-        AddSectionHeading(page, "Actions");
+        AddSpacer(page, 6);
 
-        var actions = UIFactory.CreateHorizontalGroup(page, "BlActions",
+        var actionsCard = AddCard(page, "BlActionsCard");
+        AddSectionHeading(actionsCard, "Actions");
+        var actions = UIFactory.CreateHorizontalGroup(actionsCard, "BlActions",
             forceExpandWidth: true, forceExpandHeight: false,
             childControlWidth: true, childControlHeight: true,
             spacing: 6, padding: new Vector4(0, 0, 0, 0));
@@ -1680,9 +2674,10 @@ public partial class MainPanel : ResizeablePanelBase
             "Reset your chosen bonus stats for the current blood (.bl rst).");
 
         AddSpacer(page, 6);
-        AddSectionHeading(page, "Choose Bonus Stat");
 
-        CollapsibleSection.Build(page,
+        var statCard = AddCard(page, "BlStatPickerCard");
+        AddSectionHeading(statCard, "Choose Bonus Stat");
+        CollapsibleSection.Build(statCard,
             title: "Set bonus stat for a blood type (.bl cst)",
             startExpanded: false,
             tooltip: "Pick a blood type AND the bonus stat you want to lock in for it. Bloodcraft applies the chosen stat scaled by your legacy level for that blood. Each blood tracks up to 3 chosen stats; submit again to add more (or use Reset Stats to clear the current blood).",
@@ -1697,7 +2692,7 @@ public partial class MainPanel : ResizeablePanelBase
                     defaultValue: PlayerStateService.BloodBonusStat.PhysicalResistance,
                     tooltip: "The stat to enhance. Bloodcraft expects a 1-12 index; the dropdown sends it for you.")));
 
-        CollapsibleSection.Build(page,
+        CollapsibleSection.Build(statCard,
             title: "Show info for a specific blood (.bl get [Blood])",
             startExpanded: false,
             tooltip: "Query any blood type's level + chosen stats — not just the one you currently have. Result is parsed and shown in the panel below; chat is also updated unless you've enabled 'Clear server messages'.",
@@ -1708,19 +2703,12 @@ public partial class MainPanel : ResizeablePanelBase
                     defaultValue: PlayerStateService.BloodTypeChoice.Warrior,
                     tooltip: "Which blood type to inspect.")));
 
-        AddSpacer(page, 4);
-        BuildBloodInfoDisplay(page);
+        AddDivider(statCard);
+        AddBodyText(statCard,
+            $"Unlike weapon expertise, {Mono(".bl get")} accepts a blood-type argument — so the 'Show info' form above can inspect ANY blood you've leveled, not just your current one.");
 
-        AddSpacer(page, 4);
-        var note = UIFactory.CreateLabel(page, "BlNote",
-            "Unlike weapon expertise, .bl get accepts a blood-type argument — so the 'Show info for a specific blood' form above can inspect ANY blood you've leveled, not just your current one.",
-            TextAlignmentOptions.TopLeft, color: null, fontSize: Theme.ScaledUI(11));
-        UIFactory.SetLayoutElement(note.GameObject,
-            minWidth: 360, preferredWidth: 400, flexibleWidth: 1,
-            minHeight: 32, preferredHeight: 44, flexibleHeight: 0);
-        note.TextMesh.fontStyle = FontStyles.Italic;
-        note.TextMesh.enableWordWrapping = true;
-        note.TextMesh.overflowMode = TextOverflowModes.Overflow;
+        AddSpacer(page, 6);
+        BuildBloodInfoDisplay(page);
 
         RenderBloodLegacy(PlayerStateService.Legacy);
         if (!_blSubscribed)
@@ -1776,7 +2764,31 @@ public partial class MainPanel : ResizeablePanelBase
     private void OnBloodInfoChanged()
     {
         RenderBloodInfo();
+        RenderBlStatsValues();
         AutoResizeIfEnabled();
+    }
+
+    // 0.9.6: render the structured stat-values line in the Blood Legacy tab
+    // HEADER (separate from the full Blood Info display further down the
+    // page, which renders any blood the user queries via the form). Only
+    // shows when BloodInfoLatest matches the currently-equipped blood — if
+    // the user just queried "Worker" but is currently using "Warrior", the
+    // header keeps showing nothing rather than misleading values.
+    private void RenderBlStatsValues()
+    {
+        if (_blStatsValuesLabel == null) return;
+        var info = PlayerStateService.BloodInfoLatest;
+        var leg = PlayerStateService.Legacy;
+        bool currentMatches = !string.IsNullOrEmpty(info.BloodType)
+                           && string.Equals(info.BloodType, leg.Type.ToString(), System.StringComparison.OrdinalIgnoreCase);
+        bool haveLines = info.StatLines != null && info.StatLines.Count > 0;
+        if (!currentMatches || !haveLines)
+        {
+            if (_blStatsValuesLabel.gameObject.activeSelf) _blStatsValuesLabel.gameObject.SetActive(false);
+            return;
+        }
+        _blStatsValuesLabel.text = "• " + string.Join("\n• ", info.StatLines);
+        if (!_blStatsValuesLabel.gameObject.activeSelf) _blStatsValuesLabel.gameObject.SetActive(true);
     }
 
     private void RenderBloodInfo()
@@ -1800,7 +2812,25 @@ public partial class MainPanel : ResizeablePanelBase
             _blInfoStatsLabel.text = "(no stat lines parsed — Bloodcraft may not have sent any)";
     }
 
-    private void OnLegacyChanged() => RenderBloodLegacy(PlayerStateService.Legacy);
+    private void OnLegacyChanged()
+    {
+        var l = PlayerStateService.Legacy;
+        // 0.10.2: blood-swap fast refresh — same pattern as weapon.
+        if (_blTabTypeBaseline && l.Type != _blTabLastType)
+        {
+            _lastBlAutoFetchAt = 0;
+            // BloodInfoLatest survives — that's a different blood now, so
+            // RenderBlStatsValues will hide the old values via its
+            // "currentMatches" gate until the new .bl get reply lands.
+        }
+        _blTabLastType = l.Type;
+        _blTabTypeBaseline = true;
+        RenderBloodLegacy(l);
+        // The current blood may have changed (player switched bloods); refresh
+        // the stats-values header which gates on Legacy.Type matching
+        // BloodInfoLatest.BloodType.
+        RenderBlStatsValues();
+    }
 
     private void RenderBloodLegacy(PlayerStateService.LegacyState s)
     {
@@ -1825,24 +2855,27 @@ public partial class MainPanel : ResizeablePanelBase
 
     private void BuildUnarmedShiftTab(GameObject page)
     {
-        AddSectionHeading(page, "Shift Spell");
-
-        _shiftSpellLabel = AddInfoLabel(page, "ShiftSpell",
+        // 0.10.11: card-wrap shift spell + unarmed expertise + actions.
+        var shiftCard = AddCard(page, "ShiftSpellCard", Theme.SystemTintExpertise);
+        AddSectionHeading(shiftCard, "Shift Spell");
+        _shiftSpellLabel = AddInfoLabel(shiftCard, "ShiftSpell",
             "Equipped: —", FontStyles.Normal, fontSize: Theme.ScaledUI(14));
 
-        AddSpacer(page, 4);
-        AddSectionHeading(page, "Unarmed Expertise");
+        AddSpacer(page, 6);
 
-        _unarmedStatusLabel = AddInfoLabel(page, "UnarmedStatus",
+        var unarmedCard = AddCard(page, "UnarmedCard", Theme.SystemTintExpertise);
+        AddSectionHeading(unarmedCard, "Unarmed Expertise");
+        _unarmedStatusLabel = AddInfoLabel(unarmedCard, "UnarmedStatus",
             "Equip your fists (no weapon) to inspect unarmed expertise.",
             FontStyles.Normal, fontSize: Theme.ScaledUI(14));
-        _unarmedBonusLabel = AddInfoLabel(page, "UnarmedBonus",
+        _unarmedBonusLabel = AddInfoLabel(unarmedCard, "UnarmedBonus",
             "Bonus Stats: —", FontStyles.Normal, fontSize: Theme.ScaledUI(13));
 
-        AddSpacer(page, 4);
-        AddSectionHeading(page, "Actions");
+        AddSpacer(page, 6);
 
-        var actions = UIFactory.CreateHorizontalGroup(page, "UnarmedShiftActions",
+        var actionsCard = AddCard(page, "ShiftActionsCard");
+        AddSectionHeading(actionsCard, "Actions");
+        var actions = UIFactory.CreateHorizontalGroup(actionsCard, "UnarmedShiftActions",
             forceExpandWidth: true, forceExpandHeight: false,
             childControlWidth: true, childControlHeight: true,
             spacing: 6, padding: new Vector4(0, 0, 0, 0));
@@ -1856,16 +2889,9 @@ public partial class MainPanel : ResizeablePanelBase
         AddCommandButton(actions, "Refresh",       MessageService.BCCOM_WEP_GET,
             "Refresh weapon expertise details (.wep get). Chat receives the response.");
 
-        AddSpacer(page, 4);
-        var note = UIFactory.CreateLabel(page, "ShiftNote",
-            "Choosing which class spell goes in the shift slot takes a number (`.class csp <#>`). " +
-            "Use chat for now; a spell picker arrives in a later phase.",
-            TextAlignmentOptions.TopLeft, color: null, fontSize: Theme.ScaledUI(12));
-        UIFactory.SetLayoutElement(note.GameObject,
-            minWidth: 360, preferredWidth: 400, flexibleWidth: 1,
-            minHeight: 40, preferredHeight: 50, flexibleHeight: 0);
-        note.TextMesh.enableWordWrapping = true;
-        note.TextMesh.overflowMode = TextOverflowModes.Overflow;
+        AddDivider(actionsCard);
+        AddBodyText(actionsCard,
+            $"Choosing which class spell goes in the shift slot takes a number ({Mono(".class csp <#>")}). Use chat for now; a spell picker arrives in a later phase.");
 
         RenderUnarmedShift(PlayerStateService.Expertise, PlayerStateService.ShiftSpell);
         if (!_shiftSubscribed)
@@ -1922,24 +2948,27 @@ public partial class MainPanel : ResizeablePanelBase
 
     private void BuildPrestigeTab(GameObject page)
     {
+        // 0.10.9: each system's prestige sits in its own tinted card so the
+        // 4-system breakdown reads at a glance. Pre-0.10.9 the four lines
+        // sat in a single padded VLG, distinguished only by their prose
+        // text — visually mushy.
         AddSectionHeading(page, "Current Prestige");
 
-        // 0.8.2: wrap the 4 prestige info rows in their own padded VLG so they
-        // don't crowd against the section heading or each other. Pre-0.8.2 they
-        // were direct children of the page (spacing inherited from the page's
-        // VLG, which is 2-3px) — friend-testing surfaced this as "crammed".
-        var prestigeSummary = UIFactory.CreateVerticalGroup(page, "PrestigeSummary",
-            forceWidth: true, forceHeight: false,
-            childControlWidth: true, childControlHeight: true,
-            spacing: 6, padding: new Vector4(8, 8, 6, 6));
-        UIFactory.SetLayoutElement(prestigeSummary,
-            minWidth: 360, preferredWidth: 400, flexibleWidth: 1,
-            minHeight: 130, flexibleHeight: 0);
+        var xpCard = AddCard(page, "PrestigeXpCard", Theme.SystemTintXP, padding: 6, innerSpacing: 2);
+        _prestigeXpLabel = AddInfoLabel(xpCard, "PrestigeXp",
+            "Experience prestige: —", FontStyles.Normal, fontSize: Theme.ScaledUI(14));
 
-        _prestigeXpLabel        = AddInfoLabel(prestigeSummary, "PrestigeXp",        "Experience prestige: —", FontStyles.Normal, fontSize: Theme.ScaledUI(14));
-        _prestigeLegacyLabel    = AddInfoLabel(prestigeSummary, "PrestigeLegacy",    "Blood legacy prestige: —", FontStyles.Normal, fontSize: Theme.ScaledUI(14));
-        _prestigeExpertiseLabel = AddInfoLabel(prestigeSummary, "PrestigeExpertise", "Weapon expertise prestige: —", FontStyles.Normal, fontSize: Theme.ScaledUI(14));
-        _prestigeFamLabel       = AddInfoLabel(prestigeSummary, "PrestigeFam",       "Familiar prestige: —", FontStyles.Normal, fontSize: Theme.ScaledUI(14));
+        var legacyCard = AddCard(page, "PrestigeLegacyCard", Theme.SystemTintLegacy, padding: 6, innerSpacing: 2);
+        _prestigeLegacyLabel = AddInfoLabel(legacyCard, "PrestigeLegacy",
+            "Blood legacy prestige: —", FontStyles.Normal, fontSize: Theme.ScaledUI(14));
+
+        var expertiseCard = AddCard(page, "PrestigeExpertiseCard", Theme.SystemTintExpertise, padding: 6, innerSpacing: 2);
+        _prestigeExpertiseLabel = AddInfoLabel(expertiseCard, "PrestigeExpertise",
+            "Weapon expertise prestige: —", FontStyles.Normal, fontSize: Theme.ScaledUI(14));
+
+        var famCard = AddCard(page, "PrestigeFamCard", Theme.SystemTintFamiliar, padding: 6, innerSpacing: 2);
+        _prestigeFamLabel = AddInfoLabel(famCard, "PrestigeFam",
+            "Familiar prestige: —", FontStyles.Normal, fontSize: Theme.ScaledUI(14));
 
         AddSpacer(page, 6);
         AddSectionHeading(page, "Quick actions");
@@ -2121,63 +3150,83 @@ public partial class MainPanel : ResizeablePanelBase
 
     private void BuildLevelsTab(GameObject page)
     {
-        AddSectionHeading(page, "Player Experience");
-        _lvlXpLabel = AddInfoLabel(page, "LvlXp", "—", FontStyles.Normal, fontSize: Theme.ScaledUI(13));
+        // 0.10.9: each progression system gets a tinted card so the four
+        // streams (XP / Legacy / Expertise / Familiar) read as visually
+        // distinct rather than four indistinguishable label stacks. Tints
+        // are 6%-alpha washes over the card; text remains full-contrast.
 
-        AddSpacer(page, 4);
-        AddSectionHeading(page, "Blood Legacy");
-        _lvlLegacyLabel = AddInfoLabel(page, "LvlLegacy", "—", FontStyles.Normal, fontSize: Theme.ScaledUI(13));
+        // ── Player Experience ───────────────────────────────────────────
+        var xpCard = AddCard(page, "LvlXpCard", Theme.SystemTintXP);
+        AddSectionHeading(xpCard, "Player Experience");
+        _lvlXpLabel = AddInfoLabel(xpCard, "LvlXp", "—", FontStyles.Normal, fontSize: Theme.ScaledUI(13));
 
-        AddSpacer(page, 4);
-        AddSectionHeading(page, "Weapon Expertise (active weapon)");
-        _lvlExpertiseLabel      = AddInfoLabel(page, "LvlExpertise",      "—", FontStyles.Normal, fontSize: Theme.ScaledUI(13));
-        _lvlExpertiseBonusLabel = AddInfoLabel(page, "LvlExpertiseBonus", "Bonus stats: —", FontStyles.Italic, fontSize: Theme.ScaledUI(12));
+        AddSpacer(page, 6);
+
+        // ── Blood Legacy ────────────────────────────────────────────────
+        var legacyCard = AddCard(page, "LvlLegacyCard", Theme.SystemTintLegacy);
+        AddSectionHeading(legacyCard, "Blood Legacy");
+        _lvlLegacyLabel = AddInfoLabel(legacyCard, "LvlLegacy", "—", FontStyles.Normal, fontSize: Theme.ScaledUI(13));
+
+        AddSpacer(page, 6);
+
+        // ── Weapon Expertise ────────────────────────────────────────────
+        var expertiseCard = AddCard(page, "LvlExpertiseCard", Theme.SystemTintExpertise);
+        AddSectionHeading(expertiseCard, "Weapon Expertise (active weapon)");
+        _lvlExpertiseLabel      = AddInfoLabel(expertiseCard, "LvlExpertise",      "—", FontStyles.Normal, fontSize: Theme.ScaledUI(13));
+        _lvlExpertiseBonusLabel = AddInfoLabel(expertiseCard, "LvlExpertiseBonus", "Bonus stats: —", FontStyles.Italic, fontSize: Theme.ScaledUI(12));
 
         // Bloodcraft's Eclipse protocol only streams the currently-equipped
-        // weapon's expertise level - no per-weapon snapshot. So the in-panel
-        // "all weapons" view the user asked for needs server-side support we
-        // don't have yet. Surface a "List Weapons" button (sends .wep l, reply
-        // appears in chat) and a one-liner explaining the gap, so the user
-        // isn't left wondering why the UI only shows one weapon.
-        var allWepRow = UIFactory.CreateHorizontalGroup(page, "AllWepRow",
+        // weapon's expertise level — no per-weapon snapshot. Surface a
+        // "List Weapons" button + a muted explanation so the user isn't
+        // left wondering why only one weapon shows.
+        AddBodyText(expertiseCard,
+            $"Bloodcraft streams only the currently-equipped weapon. Swap weapons to update the row above, or use {Mono(".wep l")} for the full list (reply lands in chat).");
+        var allWepRow = UIFactory.CreateHorizontalGroup(expertiseCard, "AllWepRow",
             forceExpandWidth: true, forceExpandHeight: false,
             childControlWidth: true, childControlHeight: true,
             spacing: 6, padding: new Vector4(0, 0, 0, 0));
         UIFactory.SetLayoutElement(allWepRow,
             minWidth: 360, preferredWidth: 400, flexibleWidth: 1,
             minHeight: 28, preferredHeight: 30, flexibleHeight: 0);
-        AddCommandButton(allWepRow, "List Weapon Types (chat)", MessageService.BCCOM_WEP_LIST,
-            "Sends .wep l. Bloodcraft replies in chat with the list of weapon types you can level. Per-weapon levels for all weapons aren't streamed by the server, so they can't be shown in this panel — switch weapons and the active level above updates.");
+        AddCommandButton(allWepRow, "List Weapon Types", MessageService.BCCOM_WEP_LIST,
+            "Sends .wep l. Bloodcraft replies in chat with the list of weapon types you can level.");
 
-        AddSpacer(page, 4);
-        AddSectionHeading(page, "Familiar (active)");
-        _lvlFamLabel      = AddInfoLabel(page, "LvlFam",      "—", FontStyles.Normal, fontSize: Theme.ScaledUI(13));
-        _lvlFamStatsLabel = AddInfoLabel(page, "LvlFamStats", "HP —   PP —   SP —", FontStyles.Italic, fontSize: Theme.ScaledUI(12));
+        AddSpacer(page, 6);
 
-        AddSpacer(page, 4);
-        AddSectionHeading(page, "Professions");
-        _lvlProfessions1Label = AddInfoLabel(page, "LvlProf1", "—", FontStyles.Normal, fontSize: Theme.ScaledUI(12));
-        _lvlProfessions2Label = AddInfoLabel(page, "LvlProf2", "—", FontStyles.Normal, fontSize: Theme.ScaledUI(12));
-        _lvlProfessions3Label = AddInfoLabel(page, "LvlProf3", "—", FontStyles.Normal, fontSize: Theme.ScaledUI(12));
-        _lvlProfessions4Label = AddInfoLabel(page, "LvlProf4", "—", FontStyles.Normal, fontSize: Theme.ScaledUI(12));
+        // ── Familiar (active) ───────────────────────────────────────────
+        var famCard = AddCard(page, "LvlFamCard", Theme.SystemTintFamiliar);
+        AddSectionHeading(famCard, "★  Familiar (active)");
+        _lvlFamLabel      = AddInfoLabel(famCard, "LvlFam",      "—", FontStyles.Normal, fontSize: Theme.ScaledUI(13));
+        _lvlFamStatsLabel = AddInfoLabel(famCard, "LvlFamStats", "HP —   PP —   SP —", FontStyles.Italic, fontSize: Theme.ScaledUI(12));
 
-        // ---- 0.7.0: profession (.prof) commands the re-audit caught ----
-        AddSpacer(page, 8);
-        AddSectionHeading(page, "Profession Tools");
-        var profRow = UIFactory.CreateHorizontalGroup(page, "ProfRow",
+        AddSpacer(page, 6);
+
+        // ── Professions ─────────────────────────────────────────────────
+        var profCard = AddCard(page, "LvlProfCard", Theme.SystemTintProfession);
+        AddSectionHeading(profCard, "Professions");
+        _lvlProfessions1Label = AddInfoLabel(profCard, "LvlProf1", "—", FontStyles.Normal, fontSize: Theme.ScaledUI(12));
+        _lvlProfessions2Label = AddInfoLabel(profCard, "LvlProf2", "—", FontStyles.Normal, fontSize: Theme.ScaledUI(12));
+        _lvlProfessions3Label = AddInfoLabel(profCard, "LvlProf3", "—", FontStyles.Normal, fontSize: Theme.ScaledUI(12));
+        _lvlProfessions4Label = AddInfoLabel(profCard, "LvlProf4", "—", FontStyles.Normal, fontSize: Theme.ScaledUI(12));
+
+        AddSpacer(page, 6);
+
+        // ── Profession Tools ────────────────────────────────────────────
+        var profToolsCard = AddCard(page, "LvlProfToolsCard");
+        AddSectionHeading(profToolsCard, "Profession Tools");
+        var profRow = UIFactory.CreateHorizontalGroup(profToolsCard, "ProfRow",
             forceExpandWidth: true, forceExpandHeight: false,
             childControlWidth: true, childControlHeight: true,
             spacing: 6, padding: new Vector4(0, 0, 0, 0));
         UIFactory.SetLayoutElement(profRow,
             minWidth: 360, preferredWidth: 400, flexibleWidth: 1,
             minHeight: 32, preferredHeight: 32, flexibleHeight: 0);
-        AddCommandButton(profRow, "List Professions", MessageService.BCCOM_PROF_LIST,
+        AddCommandButton(profRow, "List",          MessageService.BCCOM_PROF_LIST,
             "List the professions Bloodcraft tracks (.prof l). Reply in chat.");
-        AddCommandButton(profRow, "Toggle Prof Log",  MessageService.BCCOM_PROF_LOG_TOGGLE,
+        AddCommandButton(profRow, "Toggle Log",    MessageService.BCCOM_PROF_LOG_TOGGLE,
             "Toggle in-chat profession-progress logging (.prof log). SERVER-side toggle.");
 
-        AddSpacer(page, 4);
-        CollapsibleSection.Build(page,
+        CollapsibleSection.Build(profToolsCard,
             title: "Show profession progress (.prof get)",
             startExpanded: false,
             tooltip: "Displays your current level + progress for the chosen profession in chat.",
@@ -2188,39 +3237,40 @@ public partial class MainPanel : ResizeablePanelBase
                     defaultValue: PlayerStateService.BloodcraftProfession.Enchanting,
                     tooltip: "Which profession to inspect.")));
 
-        // ---- 0.6.0: .lvl + .misc utilities the audit caught ----
-        AddSpacer(page, 8);
-        AddSectionHeading(page, "Player Tools");
-        var toolsRow1 = UIFactory.CreateHorizontalGroup(page, "PlayerToolsRow1",
+        AddSpacer(page, 6);
+
+        // ── Player Tools ────────────────────────────────────────────────
+        var playerToolsCard = AddCard(page, "LvlPlayerToolsCard");
+        AddSectionHeading(playerToolsCard, "Player Tools");
+        var toolsRow1 = UIFactory.CreateHorizontalGroup(playerToolsCard, "PlayerToolsRow1",
             forceExpandWidth: true, forceExpandHeight: false,
             childControlWidth: true, childControlHeight: true,
             spacing: 6, padding: new Vector4(0, 0, 0, 0));
         UIFactory.SetLayoutElement(toolsRow1,
             minWidth: 360, preferredWidth: 400, flexibleWidth: 1,
             minHeight: 32, preferredHeight: 32, flexibleHeight: 0);
-        AddCommandButton(toolsRow1, "User Stats",     MessageService.BCCOM_MISC_USER_STATS,
+        AddCommandButton(toolsRow1, "User Stats",   MessageService.BCCOM_MISC_USER_STATS,
             "Print a summary of player stats in chat (.misc userstats).");
-        AddCommandButton(toolsRow1, "Toggle XP Log",  MessageService.BCCOM_LVL_LOG_TOGGLE,
+        AddCommandButton(toolsRow1, "Toggle XP Log", MessageService.BCCOM_LVL_LOG_TOGGLE,
             "Toggle in-chat logging of leveling-progress messages (.lvl log). SERVER-side toggle — Bloodcraft replies with the new state in chat.");
-        AddCommandButton(toolsRow1, "Reminders",      MessageService.BCCOM_MISC_REMINDERS,
+        AddCommandButton(toolsRow1, "Reminders",    MessageService.BCCOM_MISC_REMINDERS,
             "Toggle general feature reminders (.misc remindme). SERVER-side toggle.");
-        AddCommandButton(toolsRow1, "Silence Music",  MessageService.BCCOM_MISC_SILENCE,
+        AddCommandButton(toolsRow1, "Silence",      MessageService.BCCOM_MISC_SILENCE,
             "Reset stuck combat music if it won't stop (.misc silence).");
 
-        var toolsRow2 = UIFactory.CreateHorizontalGroup(page, "PlayerToolsRow2",
+        var toolsRow2 = UIFactory.CreateHorizontalGroup(playerToolsCard, "PlayerToolsRow2",
             forceExpandWidth: true, forceExpandHeight: false,
             childControlWidth: true, childControlHeight: true,
             spacing: 6, padding: new Vector4(0, 0, 0, 0));
         UIFactory.SetLayoutElement(toolsRow2,
             minWidth: 360, preferredWidth: 400, flexibleWidth: 1,
             minHeight: 32, preferredHeight: 32, flexibleHeight: 0);
-        AddCommandButton(toolsRow2, "Starter Kit",    MessageService.BCCOM_MISC_KIT_ME,
+        AddCommandButton(toolsRow2, "Starter Kit",  MessageService.BCCOM_MISC_KIT_ME,
             "Claim the server's starter kit (.misc kitme). One-time on most servers.");
-        AddCommandButton(toolsRow2, "Prepare Hunt",   MessageService.BCCOM_MISC_PREPARE,
+        AddCommandButton(toolsRow2, "Prepare Hunt",  MessageService.BCCOM_MISC_PREPARE,
             "Auto-complete the GettingReadyForTheHunt quest if it's stuck (.misc prepare).");
 
-        AddSpacer(page, 4);
-        CollapsibleSection.Build(page,
+        CollapsibleSection.Build(playerToolsCard,
             title: "Toggle scrolling combat text (.misc sct)",
             startExpanded: false,
             tooltip: "Enable or disable a specific scrolling-combat-text element. Bloodcraft replies with the new state in chat.",
@@ -2230,16 +3280,9 @@ public partial class MainPanel : ResizeablePanelBase
                 new TextField("type", "SCT element type",
                     tooltip: "Element name (e.g. 'damage', 'heal'). Bloodcraft's reply tells you the new state.")));
 
-        AddSpacer(page, 4);
-        var toolsNote = UIFactory.CreateLabel(page, "PlayerToolsNote",
-            "Heads up: most of these are server-side TOGGLES — Bloodcraft flips a flag and reports the new state in chat. The client can't 'remember' the new state across sessions because the server is the source of truth (same with Toggle Emotes / Toggle Shift / etc. on other tabs).",
-            TextAlignmentOptions.TopLeft, color: null, fontSize: Theme.ScaledUI(11));
-        UIFactory.SetLayoutElement(toolsNote.GameObject,
-            minWidth: 360, preferredWidth: 400, flexibleWidth: 1,
-            minHeight: 32, preferredHeight: 50, flexibleHeight: 0);
-        toolsNote.TextMesh.fontStyle = FontStyles.Italic;
-        toolsNote.TextMesh.enableWordWrapping = true;
-        toolsNote.TextMesh.overflowMode = TextOverflowModes.Overflow;
+        AddDivider(playerToolsCard);
+        AddBodyText(playerToolsCard,
+            $"Heads up: most of these are server-side TOGGLES — Bloodcraft flips a flag and reports the new state in chat. The client can't 'remember' the new state across sessions because the server is the source of truth (same with {Mono(".fam t")} / {Mono(".lvl log")} elsewhere).");
 
         RenderLevels();
         if (!_lvlSubscribed)
@@ -2284,7 +3327,12 @@ public partial class MainPanel : ResizeablePanelBase
             ? $"Bonus stats: {string.Join(", ", wepNamed)}"
             : "Bonus stats: (none yet — choose via .wep cst)";
 
-        bool famActive = fam.Level > 0 || !string.IsNullOrEmpty(fam.Name);
+        // 0.10.8: HasActive is sourced from the raw Eclipse protocol name
+        // field. Pre-0.10.8 the Level > 0 || !empty(Name) check was always
+        // true because EclipseProtocolService defaults Name to "Familiar"
+        // and floors Level to 1 — so the "(no familiar bound)" branch was
+        // unreachable and the Levels tab always rendered "Familiar Lv 1".
+        bool famActive = fam.HasActive;
         _lvlFamLabel.text = famActive
             ? (fam.Prestige > 0
                 ? $"{fam.Name}   Level {fam.Level} ({fam.Progress * 100f:0.#}%)   Prestige {fam.Prestige}"
@@ -2312,14 +3360,14 @@ public partial class MainPanel : ResizeablePanelBase
 
     private void BuildDailyQuestTab(GameObject page)
     {
-        AddSectionHeading(page, "Daily Quest");
-        _dqDailyTargetLabel   = AddInfoLabel(page, "DQDailyTarget",   "—", FontStyles.Bold,   fontSize: Theme.ScaledUI(15));
+        // 0.10.11: card-wrap daily / weekly / settings sections.
+        var dailyCard = AddCard(page, "DQDailyCard", Theme.SystemTintQuest);
+        AddSectionHeading(dailyCard, "Daily Quest");
+        _dqDailyTargetLabel   = AddInfoLabel(dailyCard, "DQDailyTarget",   "—", FontStyles.Bold,   fontSize: Theme.ScaledUI(15));
         _dqDailyTargetLabel.color = new Color(0f, 1f, 1f); // Bloodcraft cyan #00FFFF
         ApplyStrongAccentOutline(_dqDailyTargetLabel);
-        _dqDailyProgressLabel = AddInfoLabel(page, "DQDailyProgress", "—", FontStyles.Italic, fontSize: Theme.ScaledUI(13));
-
-        AddSpacer(page, 4);
-        var dailyRow = UIFactory.CreateHorizontalGroup(page, "DQDailyActions",
+        _dqDailyProgressLabel = AddInfoLabel(dailyCard, "DQDailyProgress", "—", FontStyles.Italic, fontSize: Theme.ScaledUI(13));
+        var dailyRow = UIFactory.CreateHorizontalGroup(dailyCard, "DQDailyActions",
             forceExpandWidth: true, forceExpandHeight: false,
             childControlWidth: true, childControlHeight: true,
             spacing: 6, padding: new Vector4(0, 0, 0, 0));
@@ -2333,20 +3381,15 @@ public partial class MainPanel : ResizeablePanelBase
         AddCommandButton(dailyRow, "Reroll",   MessageService.BCCOM_QUEST_REROLL_DAILY,
             "Reroll the daily quest (.quest r d). Costs the server-configured reroll item; only works once the daily is complete OR if the server allows mid-quest rerolls.");
 
-        AddSpacer(page, 8);
-        AddSectionHeading(page, "Weekly Quest");
-        _dqWeeklyTargetLabel   = AddInfoLabel(page, "DQWeeklyTarget",   "—", FontStyles.Bold,   fontSize: Theme.ScaledUI(15));
-        // 0.9.2: dropped the pink family entirely. v0.9.1 tried brightening
-        // Bloodcraft's #BF40BF magenta to (1, 0.55, 1) but it still reads as
-        // pink against red in-game backdrops. Switched to gold/yellow — well
-        // outside the red wavelength so contrast survives any backdrop, and
-        // still visually distinct from the cyan daily-quest target.
+        AddSpacer(page, 6);
+
+        var weeklyCard = AddCard(page, "DQWeeklyCard", Theme.SystemTintQuest);
+        AddSectionHeading(weeklyCard, "Weekly Quest");
+        _dqWeeklyTargetLabel   = AddInfoLabel(weeklyCard, "DQWeeklyTarget",   "—", FontStyles.Bold,   fontSize: Theme.ScaledUI(15));
         _dqWeeklyTargetLabel.color = new Color(1f, 0.85f, 0.3f);
         ApplyStrongAccentOutline(_dqWeeklyTargetLabel);
-        _dqWeeklyProgressLabel = AddInfoLabel(page, "DQWeeklyProgress", "—", FontStyles.Italic, fontSize: Theme.ScaledUI(13));
-
-        AddSpacer(page, 4);
-        var weeklyRow = UIFactory.CreateHorizontalGroup(page, "DQWeeklyActions",
+        _dqWeeklyProgressLabel = AddInfoLabel(weeklyCard, "DQWeeklyProgress", "—", FontStyles.Italic, fontSize: Theme.ScaledUI(13));
+        var weeklyRow = UIFactory.CreateHorizontalGroup(weeklyCard, "DQWeeklyActions",
             forceExpandWidth: true, forceExpandHeight: false,
             childControlWidth: true, childControlHeight: true,
             spacing: 6, padding: new Vector4(0, 0, 0, 0));
@@ -2360,9 +3403,11 @@ public partial class MainPanel : ResizeablePanelBase
         AddCommandButton(weeklyRow, "Reroll",  MessageService.BCCOM_QUEST_REROLL_WEEKLY,
             "Reroll the weekly quest (.quest r w). Costs the server-configured reroll item.");
 
-        AddSpacer(page, 8);
-        AddSectionHeading(page, "Settings");
-        var setRow = UIFactory.CreateHorizontalGroup(page, "DQSettings",
+        AddSpacer(page, 6);
+
+        var settingsCard = AddCard(page, "DQSettingsCard");
+        AddSectionHeading(settingsCard, "Settings");
+        var setRow = UIFactory.CreateHorizontalGroup(settingsCard, "DQSettings",
             forceExpandWidth: true, forceExpandHeight: false,
             childControlWidth: true, childControlHeight: true,
             spacing: 6, padding: new Vector4(0, 0, 0, 0));
@@ -2372,16 +3417,9 @@ public partial class MainPanel : ResizeablePanelBase
         AddCommandButton(setRow, "Toggle Quest Log", MessageService.BCCOM_QUEST_LOG_TOGGLE,
             "Toggle in-chat progress logging (.quest log). When on, Bloodcraft prints a message each time you progress an objective.");
 
-        AddSpacer(page, 6);
-        var note = UIFactory.CreateLabel(page, "DQNote",
-            "Toggle the Daily Quest overlay from the panel footer to track progress in a small movable HUD.",
-            TextAlignmentOptions.TopLeft, color: null, fontSize: Theme.ScaledUI(11));
-        UIFactory.SetLayoutElement(note.GameObject,
-            minWidth: 360, preferredWidth: 400, flexibleWidth: 1,
-            minHeight: 22, preferredHeight: 26, flexibleHeight: 0);
-        note.TextMesh.fontStyle = FontStyles.Italic;
-        note.TextMesh.enableWordWrapping = true;
-        note.TextMesh.overflowMode = TextOverflowModes.Overflow;
+        AddDivider(settingsCard);
+        AddBodyText(settingsCard,
+            "Toggle the Daily Quest overlay from the panel footer to track progress in a small movable HUD.");
 
         RenderDailyQuestTab();
         if (!_dqSubscribed)
@@ -2413,8 +3451,8 @@ public partial class MainPanel : ResizeablePanelBase
             return;
         }
         target.text = s.IsVBlood
-            ? $"⚔  {s.TargetName}  (V Blood)"
-            : $"⚔  {s.TargetName}";
+            ? $"{s.TargetName}  (V Blood)"
+            : $"{s.TargetName}";
         if (s.Goal > 0 && s.Progress >= s.Goal)
         {
             progress.text  = "Complete!  Reroll for the next one.";
@@ -2459,11 +3497,18 @@ public partial class MainPanel : ResizeablePanelBase
 
     private void BuildAdminTab(GameObject page)
     {
-        RenderAdminInfoNote(page, "Bloodcraft admin");
+        // 0.10.12: wrap the admin note + diagnostics row in cards. The
+        // forms below are collapsibles which are already self-contained
+        // visual units; an outer card around the long form stack would
+        // double-nest without adding value.
+        var noteCard = AddCard(page, "AdminNoteCard");
+        RenderAdminInfoNote(noteCard, "Bloodcraft admin");
 
-        AddSectionHeading(page, "Server Diagnostics");
+        AddSpacer(page, 6);
 
-        var diagRow = UIFactory.CreateHorizontalGroup(page, "AdminDiag",
+        var diagCard = AddCard(page, "AdminDiagCard");
+        AddSectionHeading(diagCard, "Server Diagnostics");
+        var diagRow = UIFactory.CreateHorizontalGroup(diagCard, "AdminDiag",
             forceExpandWidth: true, forceExpandHeight: false,
             childControlWidth: true, childControlHeight: true,
             spacing: 6, padding: new Vector4(0, 0, 0, 0));
@@ -2655,14 +3700,8 @@ public partial class MainPanel : ResizeablePanelBase
                     tooltip: "Daily or Weekly.")));
 
         AddSpacer(page, 6);
-        var note = UIFactory.CreateLabel(page, "AdminNote",
-            "All admin commands now have forms. If you aren't an admin on this server, commands return a permission error.",
-            TextAlignmentOptions.TopLeft, color: null, fontSize: Theme.ScaledUI(12));
-        UIFactory.SetLayoutElement(note.GameObject,
-            minWidth: 360, preferredWidth: 400, flexibleWidth: 1,
-            minHeight: 22, preferredHeight: 32, flexibleHeight: 0);
-        note.TextMesh.enableWordWrapping = true;
-        note.TextMesh.overflowMode = TextOverflowModes.Overflow;
+        AddBodyText(page,
+            "All admin commands now have forms. If you aren't an admin on this server, commands return a permission error.");
     }
 
     // -----------------------------------------------------------------------
@@ -2676,20 +3715,17 @@ public partial class MainPanel : ResizeablePanelBase
 
     private void BuildKindredLogisticsTab(GameObject page)
     {
-        var intro = UIFactory.CreateLabel(page, "KLIntro",
-            "Requires the KindredLogistics server mod. Personal toggles affect only your character; admin globals affect the whole server (admin only).",
-            TextAlignmentOptions.TopLeft, color: null, fontSize: Theme.ScaledUI(12));
-        UIFactory.SetLayoutElement(intro.GameObject,
-            minWidth: 360, preferredWidth: 400, flexibleWidth: 1,
-            minHeight: 32, preferredHeight: 36, flexibleHeight: 0);
-        intro.TextMesh.enableWordWrapping = true;
-        intro.TextMesh.overflowMode = TextOverflowModes.Overflow;
+        // 0.10.12: card-wrap the intro + personal-toggles + utility sections.
+        var introCard = AddCard(page, "KLIntroCard");
+        AddBodyText(introCard,
+            $"Requires the KindredLogistics server mod. Personal toggles affect only your character; admin globals affect the whole server (admin only). Personal toggles use {Mono(".l ...")}; admin globals use {Mono(".lg ...")}.");
 
-        // ---- Personal toggles (.l ...) -----------------------------------
-        AddSpacer(page, 4);
-        AddSectionHeading(page, "Personal Toggles (.l)");
+        AddSpacer(page, 6);
 
-        var pr1 = AddKLRow(page, "KLPersonal1");
+        var personalCard = AddCard(page, "KLPersonalCard");
+        AddSectionHeading(personalCard, "Personal Toggles (.l)");
+
+        var pr1 = AddKLRow(personalCard, "KLPersonal1");
         AddCommandButton(pr1, "Sort Stash",     MessageService.BCCOM_KL_SORT_STASH,
             "Toggle auto-stash on double-click of the sort button (.l ss).");
         AddCommandButton(pr1, "Craft Pull",     MessageService.BCCOM_KL_CRAFT_PULL,
@@ -2699,7 +3735,7 @@ public partial class MainPanel : ResizeablePanelBase
         AddCommandButton(pr1, "Servant Stash",  MessageService.BCCOM_KL_AUTOSTASH_MISSION,
             "Toggle auto-stash of servant mission rewards (.l asm).");
 
-        var pr2 = AddKLRow(page, "KLPersonal2");
+        var pr2 = AddKLRow(personalCard, "KLPersonal2");
         AddCommandButton(pr2, "Conveyor",      MessageService.BCCOM_KL_CONVEYOR,
             "Toggle named sender/receiver chests routing items between them (.l co).");
         AddCommandButton(pr2, "Salvage",       MessageService.BCCOM_KL_SALVAGE,
@@ -2709,7 +3745,7 @@ public partial class MainPanel : ResizeablePanelBase
         AddCommandButton(pr2, "Brazier",       MessageService.BCCOM_KL_BRAZIER,
             "Toggle chests named 'brazier' auto-fueling braziers (.l bz).");
 
-        var pr3 = AddKLRow(page, "KLPersonal3");
+        var pr3 = AddKLRow(personalCard, "KLPersonal3");
         AddCommandButton(pr3, "Silent Pull",   MessageService.BCCOM_KL_SILENT_PULL,
             "Toggle suppressing chat messages when pulling items (.l sp).");
         AddCommandButton(pr3, "Silent Stash",  MessageService.BCCOM_KL_SILENT_STASH,
@@ -2717,15 +3753,15 @@ public partial class MainPanel : ResizeablePanelBase
         AddCommandButton(pr3, "Show Settings", MessageService.BCCOM_KL_SETTINGS,
             "Print your current personal Logistics settings into chat (.l s).");
 
-        // ---- Utility -----------------------------------------------------
         AddSpacer(page, 6);
-        AddSectionHeading(page, "Utility");
 
-        var util = AddKLRow(page, "KLUtility");
+        var utilCard = AddCard(page, "KLUtilityCard");
+        AddSectionHeading(utilCard, "Utility");
+        var util = AddKLRow(utilCard, "KLUtility");
         AddCommandButton(util, "Stash All",    MessageService.BCCOM_KL_STASH_ALL,
             "Stash all items in your inventory into nearby chests (.stash).");
 
-        CollapsibleSection.Build(page,
+        CollapsibleSection.Build(utilCard,
             title: "Pull item from containers (.pull)",
             startExpanded: false,
             tooltip: "Pulls a specific item (and quantity) from nearby chests into your inventory.",
@@ -2737,7 +3773,7 @@ public partial class MainPanel : ResizeablePanelBase
                 new IntField("quantity", "Quantity", min: 1, max: 9999,
                     tooltip: "How many to pull. KindredLogistics caps at what's available across all reachable chests.")));
 
-        CollapsibleSection.Build(page,
+        CollapsibleSection.Build(utilCard,
             title: "Find item (.fi)",
             startExpanded: false,
             tooltip: "Locates the specified item in nearby chests and prints which chest holds it.",
@@ -2747,7 +3783,7 @@ public partial class MainPanel : ResizeablePanelBase
                 new TextField("item", "Item name",
                     tooltip: "Item to search for. Exact match against the item's prefab name.")));
 
-        CollapsibleSection.Build(page,
+        CollapsibleSection.Build(utilCard,
             title: "Find chest by name (.fc)",
             startExpanded: false,
             tooltip: "Locates chests with the specified custom name.",
@@ -2758,28 +3794,23 @@ public partial class MainPanel : ResizeablePanelBase
                     tooltip: "The custom name written on the chest's sign (e.g. 'salvage', 'spawner', 'brazier').")));
 
         // Admin globals (.lg ...) live on the dedicated KindredLogisticsAdminTab.
-        // Pointer left here so anyone reading BuildKindredLogisticsTab knows
-        // where the rest of the surface went. Admin tabs are not gated client-
-        // side as of 0.8.2 — the server enforces permissions.
     }
 
     private void BuildKindredLogisticsAdminTab(GameObject page)
     {
-        RenderAdminInfoNote(page, "Kindred Logistics admin");
+        // 0.10.12: card-wrap the admin info + admin-globals + spawn-form
+        // sections.
+        var noteCard = AddCard(page, "KLAdminNoteCard");
+        RenderAdminInfoNote(noteCard, "Kindred Logistics admin");
+        AddBodyText(noteCard,
+            "Server-wide toggles for the KindredLogistics features. These affect every player on the server. Requires admin permission server-side.");
 
-        var intro = UIFactory.CreateLabel(page, "KLAdminIntro",
-            "Server-wide toggles for the KindredLogistics features. These affect every player on the server. Requires admin permission server-side.",
-            TextAlignmentOptions.TopLeft, color: null, fontSize: Theme.ScaledUI(12));
-        UIFactory.SetLayoutElement(intro.GameObject,
-            minWidth: 360, preferredWidth: 400, flexibleWidth: 1,
-            minHeight: 32, preferredHeight: 36, flexibleHeight: 0);
-        intro.TextMesh.enableWordWrapping = true;
-        intro.TextMesh.overflowMode = TextOverflowModes.Overflow;
+        AddSpacer(page, 6);
 
-        AddSpacer(page, 4);
-        AddSectionHeading(page, "Admin Globals (.lg)");
+        var globalsCard = AddCard(page, "KLAdminGlobalsCard");
+        AddSectionHeading(globalsCard, "Admin Globals (.lg)");
 
-        var ar1 = AddKLRow(page, "KLAdmin1");
+        var ar1 = AddKLRow(globalsCard, "KLAdmin1");
         AddCommandButton(ar1, "Sort Stash",      MessageService.BCCOM_KL_ADMIN_SORT_STASH,
             "Server-wide: enable auto-stash on sort double-click (.lg ss).");
         AddCommandButton(ar1, "Pull",            MessageService.BCCOM_KL_ADMIN_PULL,
@@ -2789,7 +3820,7 @@ public partial class MainPanel : ResizeablePanelBase
         AddCommandButton(ar1, "Servant Stash",   MessageService.BCCOM_KL_ADMIN_AUTOSTASH_MISSION,
             "Server-wide: enable auto-stash for servant mission rewards (.lg asm).");
 
-        var ar2 = AddKLRow(page, "KLAdmin2");
+        var ar2 = AddKLRow(globalsCard, "KLAdmin2");
         AddCommandButton(ar2, "Conveyor",        MessageService.BCCOM_KL_ADMIN_CONVEYOR,
             "Server-wide: enable sender/receiver conveyor chests (.lg co).");
         AddCommandButton(ar2, "Salvage",         MessageService.BCCOM_KL_ADMIN_SALVAGE,
@@ -2799,7 +3830,7 @@ public partial class MainPanel : ResizeablePanelBase
         AddCommandButton(ar2, "Brazier",         MessageService.BCCOM_KL_ADMIN_BRAZIER,
             "Server-wide: enable 'brazier' chests auto-fueling braziers (.lg bz).");
 
-        var ar3 = AddKLRow(page, "KLAdmin3");
+        var ar3 = AddKLRow(globalsCard, "KLAdmin3");
         AddCommandButton(ar3, "Named Brazier",   MessageService.BCCOM_KL_ADMIN_NAMED_BRAZIER,
             "Server-wide: enable night/proximity-controlled named braziers (.lg nam).");
         AddCommandButton(ar3, "Trash",           MessageService.BCCOM_KL_ADMIN_TRASH,
@@ -2810,7 +3841,10 @@ public partial class MainPanel : ResizeablePanelBase
             "Empty all trash containers in your current territory (.emptytrash).");
 
         AddSpacer(page, 6);
-        CollapsibleSection.Build(page,
+
+        var spawnCard = AddCard(page, "KLAdminSpawnCard");
+        AddSectionHeading(spawnCard, "Admin Item Spawn");
+        CollapsibleSection.Build(spawnCard,
             title: "Spawn item to territory stash (.adminstash)",
             startExpanded: false,
             tooltip: "Spawns a quantity of an item directly into the current territory's stash containers.",
@@ -2847,20 +3881,16 @@ public partial class MainPanel : ResizeablePanelBase
 
     private void BuildKindredCommandsPlayerTab(GameObject page)
     {
-        var intro = UIFactory.CreateLabel(page, "KCPlayerIntro",
-            "Requires the KindredCommands server mod. Player-facing commands only - admin commands land in their own tab.",
-            TextAlignmentOptions.TopLeft, color: null, fontSize: Theme.ScaledUI(12));
-        UIFactory.SetLayoutElement(intro.GameObject,
-            minWidth: 360, preferredWidth: 400, flexibleWidth: 1,
-            minHeight: 28, preferredHeight: 32, flexibleHeight: 0);
-        intro.TextMesh.enableWordWrapping = true;
-        intro.TextMesh.overflowMode = TextOverflowModes.Overflow;
+        // 0.10.12: card-wrap Intro / Self / Server info / Lookups.
+        var introCard = AddCard(page, "KCPlayerIntroCard");
+        AddBodyText(introCard,
+            "Requires the KindredCommands server mod. Player-facing commands only — admin commands land in their own tab.");
 
-        // ---- Self ---------------------------------------------------------
-        AddSpacer(page, 4);
-        AddSectionHeading(page, "Self");
+        AddSpacer(page, 6);
 
-        var selfRow = AddKLRow(page, "KCSelf");
+        var selfCard = AddCard(page, "KCSelfCard");
+        AddSectionHeading(selfCard, "Self");
+        var selfRow = AddKLRow(selfCard, "KCSelf");
         AddCommandButton(selfRow, "AFK",   MessageService.BCCOM_KC_AFK,
             "Toggle AFK animation - locks WASD movement until you run .afk again (.afk).");
         AddCommandButton(selfRow, "Ping",  MessageService.BCCOM_KC_PING,
@@ -2868,11 +3898,11 @@ public partial class MainPanel : ResizeablePanelBase
         AddCommandButton(selfRow, "Pace",  MessageService.BCCOM_KC_PACE,
             "Pace at the closest NPC near you - a cosmetic walk loop (.pace).");
 
-        // ---- Server info --------------------------------------------------
         AddSpacer(page, 6);
-        AddSectionHeading(page, "Server info");
 
-        var infoRow1 = AddKLRow(page, "KCInfo1");
+        var infoCard = AddCard(page, "KCInfoCard");
+        AddSectionHeading(infoCard, "Server info");
+        var infoRow1 = AddKLRow(infoCard, "KCInfo1");
         AddCommandButton(infoRow1, "Server Time", MessageService.BCCOM_KC_TIME,
             "Print the current server time into chat (.time).");
         AddCommandButton(infoRow1, "Online Staff", MessageService.BCCOM_KC_STAFF,
@@ -2882,21 +3912,20 @@ public partial class MainPanel : ResizeablePanelBase
         AddCommandButton(infoRow1, "Soulshards",   MessageService.BCCOM_KC_GEAR_SOULSHARD_STATUS,
             "Print the status of soulshards on the server (.gear soulshardstatus).");
 
-        var infoRow2 = AddKLRow(page, "KCInfo2");
+        var infoRow2 = AddKLRow(infoCard, "KCInfo2");
         AddCommandButton(infoRow2, "Boss List",   MessageService.BCCOM_KC_BOSS_LIST,
             "List all locked bosses on the server (.boss list).");
         AddCommandButton(infoRow2, "Region List", MessageService.BCCOM_KC_REGION_LIST,
             "List all locked and gated regions on the server (.region list).");
 
-        // Stateful clan-list pagination - prev/current-page/next replace the
-        // old static "Clan List" button so users can flip through pages.
         BuildClanListPager(infoRow2);
 
-        // ---- Lookups (forms) ---------------------------------------------
         AddSpacer(page, 6);
-        AddSectionHeading(page, "Lookups");
 
-        CollapsibleSection.Build(page,
+        var lookupsCard = AddCard(page, "KCLookupsCard");
+        AddSectionHeading(lookupsCard, "Lookups");
+
+        CollapsibleSection.Build(lookupsCard,
             title: "Check player level (.checklevel)",
             startExpanded: false,
             tooltip: "Print a player's current level into chat.",
@@ -2906,10 +3935,7 @@ public partial class MainPanel : ResizeablePanelBase
                 new PlayerNameField("player", "Player",
                     tooltip: "Player whose level you want to look up. Exact character-name match.")));
 
-        // (clan list pagination state - lives on the panel instance so the
-        // current-page label keeps its value across re-renders.)
-
-        CollapsibleSection.Build(page,
+        CollapsibleSection.Build(lookupsCard,
             title: "List clan members (.clan members)",
             startExpanded: false,
             tooltip: "List the members of a specific clan.",
@@ -2993,42 +4019,100 @@ public partial class MainPanel : ResizeablePanelBase
             "reference for the underlying vanilla console commands in case " +
             "you need to type them yourself (open the console with F1).");
 
-        AddGuideSection(page,
-            "Authentication",
-            "  • adminauth                — grant yourself admin powers (needed before any other vanilla admin command)\n" +
-            "  • adminderegister          — drop admin powers for the current session");
+        // 0.10.7: switched from monolithic AddGuideSection bodies (manually
+        // tab-aligned, proportional font misaligned the columns) to the new
+        // AddCommandTable helper for crisp 2-column layout.
+        AddCommandTable(page, "Authentication",
+            ("adminauth",          "Grant yourself admin powers (needed before any other vanilla admin command)."),
+            ("adminderegister",    "Drop admin powers for the current session."));
+
+        AddCommandTable(page, "Player management",
+            ("Kick <CharacterName>",       "Kick a player by name."),
+            ("BanUser <SteamID>",          "Ban a player by SteamID."),
+            ("Banhammer <SteamID>",        "Ban + delete the player's characters."),
+            ("Unban <UserIndex>",          "Unban (use BanList to find the index)."),
+            ("BanList",                    "List current bans."),
+            ("Mute <SteamID> <minutes>",   "Silence a player."),
+            ("PlayerInfo <CharacterName>", "Print info about a specific player."),
+            ("UserList",                   "List all users registered on the server."),
+            ("WhoIsOnline",                "List currently-connected players."),
+            ("Connectinfo",                "Print connection info for diagnostics."),
+            ("ForceConnectInfo",           "Force-refresh connection info display."));
+        AddGuideSection(page, "",
+            "Chat-command equivalents already in BCH (KINDRED → Admin: Players):  .kick, .ban (via Kindred or vanilla), .unban, etc.");
+
+        AddCommandTable(page, "Character actions",
+            ("Suicide",                    "Kill your own character (no penalty)."),
+            ("KillPlayer <CharacterName>", "Kill a player."),
+            ("RevivePlayer <Name>",        "Revive a downed player."),
+            ("HealPlayer <Name>",          "Fully restore a player's HP."),
+            ("DamagePlayer <Name> <amt>",  "Apply damage to a player."),
+            ("ResetCharacter <Name>",      "Fully reset a player's character (DESTRUCTIVE)."),
+            ("KillUnit",                   "Kill the unit your reticle is targeting."),
+            ("HealUnit",                   "Heal the targeted unit to full."),
+            ("DamageUnit <amount>",        "Apply damage to the targeted unit."),
+            ("Despawn",                    "Despawn the targeted unit."));
+
+        AddCommandTable(page, "Item / character spawning",
+            ("give <PrefabName>",          "Give yourself an item by prefab name."),
+            ("giveset",                    "Open the giveset menu (sets of armor/weapons)."),
+            ("SpawnUnit <PrefabName>",     "Spawn an NPC at your position."),
+            ("SpawnCastle <PrefabName>",   "Spawn a castle structure."),
+            ("FillStorage",                "Fill the targeted storage container."),
+            ("ClearAllInventories",        "Wipe every inventory on the server (DESTRUCTIVE)."),
+            ("DespawnAll",                 "Despawn all units in the world (DESTRUCTIVE)."));
+        AddGuideSection(page, "",
+            "Chat-command equivalents already in BCH (KINDRED → Admin: World):  .give {item} {qty},  .spawnnpc / .customspawn / .customspawnat.  Use the Lookups section on the same tab to find prefab names.");
+
+        AddCommandTable(page, "Teleportation",
+            ("teleporttowaypoint <name>",  "Teleport to a named waypoint."),
+            ("TeleportToPlayer <Name>",    "Teleport to a specific player."),
+            ("TeleportToBoss <Boss>",      "Teleport to a boss's spawn location."),
+            ("TeleportToHorse",            "Teleport to your horse (if any)."),
+            ("TeleportToOwner",            "Teleport to the targeted creature's owner."),
+            ("TeleportToWorld <x> <z>",    "Teleport to absolute world coordinates."),
+            ("UnlockAllPlayerWaypoints",   "Unlock every waypoint for a player."),
+            ("MapMarker <args>",           "Add / manage map markers."));
+        AddGuideSection(page, "",
+            "Chat-command equivalents:  .teleport {x} {y} {z} {player},  .tpb {boss} (Kindred teleport-to-boss).");
+
+        AddCommandTable(page, "Time, world & difficulty",
+            ("Time",                       "Print current server time."),
+            ("ChangeMapTime <hh:mm>",      "Set the in-world time of day."),
+            ("SetTimeOfDay <hh:mm>",       "Alias of ChangeMapTime on some versions."),
+            ("weather <type>",             "Change weather (clear / rain / mist / storm)."),
+            ("GameDifficulty <level>",     "Adjust the server's difficulty."),
+            ("Lockdown",                   "Toggle PvP / siege lockdown."),
+            ("alllockdown",                "Server-wide lockdown."));
+
+        AddCommandTable(page, "Server administration",
+            ("Save",                       "Force a server save."),
+            ("AutoSave",                   "Enable auto-save."),
+            ("StopAutoSave",               "Disable auto-save."),
+            ("ReloadServerSettings",       "Re-apply ServerHostSettings.json without restart."),
+            ("Restart",                    "Restart the server."),
+            ("Disconnect",                 "Disconnect yourself from the server."),
+            ("Quit",                       "Close the V Rising client."),
+            ("List",                       "List every available console command (live reference)."),
+            ("Help <command>",             "Detailed help for a specific command."),
+            ("ShowVersion",                "Display the V Rising client/server version."),
+            ("ShowAdminCommands",          "List admin-only commands (live filtered List)."));
+
+        AddCommandTable(page, "Debugging / display",
+            ("DebugHud",                   "Toggle the debug heads-up display."),
+            ("ShowDebugUI",                "Toggle extended debug UI."),
+            ("ShowFPS",                    "Show frame-rate counter."),
+            ("ShowInputBindings",          "List current input bindings."),
+            ("BlockUserInput",             "Block all input (anti-stuck recovery)."),
+            ("Console.SetCheats",          "Enable cheat-level commands (requires extra setup)."));
 
         AddGuideSection(page,
-            "Player management",
-            "  • Kick <CharacterName>     — kick a player by name\n" +
-            "  • BanUser <SteamID>        — ban a player by SteamID\n" +
-            "  • Banhammer <SteamID>      — ban + delete the player's characters\n" +
-            "  • Unban <UserIndex>        — unban (use BanList to find the index)\n" +
-            "  • BanList                  — list current bans\n" +
-            "  • Connectinfo              — print connection info for diagnostics\n" +
-            "  • Mute <SteamID> <minutes> — silence a player (vanilla)\n\n" +
-            "Chat-command equivalents already in BCH (KINDRED → Admin: Players):\n" +
-            "  → .kick, .ban (via Kindred or vanilla), .unban, etc.");
-
-        AddGuideSection(page,
-            "Item / character spawning",
-            "  • give <PrefabName>          — give yourself an item by prefab name\n" +
-            "  • giveset                    — open the giveset menu (sets of armor/weapons)\n" +
-            "  • SpawnUnit <PrefabName>     — spawn an NPC at your position\n" +
-            "  • teleporttowaypoint <name>  — teleport to a waypoint\n\n" +
-            "Chat-command equivalents already in BCH (KINDRED → Admin: World):\n" +
-            "  → .give {item} {qty}\n" +
-            "  → .spawnnpc / .customspawn / .customspawnat\n" +
-            "  → .teleport {x} {y} {z} {player}\n" +
-            "Use the Lookups section on the same tab to find prefab names.");
-
-        AddGuideSection(page,
-            "Server",
-            "  • List                  — list every console command\n" +
-            "  • Help <command>        — detailed help for a command\n" +
-            "  • Save                  — force a server save\n" +
-            "  • Disconnect            — disconnect yourself from the server\n" +
-            "  • Quit                  — close the V Rising client");
+            "Authoritative list",
+            "V Rising occasionally adds/removes commands between patches. The " +
+            "in-game console's `List` command always shows the live set the " +
+            "current build accepts — use it as the authoritative reference if " +
+            "any command listed here is rejected. `Help <command>` prints " +
+            "usage details for a specific entry.");
 
         AddGuideSection(page,
             "How to use the in-game console",
@@ -3047,46 +4131,98 @@ public partial class MainPanel : ResizeablePanelBase
 
     private void BuildAboutTab(GameObject page)
     {
-        // 0.9.2: Display settings + Chat noise moved to their own Settings tab.
-        // About tab is now purely acknowledgements + community links.
-        AddGuideSection(page,
-            "Server-side mods this UI talks to",
-            "BloodCraftHub is a CLIENT mod — it doesn't change the server. " +
-            "Everything you see here is wrapping the chat-command surface of " +
-            "two server-side mods made by other developers. Big thanks to:");
+        // 0.10.8: reworked from a stack of dense AddGuideSection calls into a
+        // four-region layout with explicit spacers between regions, so the
+        // page reads as discrete cards instead of one wall of text:
+        //   1. Header band — version + one-line description
+        //   2. Acknowledgements — Bloodcraft + KindredCommands credits
+        //   3. About me / community — author info + support links
+        //   4. Project — GitHub / Thunderstore / license footer
+        // Each region opens with a section heading; AddSpacer separates them.
 
+        // ── Region 1 ─────────────────────────────────────────────────────
+        AddGuideSection(page,
+            $"BloodCraftHub  v{MyPluginInfo.PLUGIN_VERSION}",
+            "A unified CLIENT UI for the Bloodcraft suite of V Rising " +
+            "server mods. Surfaces every Bloodcraft, KindredCommands, and " +
+            "KindredLogistics chat command as buttons and forms — no more " +
+            "typing in chat to manage your familiars, run a class change, " +
+            "or fire an admin command. Live progress overlays for XP, " +
+            "weapon expertise, blood legacy, familiars, professions, and " +
+            "daily quests stream in at ~1 Hz over the signed [ECLIPSE] " +
+            "protocol Bloodcraft already speaks, so the cost on the " +
+            "server is the same as if you had Eclipse installed.");
+        AddSpacer(page, 12);
+
+        // ── Region 2 ─────────────────────────────────────────────────────
+        AddSectionHeading(page, "Mods this UI is built on");
+        AddGuideSection(page, "",
+            "BloodCraftHub is purely a client-side overlay — it doesn't " +
+            "modify the server or add new gameplay systems. Every feature " +
+            "you see is wrapping the chat-command surface of these " +
+            "server-side mods by other developers:");
+
+        AddSpacer(page, 4);
         AddGuideSection(page,
             "Bloodcraft  —  by zfolmt",
-            "Leveling, expertise, legacies, professions, familiars, classes, quests! " +
-            "The bulk of what BloodCraftHub surfaces (every BLOODCRAFT-group tab) " +
+            "Leveling, weapon expertise, blood legacies, professions, " +
+            "familiars, classes, quests, and prestige. The bulk of what " +
+            "BloodCraftHub surfaces (every tab in the BLOODCRAFT group) " +
             "would not exist without zfolmt's mod.");
         AddLinkRow(page, "Bloodcraft on Thunderstore",
             "https://thunderstore.io/c/v-rising/p/zfolmt/Bloodcraft/");
 
+        AddSpacer(page, 6);
         AddGuideSection(page,
             "KindredCommands  —  by odjit",
-            "Commands to expand administration efforts and provide information. " +
-            "The KINDRED admin tabs (Players / Server / World) and the Logistics " +
-            "section all call into odjit's mods.");
+            "Commands to expand server administration and add quality-" +
+            "of-life affordances for players. The KINDRED admin tabs " +
+            "(Players, Server, World) and the entire Logistics section " +
+            "call into odjit's mods.");
         AddLinkRow(page, "KindredCommands on Thunderstore",
             "https://thunderstore.io/c/v-rising/p/odjit/KindredCommands/");
+        AddSpacer(page, 12);
 
-        AddGuideSection(page,
-            "About me",
-            "Player Name: Chaos\n" +
-            "V Rising Server: The Shadow Realm  (Brutal, PvE)\n\n" +
-            "Want to support development? Use the Open buttons below.");
+        // ── Region 3 ─────────────────────────────────────────────────────
+        AddSectionHeading(page, "About the author");
+        AddGuideSection(page, "",
+            "Maintained by kdpen (in-game: Chaos). I play on The Shadow " +
+            "Realm — a Brutal, PvE community server — and built this mod " +
+            "to give that community a click-driven alternative to typing " +
+            "every Bloodcraft command. Feedback, bug reports, and pull " +
+            "requests are very welcome through any of the links below.");
+        AddSpacer(page, 4);
 
-        AddLinkRow(page, "Server Discord",   "https://discord.gg/usC9QgBrXK");
-        AddLinkRow(page, "PayPal (support)", "https://www.paypal.com/paypalme/KrisPenland");
-        AddLinkRow(page, "SkillEra.IO",      "https://SkillEra.IO");
+        AddLinkRow(page, "Server Discord  (The Shadow Realm)",
+            "https://discord.gg/usC9QgBrXK");
+        // 0.9.8: direct-message link to the author. Friend-testing: users
+        // wanted a way to reach me one-on-one for mod feedback / bug reports
+        // without joining the server Discord first.
+        AddLinkRow(page, "DM me on Discord  (PerpetualChaos)",
+            "https://discord.com/users/PerpetualChaos");
+        AddLinkRow(page, "Support development  (PayPal)",
+            "https://www.paypal.com/paypalme/KrisPenland");
+        AddLinkRow(page, "SkillEra.IO  (other projects)",
+            "https://SkillEra.IO");
+        AddSpacer(page, 12);
 
-        AddGuideSection(page,
-            "About this UI",
-            "BloodCraftHub is open source (MIT). Bug reports, feature ideas, " +
-            "and pull requests welcome:");
+        // ── Region 4 ─────────────────────────────────────────────────────
+        AddSectionHeading(page, "Project");
+        AddGuideSection(page, "",
+            "BloodCraftHub is open source under the MIT license. The " +
+            "repository, the release feed, and every prior version's " +
+            "CHANGELOG entry are public:");
+        AddSpacer(page, 4);
 
-        AddLinkRow(page, "GitHub repo", "https://github.com/KDavidP1987/BloodCraftHub");
+        AddLinkRow(page, "GitHub repository",
+            "https://github.com/KDavidP1987/BloodCraftHub");
+        AddLinkRow(page, "Thunderstore listing",
+            "https://thunderstore.io/c/v-rising/p/kdpen/BloodCraftHub/");
+        AddSpacer(page, 6);
+
+        AddGuideSection(page, "",
+            "Bloodcraft compatibility: v1.13.x   •   License: MIT   •   " +
+            "Plugin GUID: kdpen.BloodCraftHub");
     }
 
     // -----------------------------------------------------------------------
@@ -3105,7 +4241,7 @@ public partial class MainPanel : ResizeablePanelBase
     private void BuildDisplaySettingsSection(GameObject page)
     {
         AddGuideSection(page,
-            "Display settings  (0.9.0)",
+            "Display settings",
             "Adjust text size and overlay transparency. " +
             "Text-size changes apply when the panel is closed and reopened " +
             "(or when an overlay is toggled off and back on). Transparency " +
@@ -3158,10 +4294,379 @@ public partial class MainPanel : ResizeablePanelBase
         AddSpacer(page, 8);
         AddSectionHeading(page, "HUD extras");
         AddShowProgressBarsToggle(page);
+        AddShowOverlayBonusStatsToggle(page);
+        AddShowOverlayXpCounterToggle(page);
+        AddProgressBarHeightControls(page);
+        AddOverlayEdgePaddingControls(page);
+        AddShowPrestigeSubLineToggle(page);
+        AddOverlayAlignmentToggle(page);
+        AddAutoScanVBloodsToggle(page);
         AddSpacer(page, 8);
         AddSectionHeading(page, "Chat noise");
         AddSuppressActionChatterToggle(page);
         AddSpacer(page, 8);
+        // 0.9.7: per-component size adjustment + reset-to-default controls.
+        BuildSizePositioningSection(page);
+        AddSpacer(page, 8);
+        // 0.10.6: Chat Logging diagnostic toggles. At the bottom of Settings
+        // so users see it last when scanning the page top-to-bottom.
+        BuildChatLoggingSection(page);
+    }
+
+    // -----------------------------------------------------------------------
+    // 0.10.6: Chat Logging section
+    //
+    // Diagnostic visibility controls for chat replies BCH parses + mirrors to
+    // its own UI. Three toggles (BchAuto / Bloodcraft / Kindred) plus master
+    // Show All / Hide All buttons. Per the design discussion with the user:
+    //   - Toggling a category off suppresses ONLY the chat copies of commands
+    //     whose data BCH renders structurally. Action confirmations and any
+    //     command BCH doesn't parse stay visible regardless.
+    //   - Suppression doesn't touch ClearServerMessages (the global admin
+    //     toggle) — those are independent.
+    //   - Data extraction always works regardless of these settings (the
+    //     intercept parses BEFORE the destroy decision, so flipping every
+    //     toggle to "hide" doesn't break any feature).
+    // -----------------------------------------------------------------------
+    private void BuildChatLoggingSection(GameObject page)
+    {
+        AddSectionHeading(page, "Chat Logging");
+
+        // 0.10.13: dropped italic + bumped 11 → 13 + applied muted color
+        // so the help paragraph is legible at standard text size.
+        var help = UIFactory.CreateLabel(page, "ChatLoggingHelp",
+            $"<color={Theme.MutedBodyHex}>Diagnostic toggles. Each controls whether chat shows the SERVER REPLIES " +
+            "to commands BCH already mirrors to its UI. Action confirmations and " +
+            "commands without a BCH UI display stay visible regardless. Suppression " +
+            "is purely cosmetic — data collection (familiars, V-Bloods, expertise, " +
+            "etc.) always works.</color>",
+            TextAlignmentOptions.TopLeft, color: null, fontSize: Theme.ScaledUI(13));
+        UIFactory.SetLayoutElement(help.GameObject,
+            minWidth: 360, preferredWidth: 400, flexibleWidth: 1,
+            minHeight: 48, preferredHeight: 68, flexibleHeight: 0);
+        help.TextMesh.fontStyle = FontStyles.Normal;
+        help.TextMesh.enableWordWrapping = true;
+        help.TextMesh.overflowMode = TextOverflowModes.Overflow;
+
+        // Master Show All / Hide All buttons row.
+        var masterRow = UIFactory.CreateHorizontalGroup(page, "ChatLogMasterRow",
+            forceExpandWidth: true, forceExpandHeight: false,
+            childControlWidth: true, childControlHeight: true,
+            spacing: 6, padding: new Vector4(0, 0, 0, 0));
+        UIFactory.SetLayoutElement(masterRow,
+            minWidth: 360, preferredWidth: 400, flexibleWidth: 1,
+            minHeight: 28, preferredHeight: 30, flexibleHeight: 0);
+
+        var showAll = UIFactory.CreateButton(masterRow, "ChatShowAllBtn", "Show all mod chat");
+        UIFactory.SetLayoutElement(showAll.GameObject,
+            minWidth: 140, preferredWidth: 180, flexibleWidth: 1,
+            minHeight: 26, preferredHeight: 28, flexibleHeight: 0);
+        var showAllTxt = showAll.Component.GetComponentInChildren<TextMeshProUGUI>();
+        if (showAllTxt != null) { showAllTxt.fontSize = Theme.ScaledUI(12); showAllTxt.alignment = TextAlignmentOptions.Center; }
+        TooltipHover.Attach(showAll.GameObject,
+            "Enable visibility for all three Chat Logging categories — useful when diagnosing why a BCH feature isn't picking up server data. Does NOT touch the global ClearServerMessages admin setting.");
+        showAll.OnClick = () => { Config.Settings.ShowAllChat(); RefreshChatLoggingTogglesUI(); };
+
+        var hideAll = UIFactory.CreateButton(masterRow, "ChatHideAllBtn", "Hide all mod chat");
+        UIFactory.SetLayoutElement(hideAll.GameObject,
+            minWidth: 140, preferredWidth: 180, flexibleWidth: 1,
+            minHeight: 26, preferredHeight: 28, flexibleHeight: 0);
+        var hideAllTxt = hideAll.Component.GetComponentInChildren<TextMeshProUGUI>();
+        if (hideAllTxt != null) { hideAllTxt.fontSize = Theme.ScaledUI(12); hideAllTxt.alignment = TextAlignmentOptions.Center; }
+        TooltipHover.Attach(hideAll.GameObject,
+            "Disable visibility for all three Chat Logging categories — maximum chat quiet. Action confirmations and any command BCH doesn't parse will still appear in chat (those have no alternative UI display).");
+        hideAll.OnClick = () => { Config.Settings.HideAllChat(); RefreshChatLoggingTogglesUI(); };
+
+        AddSpacer(page, 4);
+
+        _chatBchAutoToggle    = AddChatLoggingToggle(page, "BCH internal auto-fires",
+            "Replies to BCH's own automatic background commands — V-Blood scanner searches, the XP overlay bonus-stats ticker, the Wep/Blood-Legacy tab auto-refresh. Off by default to avoid spam from background polling. Turn ON if you want to see what BCH is sending and verify the server is replying.",
+            () => Config.Settings.ShowChatBchAuto,
+            v => Config.Settings.SetShowChatBchAuto(v));
+
+        _chatBloodcraftToggle = AddChatLoggingToggle(page, "Bloodcraft command replies",
+            "Replies to user-initiated Bloodcraft commands BCH structurally parses — .fam boxes / .fam l / .fam s / .bl get / .wep get / .prestige get. On by default. Off = the BCH UI is the only place this data shows (less chat noise). Action confirmations (.fam b, .fam ub, etc.) and commands BCH doesn't parse stay visible regardless.",
+            () => Config.Settings.ShowChatBloodcraft,
+            v => Config.Settings.SetShowChatBloodcraft(v));
+
+        _chatKindredToggle    = AddChatLoggingToggle(page, "Kindred command replies",
+            "Same as the Bloodcraft toggle, applied to KindredCommands / KindredLogistics commands. BCH doesn't structurally parse any Kindred replies in this version, so the toggle is currently a no-op — reserved for future Kindred structured parsing.",
+            () => Config.Settings.ShowChatKindred,
+            v => Config.Settings.SetShowChatKindred(v));
+    }
+
+    private UI.Framework.UniverseLib.UI.Models.ToggleRef _chatBchAutoToggle;
+    private UI.Framework.UniverseLib.UI.Models.ToggleRef _chatBloodcraftToggle;
+    private UI.Framework.UniverseLib.UI.Models.ToggleRef _chatKindredToggle;
+
+    private UI.Framework.UniverseLib.UI.Models.ToggleRef AddChatLoggingToggle(
+        GameObject parent, string label, string tooltip,
+        System.Func<bool> get, System.Action<bool> set)
+    {
+        var row = UIFactory.CreateHorizontalGroup(parent, $"ChatLogRow_{label}",
+            forceExpandWidth: true, forceExpandHeight: false,
+            childControlWidth: true, childControlHeight: true,
+            spacing: 6, padding: new Vector4(2, 2, 2, 2));
+        UIFactory.SetLayoutElement(row,
+            minWidth: 360, preferredWidth: 400, flexibleWidth: 1,
+            minHeight: 28, preferredHeight: 30, flexibleHeight: 0);
+
+        var t = UIFactory.CreateToggle(row, $"ChatLogTog_{label}");
+        UIFactory.SetLayoutElement(t.GameObject,
+            minWidth: 360, preferredWidth: 400, flexibleWidth: 1,
+            minHeight: 24, preferredHeight: 26, flexibleHeight: 0);
+        t.Text.text = label;
+        t.Text.fontSize = Theme.ScaledUI(12);
+        t.Text.alignment = TextAlignmentOptions.MidlineLeft;
+        UIFactory.SetLayoutElement(t.Text.gameObject,
+            minWidth: 320, preferredWidth: 360, flexibleWidth: 1,
+            minHeight: 22, preferredHeight: 24, flexibleHeight: 0);
+        t.Toggle.isOn = get();
+        TooltipHover.Attach(t.GameObject, tooltip);
+        t.OnValueChanged += v => set(v);
+        return t;
+    }
+
+    /// <summary>0.10.6: re-read the three toggle states from settings and push to
+    /// the rendered UI. Called after Show All / Hide All so the visible
+    /// checkbox state matches the setting state.</summary>
+    private void RefreshChatLoggingTogglesUI()
+    {
+        if (_chatBchAutoToggle    != null) _chatBchAutoToggle.Toggle.isOn    = Config.Settings.ShowChatBchAuto;
+        if (_chatBloodcraftToggle != null) _chatBloodcraftToggle.Toggle.isOn = Config.Settings.ShowChatBloodcraft;
+        if (_chatKindredToggle    != null) _chatKindredToggle.Toggle.isOn    = Config.Settings.ShowChatKindred;
+    }
+
+    // -----------------------------------------------------------------------
+    // 0.9.7: Size & Positioning section (Settings tab)
+    //
+    // Per-component subsections (Primary UI + each of the 5 overlays). Each
+    // exposes [-]/[+] for width and height (20 px step; Shift+click = 100 px)
+    // plus a [Default] button that calls SetDefaultSizeAndPosition(). Primary
+    // UI additionally has [Auto-size] (mirrors footer toggle) and [Fullscreen]
+    // (mirrors the title-bar maximize button). Manual drag-from-edge resize
+    // remains unaffected — these controls just provide a click-driven
+    // alternative for users who didn't realize the panels were resizable.
+    // -----------------------------------------------------------------------
+
+    private const int SIZE_STEP_NORMAL = 20;
+    private const int SIZE_STEP_LARGE  = 100;
+
+    // 0.9.8: list of size-readout refreshers. Each AddSizePosStepRow registers
+    // its own refresh action here; the per-frame ticker (TickSizePosReadouts)
+    // walks them while Settings is the active tab so dragging a panel by its
+    // edge updates the readout immediately — pre-0.9.8 the readout only
+    // refreshed inside the +/- click handlers, leaving manual drag-resize
+    // out of sync. Cleared on Reset to avoid leaking references.
+    private readonly System.Collections.Generic.List<System.Action> _sizePosRefreshers = new();
+    private System.Action _sizePosReadoutTicker;
+
+    private void BuildSizePositioningSection(GameObject page)
+    {
+        AddSectionHeading(page, "Size & Positioning");
+
+        // 0.9.8: per-frame readout refresher. Self-gates on ActiveTab so it's
+        // a no-op except when the Settings tab is open. Registered once when
+        // the section builds.
+        if (_sizePosReadoutTicker == null)
+        {
+            _sizePosReadoutTicker = TickSizePosReadouts;
+            BloodCraftHub.Behaviors.CoreUpdateBehavior.Actions.Add(_sizePosReadoutTicker);
+        }
+
+        // 0.10.13: dropped italic + bumped 11 → 13 + muted color for legibility.
+        var help = UIFactory.CreateLabel(page, "SizePosHelp",
+            $"<color={Theme.MutedBodyHex}>Click +/- to adjust the width/height of the main panel or any overlay " +
+            "(hold Shift while clicking for 100 px steps). Default returns it to its " +
+            "factory size and position. Drag-to-resize from any edge still works.</color>",
+            TextAlignmentOptions.TopLeft, color: null, fontSize: Theme.ScaledUI(13));
+        UIFactory.SetLayoutElement(help.GameObject,
+            minWidth: 360, preferredWidth: 400, flexibleWidth: 1,
+            minHeight: 36, preferredHeight: 52, flexibleHeight: 0);
+        help.TextMesh.fontStyle = FontStyles.Normal;
+        help.TextMesh.enableWordWrapping = true;
+        help.TextMesh.overflowMode = TextOverflowModes.Overflow;
+
+        AddSpacer(page, 4);
+        BuildPrimaryUISizeControls(page);
+        AddSpacer(page, 4);
+        BuildOverlaySizeControls(page, "XP overlay",       () => Plugin.UIManager?.ExperienceOverlay);
+        BuildOverlaySizeControls(page, "Familiar overlay", () => Plugin.UIManager?.FamiliarOverlay);
+        BuildOverlaySizeControls(page, "Familiar Browser", () => Plugin.UIManager?.FamiliarBrowserOverlay);
+        BuildOverlaySizeControls(page, "Daily Quest",      () => Plugin.UIManager?.DailyQuestOverlay);
+        BuildOverlaySizeControls(page, "Professions",      () => Plugin.UIManager?.ProfessionOverlay);
+    }
+
+    private void BuildPrimaryUISizeControls(GameObject page)
+    {
+        AddSizePosSubHeading(page, "Primary UI");
+
+        // Row: [Auto-size] [Fullscreen] [Default]
+        var btnRow = UIFactory.CreateHorizontalGroup(page, "PrimaryUISizeBtns",
+            forceExpandWidth: true, forceExpandHeight: false,
+            childControlWidth: true, childControlHeight: true,
+            spacing: 6, padding: new Vector4(0, 0, 0, 0));
+        UIFactory.SetLayoutElement(btnRow,
+            minWidth: 360, preferredWidth: 400, flexibleWidth: 1,
+            minHeight: 30, preferredHeight: 32, flexibleHeight: 0);
+
+        AddSizePosButton(btnRow, "Auto-size",
+            "Auto-resize the main panel vertically to fit the active tab's content. Mirrors the footer toggle.",
+            () => {
+                Config.Settings.SetIsPanelAutoResizeEnabled(!Config.Settings.IsPanelAutoResizeEnabled);
+                AutoResizeIfEnabled();
+            });
+        AddSizePosButton(btnRow, "Fullscreen",
+            "Toggle the main panel between its current size+position and a fullscreen stretch (with a small inset so the edges stay grabbable). Mirrors the maximize button on the title bar.",
+            ToggleFullscreen);
+        AddSizePosButton(btnRow, "Default",
+            "Reset the main panel to its default size (does NOT move it — drag to re-center if you want).",
+            () => { SetFullscreen(false); SetDefaultSize(); });
+
+        // Width + Height step rows
+        AddSizePosStepRow(page, "Width",
+            () => Rect != null ? (int)Rect.sizeDelta.x : 0,
+            d => { SetFullscreen(false); AdjustSize(d, 0); });
+        AddSizePosStepRow(page, "Height",
+            () => Rect != null ? (int)Rect.sizeDelta.y : 0,
+            d => { SetFullscreen(false); AdjustSize(0, d); });
+    }
+
+    private void BuildOverlaySizeControls(GameObject page, string label,
+        System.Func<BloodCraftHub.UI.Framework.CustomLib.Panel.ResizeablePanelBase> getter)
+    {
+        AddSizePosSubHeading(page, label);
+
+        var btnRow = UIFactory.CreateHorizontalGroup(page, $"{label}_SizeBtns",
+            forceExpandWidth: true, forceExpandHeight: false,
+            childControlWidth: true, childControlHeight: true,
+            spacing: 6, padding: new Vector4(0, 0, 0, 0));
+        UIFactory.SetLayoutElement(btnRow,
+            minWidth: 360, preferredWidth: 400, flexibleWidth: 1,
+            minHeight: 30, preferredHeight: 32, flexibleHeight: 0);
+
+        AddSizePosButton(btnRow, "Default",
+            $"Reset the {label}'s size to its default. Does NOT move it — drag the overlay if you also want to reset position. Only affects this overlay if it's currently open.",
+            () => {
+                var p = getter();
+                if (p != null) p.SetDefaultSize();
+            });
+
+        AddSizePosStepRow(page, "Width",
+            () => { var p = getter(); return p?.Rect != null ? (int)p.Rect.sizeDelta.x : 0; },
+            d => { var p = getter(); if (p != null) p.AdjustSize(d, 0); });
+        AddSizePosStepRow(page, "Height",
+            () => { var p = getter(); return p?.Rect != null ? (int)p.Rect.sizeDelta.y : 0; },
+            d => { var p = getter(); if (p != null) p.AdjustSize(0, d); });
+
+        AddSpacer(page, 2);
+    }
+
+    private void AddSizePosSubHeading(GameObject parent, string text)
+    {
+        var lbl = UIFactory.CreateLabel(parent, $"SizePosSub_{text}", text,
+            TextAlignmentOptions.MidlineLeft, color: null, fontSize: Theme.ScaledUI(13));
+        UIFactory.SetLayoutElement(lbl.GameObject,
+            minWidth: 360, preferredWidth: 400, flexibleWidth: 1,
+            minHeight: 22, preferredHeight: 24, flexibleHeight: 0);
+        lbl.TextMesh.fontStyle = FontStyles.Bold;
+    }
+
+    private void AddSizePosButton(GameObject parent, string label, string tooltip, System.Action onClick)
+    {
+        var btn = UIFactory.CreateButton(parent, $"SizePosBtn_{label}", label);
+        UIFactory.SetLayoutElement(btn.GameObject,
+            minWidth: 90, preferredWidth: 110, flexibleWidth: 1,
+            minHeight: 26, preferredHeight: 28, flexibleHeight: 0);
+        var t = btn.Component.GetComponentInChildren<TextMeshProUGUI>();
+        if (t != null) { t.fontSize = Theme.ScaledUI(12); t.alignment = TextAlignmentOptions.Center; }
+        TooltipHover.Attach(btn.GameObject, tooltip);
+        btn.OnClick = onClick;
+    }
+
+    /// <summary>0.9.7: builds a "Width [-] 720 px [+]" row. The label text
+    /// re-reads the current value from the supplied getter after each click
+    /// so the user sees the immediate effect. Shift-click on +/- jumps by
+    /// SIZE_STEP_LARGE instead of SIZE_STEP_NORMAL.</summary>
+    private void AddSizePosStepRow(GameObject parent, string label,
+        System.Func<int> getCurrent, System.Action<int> applyDelta)
+    {
+        var row = UIFactory.CreateHorizontalGroup(parent, $"SizePosRow_{label}",
+            forceExpandWidth: true, forceExpandHeight: false,
+            childControlWidth: true, childControlHeight: true,
+            spacing: 4, padding: new Vector4(0, 0, 0, 0));
+        UIFactory.SetLayoutElement(row,
+            minWidth: 360, preferredWidth: 400, flexibleWidth: 1,
+            minHeight: 26, preferredHeight: 28, flexibleHeight: 0);
+
+        var lblText = UIFactory.CreateLabel(row, $"SizePosRowLabel_{label}", $"{label}:",
+            TextAlignmentOptions.MidlineLeft, color: null, fontSize: Theme.ScaledUI(12));
+        UIFactory.SetLayoutElement(lblText.GameObject,
+            minWidth: 60, preferredWidth: 70, flexibleWidth: 0,
+            minHeight: 24, preferredHeight: 26, flexibleHeight: 0);
+
+        var minusBtn = UIFactory.CreateButton(row, $"SizePosMinus_{label}", "−");
+        UIFactory.SetLayoutElement(minusBtn.GameObject,
+            minWidth: 32, preferredWidth: 32, flexibleWidth: 0,
+            minHeight: 24, preferredHeight: 26, flexibleHeight: 0);
+        var minusT = minusBtn.Component.GetComponentInChildren<TextMeshProUGUI>();
+        if (minusT != null) { minusT.fontSize = Theme.ScaledUI(14); minusT.alignment = TextAlignmentOptions.Center; }
+
+        var valLabel = UIFactory.CreateLabel(row, $"SizePosVal_{label}", $"{getCurrent()} px",
+            TextAlignmentOptions.Center, color: null, fontSize: Theme.ScaledUI(12));
+        UIFactory.SetLayoutElement(valLabel.GameObject,
+            minWidth: 60, preferredWidth: 80, flexibleWidth: 1,
+            minHeight: 24, preferredHeight: 26, flexibleHeight: 0);
+
+        var plusBtn = UIFactory.CreateButton(row, $"SizePosPlus_{label}", "+");
+        UIFactory.SetLayoutElement(plusBtn.GameObject,
+            minWidth: 32, preferredWidth: 32, flexibleWidth: 0,
+            minHeight: 24, preferredHeight: 26, flexibleHeight: 0);
+        var plusT = plusBtn.Component.GetComponentInChildren<TextMeshProUGUI>();
+        if (plusT != null) { plusT.fontSize = Theme.ScaledUI(14); plusT.alignment = TextAlignmentOptions.Center; }
+
+        TooltipHover.Attach(minusBtn.GameObject, $"Shrink {label.ToLowerInvariant()} by {SIZE_STEP_NORMAL} px (Shift+click: {SIZE_STEP_LARGE} px).");
+        TooltipHover.Attach(plusBtn.GameObject,  $"Grow {label.ToLowerInvariant()} by {SIZE_STEP_NORMAL} px (Shift+click: {SIZE_STEP_LARGE} px).");
+
+        // Capture the val label so click handlers can refresh it after applying.
+        System.Action refresh = () => {
+            if (valLabel?.TextMesh == null) return;
+            var text = $"{getCurrent()} px";
+            if (valLabel.TextMesh.text != text)
+                valLabel.TextMesh.text = text;
+        };
+        minusBtn.OnClick = () => { applyDelta(-CurrentStep()); refresh(); };
+        plusBtn.OnClick  = () => { applyDelta( CurrentStep()); refresh(); };
+        // 0.9.8: per-frame refresh path — picks up changes from manual edge-
+        // drag resize so the readout stays in sync with the live panel size.
+        _sizePosRefreshers.Add(refresh);
+    }
+
+    private void TickSizePosReadouts()
+    {
+        if (ActiveTab != PanelType.SettingsTab) return;
+        if (!Enabled) return;
+        // Iterate via index — refresh actions don't mutate the list at runtime,
+        // but a foreach over a possibly-extended list would also be cheap.
+        for (int i = 0; i < _sizePosRefreshers.Count; i++)
+        {
+            try { _sizePosRefreshers[i]?.Invoke(); }
+            catch (System.Exception ex)
+            {
+                Utils.LogUtils.LogWarning($"Size-pos readout refresher #{i} threw: {ex.Message}");
+            }
+        }
+    }
+
+    /// <summary>0.9.7: detect Shift modifier at click time so users can hold
+    /// Shift to jump by SIZE_STEP_LARGE instead of SIZE_STEP_NORMAL. Uses the
+    /// legacy UnityEngine.Input API which is what V Rising's IL2CPP wrap
+    /// exposes; reading is allocation-free.</summary>
+    private static int CurrentStep()
+    {
+        bool shift = UnityEngine.Input.GetKey(UnityEngine.KeyCode.LeftShift)
+                  || UnityEngine.Input.GetKey(UnityEngine.KeyCode.RightShift);
+        return shift ? SIZE_STEP_LARGE : SIZE_STEP_NORMAL;
     }
 
     /// <summary>0.9.2: toggle XP and prestige progress visualization as
@@ -3201,6 +4706,313 @@ public partial class MainPanel : ResizeablePanelBase
             try { RenderPrestigeInfo(); } catch { /* prestige tab not built yet */ }
         };
     }
+
+    /// <summary>0.9.6: toggle the XP overlay's per-row bonus-stat detail line
+    /// (chosen stat names + current numeric values from .wep get / .bl get).
+    /// Off by default. When toggled on, the overlay's always-on ticker starts
+    /// auto-fetching .wep get and .bl get &lt;CurrentBlood&gt; every 10s while
+    /// the overlay is visible. The render methods self-gate on the setting,
+    /// so toggling off immediately hides the rows on the next frame.</summary>
+    private void AddShowOverlayBonusStatsToggle(GameObject parent)
+    {
+        var row = UIFactory.CreateHorizontalGroup(parent, "ShowOverlayBonusStatsRow",
+            forceExpandWidth: true, forceExpandHeight: false,
+            childControlWidth: true, childControlHeight: true,
+            spacing: 6, padding: new Vector4(2, 2, 2, 2));
+        UIFactory.SetLayoutElement(row,
+            minWidth: 360, preferredWidth: 400, flexibleWidth: 1,
+            minHeight: 28, preferredHeight: 30, flexibleHeight: 0);
+
+        var t = UIFactory.CreateToggle(row, "ShowOverlayBonusStatsToggle");
+        UIFactory.SetLayoutElement(t.GameObject,
+            minWidth: 360, preferredWidth: 400, flexibleWidth: 1,
+            minHeight: 24, preferredHeight: 26, flexibleHeight: 0);
+        t.Text.text = "Show weapon expertise & blood legacy bonus stats on the XP overlay";
+        t.Text.fontSize = Theme.ScaledUI(12);
+        t.Text.alignment = TextAlignmentOptions.MidlineLeft;
+        UIFactory.SetLayoutElement(t.Text.gameObject,
+            minWidth: 320, preferredWidth: 360, flexibleWidth: 1,
+            minHeight: 22, preferredHeight: 24, flexibleHeight: 0);
+        t.Toggle.isOn = Config.Settings.ShowOverlayBonusStats;
+        TooltipHover.Attach(t.GameObject,
+            "When on, the XP overlay shows the chosen bonus-stat names AND their current numeric values under the Weapon and Legacy rows (e.g. '+12.5% PhysicalPower'). Auto-fetches .wep get and .bl get every 10s while the overlay is visible. Off by default for a minimal HUD.");
+        t.OnValueChanged += value =>
+        {
+            Config.Settings.SetShowOverlayBonusStats(value);
+            // Overlay re-renders on its next frame tick (always-on
+            // BonusStatsTick), so no explicit forced refresh needed here.
+        };
+    }
+
+    // 0.10.7: Show numerical Exp/Ess counter under the Weapon and Legacy
+    // rows on the XP overlay. Values come from parsing .wep get / .bl get
+    // chat replies; off by default to match the rest of the HUD-extra toggles.
+    private void AddShowOverlayXpCounterToggle(GameObject parent)
+    {
+        var row = UIFactory.CreateHorizontalGroup(parent, "ShowOverlayXpCounterRow",
+            forceExpandWidth: true, forceExpandHeight: false,
+            childControlWidth: true, childControlHeight: true,
+            spacing: 6, padding: new Vector4(2, 2, 2, 2));
+        UIFactory.SetLayoutElement(row,
+            minWidth: 360, preferredWidth: 400, flexibleWidth: 1,
+            minHeight: 28, preferredHeight: 30, flexibleHeight: 0);
+
+        var t = UIFactory.CreateToggle(row, "ShowOverlayXpCounterToggle");
+        UIFactory.SetLayoutElement(t.GameObject,
+            minWidth: 360, preferredWidth: 400, flexibleWidth: 1,
+            minHeight: 24, preferredHeight: 26, flexibleHeight: 0);
+        t.Text.text = "Show numerical Exp / Ess counter on the XP overlay";
+        t.Text.fontSize = Theme.ScaledUI(12);
+        t.Text.alignment = TextAlignmentOptions.MidlineLeft;
+        UIFactory.SetLayoutElement(t.Text.gameObject,
+            minWidth: 320, preferredWidth: 360, flexibleWidth: 1,
+            minHeight: 22, preferredHeight: 24, flexibleHeight: 0);
+        t.Toggle.isOn = Config.Settings.ShowOverlayXpCounter;
+        TooltipHover.Attach(t.GameObject,
+            "Adds a sub-row under Weapon and Legacy showing 'Exp: 123 / 4500 (2.7%)' — current expertise / essence and the threshold to the next level. Derives the threshold from the percentage the server prints, so it's accurate to within ±1 of the true value.");
+        t.OnValueChanged += value => Config.Settings.SetShowOverlayXpCounter(value);
+    }
+
+    // 0.10.7: Progress-bar height: relative-vs-absolute toggle + slider for
+    // the absolute mode. Default is absolute (8 px) because user feedback was
+    // that pre-0.10.7 bars grew aggressively when the overlay was enlarged
+    // for additional info rows.
+    private void AddProgressBarHeightControls(GameObject parent)
+    {
+        var row = UIFactory.CreateHorizontalGroup(parent, "ProgressBarHeightRow",
+            forceExpandWidth: true, forceExpandHeight: false,
+            childControlWidth: true, childControlHeight: true,
+            spacing: 6, padding: new Vector4(2, 2, 2, 2));
+        UIFactory.SetLayoutElement(row,
+            minWidth: 360, preferredWidth: 400, flexibleWidth: 1,
+            minHeight: 28, preferredHeight: 30, flexibleHeight: 0);
+
+        var label = UIFactory.CreateLabel(row, "ProgressBarHeightLabel",
+            "Progress bar height:", TextAlignmentOptions.MidlineLeft,
+            color: null, fontSize: Theme.ScaledUI(12));
+        UIFactory.SetLayoutElement(label.GameObject,
+            minWidth: 160, preferredWidth: 180, flexibleWidth: 0,
+            minHeight: 24, preferredHeight: 26, flexibleHeight: 0);
+
+        // Decrement
+        var minus = UIFactory.CreateButton(row, "ProgressBarHeightMinus", "−");
+        UIFactory.SetLayoutElement(minus.Component.gameObject,
+            minWidth: 30, preferredWidth: 30, flexibleWidth: 0,
+            minHeight: 24, preferredHeight: 26, flexibleHeight: 0);
+
+        var valueLbl = UIFactory.CreateLabel(row, "ProgressBarHeightValue",
+            $"{Config.Settings.ProgressBarHeight} px",
+            TextAlignmentOptions.Center, color: null, fontSize: Theme.ScaledUI(12));
+        UIFactory.SetLayoutElement(valueLbl.GameObject,
+            minWidth: 60, preferredWidth: 70, flexibleWidth: 0,
+            minHeight: 24, preferredHeight: 26, flexibleHeight: 0);
+
+        var plus = UIFactory.CreateButton(row, "ProgressBarHeightPlus", "+");
+        UIFactory.SetLayoutElement(plus.Component.gameObject,
+            minWidth: 30, preferredWidth: 30, flexibleWidth: 0,
+            minHeight: 24, preferredHeight: 26, flexibleHeight: 0);
+
+        minus.OnClick = () =>
+        {
+            Config.Settings.SetProgressBarHeight(Config.Settings.ProgressBarHeight - 1);
+            valueLbl.TextMesh.text = $"{Config.Settings.ProgressBarHeight} px";
+        };
+        plus.OnClick = () =>
+        {
+            Config.Settings.SetProgressBarHeight(Config.Settings.ProgressBarHeight + 1);
+            valueLbl.TextMesh.text = $"{Config.Settings.ProgressBarHeight} px";
+        };
+
+        TooltipHover.Attach(row,
+            $"Absolute pixel height for the XP/Weapon/Legacy progress bars when 'Scale bar with overlay' is off. Clamped {Config.Settings.PROGRESS_BAR_HEIGHT_MIN}..{Config.Settings.PROGRESS_BAR_HEIGHT_MAX}. Default 8.");
+
+        // Companion toggle on the next line so the row doesn't get crowded.
+        var relRow = UIFactory.CreateHorizontalGroup(parent, "ProgressBarRelativeRow",
+            forceExpandWidth: true, forceExpandHeight: false,
+            childControlWidth: true, childControlHeight: true,
+            spacing: 6, padding: new Vector4(2, 2, 2, 2));
+        UIFactory.SetLayoutElement(relRow,
+            minWidth: 360, preferredWidth: 400, flexibleWidth: 1,
+            minHeight: 28, preferredHeight: 30, flexibleHeight: 0);
+
+        var relToggle = UIFactory.CreateToggle(relRow, "ProgressBarRelativeToggle");
+        UIFactory.SetLayoutElement(relToggle.GameObject,
+            minWidth: 360, preferredWidth: 400, flexibleWidth: 1,
+            minHeight: 24, preferredHeight: 26, flexibleHeight: 0);
+        relToggle.Text.text = "Scale bar height with overlay (pre-0.10.7 behavior)";
+        relToggle.Text.fontSize = Theme.ScaledUI(12);
+        relToggle.Text.alignment = TextAlignmentOptions.MidlineLeft;
+        UIFactory.SetLayoutElement(relToggle.Text.gameObject,
+            minWidth: 320, preferredWidth: 360, flexibleWidth: 1,
+            minHeight: 22, preferredHeight: 24, flexibleHeight: 0);
+        relToggle.Toggle.isOn = Config.Settings.ProgressBarHeightRelative;
+        TooltipHover.Attach(relToggle.GameObject,
+            "When on, the bars stretch vertically as you grow the overlay. When off (default), the bars stay at the fixed pixel height above regardless of overlay size.");
+        relToggle.OnValueChanged += v => Config.Settings.SetProgressBarHeightRelative(v);
+    }
+
+    // 0.10.8: per-overlay left/right edge padding. Friend-testing feedback
+    // surfaced text sitting flush with overlay borders — especially the
+    // Familiar Browser's row labels brushing the scrollbar gutter. One
+    // setting, applied to every overlay's content area at construct time;
+    // rebuild via overlay toggle to pick up changes live.
+    private void AddOverlayEdgePaddingControls(GameObject parent)
+    {
+        var row = UIFactory.CreateHorizontalGroup(parent, "OverlayEdgePadRow",
+            forceExpandWidth: true, forceExpandHeight: false,
+            childControlWidth: true, childControlHeight: true,
+            spacing: 6, padding: new Vector4(2, 2, 2, 2));
+        UIFactory.SetLayoutElement(row,
+            minWidth: 360, preferredWidth: 400, flexibleWidth: 1,
+            minHeight: 28, preferredHeight: 30, flexibleHeight: 0);
+
+        var label = UIFactory.CreateLabel(row, "OverlayEdgePadLabel",
+            "Overlay edge padding:", TextAlignmentOptions.MidlineLeft,
+            color: null, fontSize: Theme.ScaledUI(12));
+        UIFactory.SetLayoutElement(label.GameObject,
+            minWidth: 160, preferredWidth: 180, flexibleWidth: 0,
+            minHeight: 24, preferredHeight: 26, flexibleHeight: 0);
+
+        var minus = UIFactory.CreateButton(row, "OverlayEdgePadMinus", "−");
+        UIFactory.SetLayoutElement(minus.Component.gameObject,
+            minWidth: 30, preferredWidth: 30, flexibleWidth: 0,
+            minHeight: 24, preferredHeight: 26, flexibleHeight: 0);
+
+        var valueLbl = UIFactory.CreateLabel(row, "OverlayEdgePadValue",
+            $"{Config.Settings.OverlayEdgePadding} px",
+            TextAlignmentOptions.Center, color: null, fontSize: Theme.ScaledUI(12));
+        UIFactory.SetLayoutElement(valueLbl.GameObject,
+            minWidth: 60, preferredWidth: 70, flexibleWidth: 0,
+            minHeight: 24, preferredHeight: 26, flexibleHeight: 0);
+
+        var plus = UIFactory.CreateButton(row, "OverlayEdgePadPlus", "+");
+        UIFactory.SetLayoutElement(plus.Component.gameObject,
+            minWidth: 30, preferredWidth: 30, flexibleWidth: 0,
+            minHeight: 24, preferredHeight: 26, flexibleHeight: 0);
+
+        minus.OnClick = () =>
+        {
+            Config.Settings.SetOverlayEdgePadding(Config.Settings.OverlayEdgePadding - 1);
+            valueLbl.TextMesh.text = $"{Config.Settings.OverlayEdgePadding} px";
+            // Rebuild any currently-shown overlay so the new padding
+            // takes effect live (same lifecycle as text-scale changes).
+            Plugin.UIManager.RequestRebuildAllOverlays();
+        };
+        plus.OnClick = () =>
+        {
+            Config.Settings.SetOverlayEdgePadding(Config.Settings.OverlayEdgePadding + 1);
+            valueLbl.TextMesh.text = $"{Config.Settings.OverlayEdgePadding} px";
+            Plugin.UIManager.RequestRebuildAllOverlays();
+        };
+
+        TooltipHover.Attach(row,
+            $"Inner left/right padding applied to every overlay (XP, Familiar, Familiar Browser, Daily Quest, Professions). Higher = more breathing room between text and panel edge / scrollbar. Clamped {Config.Settings.OVERLAY_EDGE_PADDING_MIN}..{Config.Settings.OVERLAY_EDGE_PADDING_MAX}. Default 6.");
+    }
+
+    // 0.10.7: Prestige sub-line on bars — Eclipse-style inset strip showing
+    // progress toward next prestige tier inside the main bar.
+    // 0.10.10: opt-in toggle for the V-Bloods tab's auto-scan-on-open
+    // behavior. Pre-0.10.10 the scan fired unconditionally the first time
+    // the user opened the tab; now it's manual by default.
+    private void AddAutoScanVBloodsToggle(GameObject parent)
+    {
+        var row = UIFactory.CreateHorizontalGroup(parent, "AutoScanVBloodsRow",
+            forceExpandWidth: true, forceExpandHeight: false,
+            childControlWidth: true, childControlHeight: true,
+            spacing: 6, padding: new Vector4(2, 2, 2, 2));
+        UIFactory.SetLayoutElement(row,
+            minWidth: 360, preferredWidth: 400, flexibleWidth: 1,
+            minHeight: 28, preferredHeight: 30, flexibleHeight: 0);
+
+        var t = UIFactory.CreateToggle(row, "AutoScanVBloodsToggle");
+        UIFactory.SetLayoutElement(t.GameObject,
+            minWidth: 360, preferredWidth: 400, flexibleWidth: 1,
+            minHeight: 24, preferredHeight: 26, flexibleHeight: 0);
+        t.Text.text = "Auto-scan V-Bloods when the V-Bloods tab opens";
+        t.Text.fontSize = Theme.ScaledUI(12);
+        t.Text.alignment = TextAlignmentOptions.MidlineLeft;
+        UIFactory.SetLayoutElement(t.Text.gameObject,
+            minWidth: 320, preferredWidth: 360, flexibleWidth: 1,
+            minHeight: 22, preferredHeight: 24, flexibleHeight: 0);
+        t.Toggle.isOn = Config.Settings.AutoScanVBloodsOnTabOpen;
+        TooltipHover.Attach(t.GameObject,
+            "When on, opening the V-Bloods tab with an empty collection automatically triggers a box-sweep scan (.fam boxes + .fam cb + .fam l for every box). Off by default — the scanner switches your active box ~10-15 times, so most users prefer the explicit Scan all button.");
+        t.OnValueChanged += v => Config.Settings.SetAutoScanVBloodsOnTabOpen(v);
+    }
+
+    private void AddShowPrestigeSubLineToggle(GameObject parent)
+    {
+        var row = UIFactory.CreateHorizontalGroup(parent, "ShowPrestigeSubLineRow",
+            forceExpandWidth: true, forceExpandHeight: false,
+            childControlWidth: true, childControlHeight: true,
+            spacing: 6, padding: new Vector4(2, 2, 2, 2));
+        UIFactory.SetLayoutElement(row,
+            minWidth: 360, preferredWidth: 400, flexibleWidth: 1,
+            minHeight: 28, preferredHeight: 30, flexibleHeight: 0);
+
+        var t = UIFactory.CreateToggle(row, "ShowPrestigeSubLineToggle");
+        UIFactory.SetLayoutElement(t.GameObject,
+            minWidth: 360, preferredWidth: 400, flexibleWidth: 1,
+            minHeight: 24, preferredHeight: 26, flexibleHeight: 0);
+        t.Text.text = "Show prestige-progress sub-line in progress bars (Eclipse-style)";
+        t.Text.fontSize = Theme.ScaledUI(12);
+        t.Text.alignment = TextAlignmentOptions.MidlineLeft;
+        UIFactory.SetLayoutElement(t.Text.gameObject,
+            minWidth: 320, preferredWidth: 360, flexibleWidth: 1,
+            minHeight: 22, preferredHeight: 24, flexibleHeight: 0);
+        t.Toggle.isOn = Config.Settings.ShowPrestigeSubLine;
+        TooltipHover.Attach(t.GameObject,
+            "Adds a slim inset fill at the bottom of each progress bar reflecting how close you are to the next prestige tier (Level / MaxLevel for that system). Mirrors Eclipse's overlay style. Requires Show Progress Bars to be on.");
+        t.OnValueChanged += v => Config.Settings.SetShowPrestigeSubLine(v);
+    }
+
+    /// <summary>0.10.2: cycle button — text alignment for overlay rows
+    /// (Left = default; Right = useful when the overlay is pinned to the
+    /// right edge of the screen). Toggling rebuilds open overlays so the
+    /// new alignment takes effect immediately — labels capture alignment
+    /// at construct time, so a flag flip without rebuild wouldn't visually
+    /// update existing labels.</summary>
+    private void AddOverlayAlignmentToggle(GameObject parent)
+    {
+        var row = UIFactory.CreateHorizontalGroup(parent, "OverlayAlignRow",
+            forceExpandWidth: true, forceExpandHeight: false,
+            childControlWidth: true, childControlHeight: true,
+            spacing: 6, padding: new Vector4(2, 2, 2, 2));
+        UIFactory.SetLayoutElement(row,
+            minWidth: 360, preferredWidth: 400, flexibleWidth: 1,
+            minHeight: 28, preferredHeight: 30, flexibleHeight: 0);
+
+        var label = UIFactory.CreateLabel(row, "OverlayAlignLabel",
+            "Overlay text alignment:", TextAlignmentOptions.MidlineLeft,
+            color: null, fontSize: Theme.ScaledUI(12));
+        UIFactory.SetLayoutElement(label.GameObject,
+            minWidth: 200, preferredWidth: 240, flexibleWidth: 1,
+            minHeight: 24, preferredHeight: 26, flexibleHeight: 0);
+
+        var btn = UIFactory.CreateButton(row, "OverlayAlignBtn", FormatOverlayAlignText());
+        UIFactory.SetLayoutElement(btn.GameObject,
+            minWidth: 80, preferredWidth: 100, flexibleWidth: 0,
+            minHeight: 26, preferredHeight: 28, flexibleHeight: 0);
+        var t = btn.Component.GetComponentInChildren<TextMeshProUGUI>();
+        if (t != null) { t.fontSize = Theme.ScaledUI(12); t.alignment = TextAlignmentOptions.Center; }
+        TooltipHover.Attach(btn.GameObject,
+            "Cycle between Left and Right text alignment for ALL overlays (XP, Familiar, Familiar Browser, Daily Quest, Professions). Right is handy when you've pinned an overlay to the right edge of the screen and want the values closer to the panel border.");
+        btn.OnClick = () =>
+        {
+            var next = Config.Settings.OverlayTextAlignmentSetting == Config.Settings.OverlayAlignment.Left
+                ? Config.Settings.OverlayAlignment.Right
+                : Config.Settings.OverlayAlignment.Left;
+            Config.Settings.SetOverlayTextAlignment(next);
+            // Refresh the button label, then trigger overlay rebuilds so the
+            // alignment baked into existing labels gets re-applied.
+            var newTxt = btn.Component.GetComponentInChildren<TextMeshProUGUI>();
+            if (newTxt != null) newTxt.text = FormatOverlayAlignText();
+            Plugin.UIManager?.RequestRebuildAllOverlays();
+        };
+    }
+
+    private static string FormatOverlayAlignText()
+        => Config.Settings.OverlayTextAlignmentSetting == Config.Settings.OverlayAlignment.Right ? "Right" : "Left";
 
     /// <summary>0.9.1: opt-in toggle to suppress the chat confirmation lines
     /// Bloodcraft prints when the user bind / unbind / switch-box / move /
@@ -3412,7 +5224,12 @@ public partial class MainPanel : ResizeablePanelBase
             "left rail groups tabs into BLOODCRAFT / KINDRED / HELP - click " +
             "a group header to collapse or expand it. The footer toggles the " +
             "secondary overlays (XP, Familiar), auto-resize, and the input " +
-            "block while typing.");
+            "block while typing.\n\n" +
+            "Tip: this main panel and every overlay are BOTH draggable AND " +
+            "resizable. Drag from anywhere inside to move; drag the bottom-" +
+            "right (or any edge) to resize. The maximize button in the top-" +
+            "right of this main panel toggles fullscreen, and the Settings " +
+            "tab has size controls if you prefer click-to-resize.");
 
         AddGuideSection(page,
             "Leveling (passive)",
@@ -3543,6 +5360,72 @@ public partial class MainPanel : ResizeablePanelBase
         desc.TextMesh.overflowMode = TextOverflowModes.Overflow;
     }
 
+    // 0.10.7: tabular two-column row for the Vanilla Admin reference. Pre-0.10.7
+    // each section packed all entries into a single multi-line label with
+    // hand-tabbed alignment ("  • cmd — desc"); the tab spacing inside a
+    // proportional font produced inconsistent column edges depending on the
+    // longest command in each section. This helper renders bold command in
+    // a fixed-width column + wrapped description in the flex column, so
+    // every section ends up with the same crisp alignment regardless of
+    // entry length.
+    //
+    // 0.10.8: the row now grows its height with the wrapped description.
+    // Pre-0.10.8 the row had a fixed preferredHeight=22; the desc label
+    // would wrap (correctly) but its rendered height stayed at the row's
+    // fixed value, so the second/third wrapped line drew on top of the
+    // next row's text. Fix: ContentSizeFitter on the row itself
+    // (verticalFit=PreferredSize), and clear the row's preferredHeight so
+    // the fitter uses the children's preferredHeight (HorizontalLayoutGroup
+    // reports the max of its child heights, and desc has its own fitter).
+    private static void AddCommandTableRow(GameObject parent, string command, string description)
+    {
+        var row = UIFactory.CreateHorizontalGroup(parent, $"CmdRow_{command}",
+            forceExpandWidth: true, forceExpandHeight: false,
+            childControlWidth: true, childControlHeight: true,
+            spacing: 10, padding: new Vector4(2, 2, 2, 2));
+        // 0.10.8: minHeight floor only; flexibleHeight=0 + ContentSizeFitter
+        // below grows the row when the description wraps. Setting
+        // preferredHeight=-1 means "no opinion" — Unity uses the next
+        // priority (child max from HorizontalLayoutGroup) which itself
+        // comes from desc's ContentSizeFitter.
+        UIFactory.SetLayoutElement(row,
+            minWidth: 360, preferredWidth: 400, flexibleWidth: 1,
+            minHeight: 22, preferredHeight: -1, flexibleHeight: 0);
+        var rowFitter = row.AddComponent<UnityEngine.UI.ContentSizeFitter>();
+        rowFitter.horizontalFit = UnityEngine.UI.ContentSizeFitter.FitMode.Unconstrained;
+        rowFitter.verticalFit   = UnityEngine.UI.ContentSizeFitter.FitMode.PreferredSize;
+
+        var cmd = UIFactory.CreateLabel(row, "Cmd", command,
+            TextAlignmentOptions.TopLeft, color: null, fontSize: Theme.ScaledUI(12));
+        UIFactory.SetLayoutElement(cmd.GameObject,
+            minWidth: 220, preferredWidth: 220, flexibleWidth: 0,
+            minHeight: 22, preferredHeight: 22, flexibleHeight: 0);
+        cmd.TextMesh.fontStyle = FontStyles.Bold;
+        cmd.TextMesh.enableWordWrapping = false;
+        cmd.TextMesh.overflowMode = TextOverflowModes.Overflow;
+
+        var desc = UIFactory.CreateLabel(row, "Desc", description,
+            TextAlignmentOptions.TopLeft, color: null, fontSize: Theme.ScaledUI(12));
+        // 0.10.8: preferredHeight=-1 so the LayoutElement doesn't pin a
+        // floor; the ContentSizeFitter pulls TMP's computed preferredHeight
+        // (which is the actual wrapped height for this width).
+        UIFactory.SetLayoutElement(desc.GameObject,
+            minWidth: 160, preferredWidth: 200, flexibleWidth: 1,
+            minHeight: 22, preferredHeight: -1, flexibleHeight: 0);
+        desc.TextMesh.enableWordWrapping = true;
+        desc.TextMesh.overflowMode = TextOverflowModes.Overflow;
+        var fitter = desc.GameObject.AddComponent<UnityEngine.UI.ContentSizeFitter>();
+        fitter.horizontalFit = UnityEngine.UI.ContentSizeFitter.FitMode.Unconstrained;
+        fitter.verticalFit   = UnityEngine.UI.ContentSizeFitter.FitMode.PreferredSize;
+    }
+
+    // 0.10.7: convenience — title heading + tabular row entries.
+    private static void AddCommandTable(GameObject parent, string title, params (string command, string description)[] entries)
+    {
+        AddSectionHeading(parent, title);
+        foreach (var (cmd, desc) in entries) AddCommandTableRow(parent, cmd, desc);
+    }
+
     private void RenderExpertise(PlayerStateService.ExpertiseState s)
     {
         if (_wepTypeLabel == null) return;
@@ -3571,9 +5454,14 @@ public partial class MainPanel : ResizeablePanelBase
     private void RenderFamiliar(PlayerStateService.FamiliarState s)
     {
         if (_famNameLabel == null) return;
-        _famNameLabel.text = string.IsNullOrEmpty(s.Name) ? "(no familiar bound)" : s.Name;
+        // 0.10.8: HasActive is the authoritative "is there a familiar bound"
+        // signal sourced from the raw Eclipse protocol name field. The Name
+        // field is masked to "Familiar" for display when no familiar is
+        // bound (preserving pre-0.10.8 visual placeholder), so we can't
+        // rely on string.IsNullOrEmpty(Name) anymore.
+        _famNameLabel.text = s.HasActive ? s.Name : "(no familiar bound)";
 
-        bool active = s.Level > 0 || !string.IsNullOrEmpty(s.Name);
+        bool active = s.HasActive;
         _famProgressLabel.text = active
             ? (s.Prestige > 0
                 ? $"Level {s.Level}   ({s.Progress * 100f:0.#}%)   Prestige {s.Prestige}"
@@ -3650,6 +5538,169 @@ public partial class MainPanel : ResizeablePanelBase
         UIFactory.SetLayoutElement(spacer, minHeight: height, preferredHeight: height, flexibleHeight: 0, flexibleWidth: 1);
     }
 
+    // 0.10.9: VISUAL-POLISH HELPERS
+    //
+    // These power the cross-cutting design improvements from the v0.10.9
+    // visual audit. Each is a small composable building block — pass an
+    // arbitrary action that adds your section contents and the helper
+    // wraps them in the polished shell. Used by Levels, Familiars,
+    // V-Bloods, Prestige, Expertise, Legacy across the panel.
+
+    /// <summary>0.10.9: wrap arbitrary content in an inset card with a
+    /// subtle 13%-grey background. Replaces "naked text on the panel"
+    /// pattern with discrete cards that read as grouped content. The
+    /// optional <paramref name="tint"/> washes the card behind the
+    /// content — pass one of <c>Theme.SystemTint*</c> for the XP /
+    /// Legacy / Expertise / Familiar / Profession / Quest colors, or
+    /// null for the neutral card background.
+    ///
+    /// 0.10.11: bumped default padding 6 → 10 so text labels inside the
+    /// card never sit flush with the inset border. Friend-test 0.10.10
+    /// surfaced this: "ensure that within containers ... there is at
+    /// least a little left padding." Pre-0.10.11 a 6 px pad was tight
+    /// at smaller font scales and several labels visually butted up
+    /// against the card's left edge. Callers can still override.</summary>
+    private static GameObject AddCard(GameObject parent, string name, Color? tint = null,
+                                       int padding = 10, int innerSpacing = 4)
+    {
+        var card = UIFactory.CreateVerticalGroup(parent, name,
+            forceWidth: true, forceHeight: false,
+            childControlWidth: true, childControlHeight: true,
+            spacing: innerSpacing,
+            padding: new Vector4(padding, padding, padding, padding),
+            bgColor: Theme.CardBackground);
+        UIFactory.SetLayoutElement(card,
+            minWidth: 360, preferredWidth: 400, flexibleWidth: 1,
+            minHeight: 28, flexibleHeight: 0);
+        // Optional system tint overlay — draws ON TOP of the card
+        // background image so the wash modulates it down into the
+        // theme-tinted hue. Uses a child Image with stretched anchors
+        // so it tracks any future resize.
+        if (tint.HasValue && tint.Value.a > 0.0001f)
+        {
+            var washObj = UIFactory.CreateUIObject("Tint", card);
+            var washRt  = washObj.GetComponent<UnityEngine.RectTransform>();
+            washRt.anchorMin = Vector2.zero;
+            washRt.anchorMax = Vector2.one;
+            washRt.offsetMin = Vector2.zero;
+            washRt.offsetMax = Vector2.zero;
+            var img = washObj.AddComponent<UnityEngine.UI.Image>();
+            img.color = tint.Value;
+            img.raycastTarget = false;
+            // Force the wash to draw BEHIND siblings (which are added
+            // AFTER it because parent is its first child). Setting
+            // sibling index 0 keeps it behind anything appended later.
+            washObj.transform.SetSiblingIndex(0);
+            // Layout-element opt-out so the wash doesn't consume layout
+            // space — it's pure decoration.
+            UIFactory.SetLayoutElement(washObj, ignoreLayout: true);
+        }
+        return card;
+    }
+
+    /// <summary>0.10.9: a left-aligned label paired with a right-aligned
+    /// value. Replaces the common pattern of stacking 4 separate
+    /// AddInfoLabel calls with the data flowing left-to-right ("Type:
+    /// Sword" / "Level: 42" / etc.) — instead, present as a compact
+    /// table-style row inside a card. Value defaults to right-aligned so
+    /// numeric values line up across stacked rows.</summary>
+    private static (TextMeshProUGUI labelTmp, TextMeshProUGUI valueTmp) AddStatRow(
+        GameObject parent, string label, string value, int fontSize = -1,
+        FontStyles valueStyle = FontStyles.Bold)
+    {
+        int fs = fontSize > 0 ? fontSize : Theme.ScaledUI(12);
+        var row = UIFactory.CreateHorizontalGroup(parent, $"StatRow_{label}",
+            forceExpandWidth: true, forceExpandHeight: false,
+            childControlWidth: true, childControlHeight: true,
+            spacing: 8, padding: new Vector4(0, 0, 0, 0));
+        UIFactory.SetLayoutElement(row,
+            minWidth: 320, preferredWidth: 380, flexibleWidth: 1,
+            minHeight: 20, preferredHeight: 22, flexibleHeight: 0);
+
+        var lbl = UIFactory.CreateLabel(row, "Label",
+            $"<color={Theme.MutedBodyHex}>{label}</color>",
+            TextAlignmentOptions.MidlineLeft, color: null, fontSize: fs);
+        UIFactory.SetLayoutElement(lbl.GameObject,
+            minWidth: 140, preferredWidth: 170, flexibleWidth: 0,
+            minHeight: 20, preferredHeight: 22, flexibleHeight: 0);
+        lbl.TextMesh.enableWordWrapping = false;
+        lbl.TextMesh.overflowMode = TextOverflowModes.Overflow;
+
+        var val = UIFactory.CreateLabel(row, "Value", value,
+            TextAlignmentOptions.MidlineRight, color: null, fontSize: fs);
+        UIFactory.SetLayoutElement(val.GameObject,
+            minWidth: 120, preferredWidth: 200, flexibleWidth: 1,
+            minHeight: 20, preferredHeight: 22, flexibleHeight: 0);
+        val.TextMesh.fontStyle = valueStyle;
+        val.TextMesh.enableWordWrapping = false;
+        val.TextMesh.overflowMode = TextOverflowModes.Overflow;
+
+        return (lbl.TextMesh, val.TextMesh);
+    }
+
+    /// <summary>0.10.9: a 1-px hairline used to separate logical groups
+    /// inside a card / between cards. The color comes from Theme.DividerLine
+    /// so it obeys the global opacity curve.
+    ///
+    /// 0.10.11: rewritten to compose spacer + line + spacer at the
+    /// PARENT level instead of using an HLG wrap. The 0.10.9 implementation
+    /// had the Vector4 padding axes swapped (this codebase's Vector4 is
+    /// (top, bottom, left, right) — easy to get wrong, see UIFactory.cs:254),
+    /// which put 12px of top/bottom padding inside a 7px wrap. The line
+    /// rendered at an unexpected vertical position and visually overlapped
+    /// the body text that followed the divider. The new approach has no
+    /// such trap and produces a cleaner result.</summary>
+    private static void AddDivider(GameObject parent, int verticalGap = 6)
+    {
+        int halfGap = UnityEngine.Mathf.Max(2, verticalGap / 2);
+        AddSpacer(parent, halfGap);
+        var line = UIFactory.CreateUIObject("DividerLine", parent);
+        UIFactory.SetLayoutElement(line,
+            minWidth: 100, preferredWidth: 320, flexibleWidth: 1,
+            minHeight: 1, preferredHeight: 1, flexibleHeight: 0);
+        var img = line.AddComponent<UnityEngine.UI.Image>();
+        img.color = Theme.DividerLine;
+        img.raycastTarget = false;
+        AddSpacer(parent, halfGap);
+    }
+
+    /// <summary>0.10.9: muted prose label for "what this section does"
+    /// explanatory text. Reads as secondary content vs. the bright
+    /// section headings + primary data labels.
+    ///
+    /// 0.10.13: dropped italic styling and bumped default font size
+    /// 11 → 13. Friend-test 0.10.12: "italic at standard text size is
+    /// difficult to read." The MutedBodyHex color already does the
+    /// "secondary content" job — italic was redundant emphasis that
+    /// hurt legibility without adding meaning. The slight size bump
+    /// brings prose hints in line with the 12-13 pt body text used
+    /// for primary data labels.</summary>
+    private static TextMeshProUGUI AddBodyText(GameObject parent, string text, int fontSize = -1)
+    {
+        int fs = fontSize > 0 ? fontSize : Theme.ScaledUI(13);
+        var lbl = UIFactory.CreateLabel(parent, "BodyText",
+            $"<color={Theme.MutedBodyHex}>{text}</color>",
+            TextAlignmentOptions.TopLeft, color: null, fontSize: fs);
+        UIFactory.SetLayoutElement(lbl.GameObject,
+            minWidth: 320, preferredWidth: 380, flexibleWidth: 1,
+            minHeight: 22, flexibleHeight: 0);
+        lbl.TextMesh.fontStyle = FontStyles.Normal;
+        lbl.TextMesh.enableWordWrapping = true;
+        lbl.TextMesh.overflowMode = TextOverflowModes.Overflow;
+        var fitter = lbl.GameObject.AddComponent<UnityEngine.UI.ContentSizeFitter>();
+        fitter.horizontalFit = UnityEngine.UI.ContentSizeFitter.FitMode.Unconstrained;
+        fitter.verticalFit   = UnityEngine.UI.ContentSizeFitter.FitMode.PreferredSize;
+        return lbl.TextMesh;
+    }
+
+    /// <summary>0.10.9: format a `.command` literal for inline display
+    /// inside a body label. Wraps in AccentMono color so it visually
+    /// pops as "this is a literal chat command." Use within string
+    /// composition: <c>$"Use {Mono(".wep cst")} to pick a stat."</c>
+    /// </summary>
+    private static string Mono(string s)
+        => string.IsNullOrEmpty(s) ? s : $"<color={Theme.AccentMonoHex}><b>{s}</b></color>";
+
     private static void AddCommandButton(GameObject parent, string label, string command,
         string tooltip = null, Color? color = null, bool confirm = false)
     {
@@ -3723,41 +5774,92 @@ public partial class MainPanel : ResizeablePanelBase
 
     private void BuildOverlayFooter(GameObject parent)
     {
-        // Two-row layout so toggles never overflow when the panel is narrow.
-        // Earlier 0.4.1 added a 6th toggle (Familiar Browser) that, plus the
-        // long "Suspend game input when typing" label, made the row spill off
-        // the right edge at the panel's MinWidth=600.
+        // 0.10.13: reformatted as a labeled card-style container so the
+        // user reads it as "Overlay visibility" rather than a loose row
+        // of toggles. Single-column layout: a label prefix on the left
+        // of the toggle row visually frames the group. The auto-resize
+        // toggle stays on its own line below — it's not an overlay
+        // toggle and shouldn't read as one.
         var footerWrap = UIFactory.CreateVerticalGroup(parent, "OverlayFooterWrap",
             forceWidth: true, forceHeight: false,
             childControlWidth: true, childControlHeight: true,
-            spacing: 2, padding: new Vector4(8, 8, 4, 4));
-        UIFactory.SetLayoutElement(footerWrap, minHeight: 56, flexibleHeight: 0, flexibleWidth: 1);
+            spacing: 4, padding: new Vector4(10, 10, 6, 6),
+            bgColor: Theme.CardBackground);
+        UIFactory.SetLayoutElement(footerWrap, minHeight: 62, flexibleHeight: 0, flexibleWidth: 1);
 
+        // Row 1: label + overlay toggles on one line. The label acts as
+        // the container's section heading-in-line so the toggles read
+        // as "Overlay visibility: [XP] [Familiar] [Browser] [Quest]
+        // [Professions]" without sacrificing a full row of vertical
+        // real estate for a separate heading.
         var row1 = UIFactory.CreateHorizontalGroup(footerWrap, "OverlayFooterRow1",
             forceExpandWidth: true, forceExpandHeight: false,
             childControlWidth: false, childControlHeight: false,
-            spacing: 12, padding: new Vector4(0, 0, 0, 0));
+            spacing: 10, padding: new Vector4(0, 0, 0, 0));
         UIFactory.SetLayoutElement(row1, minHeight: 26, flexibleHeight: 0, flexibleWidth: 1);
 
+        var visLabel = UIFactory.CreateLabel(row1, "OverlayVisLabel",
+            "Show overlays:",
+            TextAlignmentOptions.MidlineLeft, color: null, fontSize: Theme.ScaledUI(12));
+        UIFactory.SetLayoutElement(visLabel.GameObject,
+            minWidth: 110, preferredWidth: 120, flexibleWidth: 0,
+            minHeight: 24, preferredHeight: 26, flexibleHeight: 0);
+        visLabel.TextMesh.fontStyle = FontStyles.Bold;
+        visLabel.TextMesh.enableWordWrapping = false;
+        visLabel.TextMesh.overflowMode = TextOverflowModes.Overflow;
+
+        _xpOverlayToggle   = AddOverlayToggle(row1, "XP",                PanelType.ExperienceOverlay);
+        _famOverlayToggle  = AddOverlayToggle(row1, "Familiar",          PanelType.FamiliarOverlay);
+        _famBrowserToggle  = AddOverlayToggle(row1, "Familiar Browser",  PanelType.FamiliarBrowserOverlay);
+        _dqOverlayToggle   = AddOverlayToggle(row1, "Daily quest",       PanelType.DailyQuestOverlay);
+        _profOverlayToggle = AddOverlayToggle(row1, "Professions",       PanelType.ProfessionOverlay);
+
+        // Row 2: panel behavior — visually separated by the spacing in
+        // the parent VLG, so it doesn't get confused with the visibility
+        // toggles above.
         var row2 = UIFactory.CreateHorizontalGroup(footerWrap, "OverlayFooterRow2",
             forceExpandWidth: true, forceExpandHeight: false,
             childControlWidth: false, childControlHeight: false,
             spacing: 12, padding: new Vector4(0, 0, 0, 0));
         UIFactory.SetLayoutElement(row2, minHeight: 26, flexibleHeight: 0, flexibleWidth: 1);
 
-        // Row 1 — overlay toggles
-        _xpOverlayToggle   = AddOverlayToggle(row1, "XP overlay",        PanelType.ExperienceOverlay);
-        _famOverlayToggle  = AddOverlayToggle(row1, "Familiar overlay",  PanelType.FamiliarOverlay);
-        _famBrowserToggle  = AddOverlayToggle(row1, "Familiar Browser",  PanelType.FamiliarBrowserOverlay);
-        _dqOverlayToggle   = AddOverlayToggle(row1, "Daily quest",       PanelType.DailyQuestOverlay);
-        _profOverlayToggle = AddOverlayToggle(row1, "Professions",       PanelType.ProfessionOverlay);
-
-        // Row 2 — panel behavior toggles
         AddAutoResizeToggle(row2);
-        // SuspendGameInputWhileTyping was removed in 0.8.2 — its Harmony prefix
-        // on InputActionSystem.OnUpdate wedged the entire game (UI + input
-        // alike). SuspendGameInputWhileUIOpen was removed in 0.1.2 for the same
-        // reason. A proper fix needs a different patch target.
+        AddLockOverlaysToggle(row2);
+    }
+
+    /// <summary>0.10.14: "Lock overlays" toggle beside Auto-resize.
+    /// When on, every overlay's IsPinned flag is set true, which makes
+    /// PanelDragger ignore mouse interactions (no drag, no resize).
+    /// Programmatic resize when settings or content change is unaffected
+    /// — IsPinned only blocks the dragger, not direct Rect.sizeDelta
+    /// mutations. Friend-test: "lock overlays so I don't accidentally
+    /// drag them around while playing."</summary>
+    private void AddLockOverlaysToggle(GameObject parent)
+    {
+        var t = UIFactory.CreateToggle(parent, "LockOverlaysToggle");
+        UIFactory.SetLayoutElement(t.GameObject,
+            minWidth: 160, preferredWidth: 180, flexibleWidth: 0,
+            minHeight: 24, preferredHeight: 24, flexibleHeight: 0);
+        t.Text.text = "Lock overlays";
+        t.Text.fontSize = Theme.ScaledUI(13);
+        t.Text.enableWordWrapping = false;
+        t.Text.overflowMode = TextOverflowModes.Overflow;
+        t.Text.alignment = TextAlignmentOptions.MidlineLeft;
+        UIFactory.SetLayoutElement(t.Text.gameObject,
+            minWidth: 130, preferredWidth: 150, flexibleWidth: 1,
+            minHeight: 24, preferredHeight: 24, flexibleHeight: 0);
+
+        t.Toggle.isOn = Config.Settings.LockOverlays;
+        TooltipHover.Attach(t.GameObject,
+            "Lock the position and size of every overlay so they can't be dragged or resized by accident during play. Settings-driven resize (e.g. enabling progress bars on the XP overlay, or a V-Blood scan growing the list) still works.");
+        t.OnValueChanged += value =>
+        {
+            Config.Settings.SetLockOverlays(value);
+            // Apply to every live overlay immediately. Overlays not yet
+            // constructed will read the setting in
+            // ResizeablePanelBase.LateConstructUI when they're built.
+            Plugin.UIManager?.ApplyOverlayLockState();
+        };
     }
 
     private void AddAutoResizeToggle(GameObject parent)
@@ -3825,6 +5927,19 @@ public partial class MainPanel : ResizeablePanelBase
             {
                 Rect.sizeDelta = new Vector2(size.x, clamped);
                 EnsureValidPosition();
+                // 0.10.14: refresh the dragger's cached resize hit-area
+                // after a programmatic resize. PanelDragger caches the
+                // 10-px border mask at construction and ONLY refreshes it
+                // when OnEndResize fires (manual drag-resize). Pre-0.10.14
+                // an auto-resize would leave the cache pointing at the
+                // OLD panel size — the user couldn't hit the new bottom
+                // border because the mask still expected the panel's
+                // initial bottom. Friend-test 0.10.13: "can't click and
+                // expand the UI." Root cause was this cache staleness;
+                // 0.10.13's layout changes made the auto-resize delta
+                // bigger, which made the stale-cache offset large enough
+                // for the user to notice.
+                Dragger?.OnEndResize();
             }
         }
         catch (Exception ex)
@@ -3915,15 +6030,125 @@ public partial class MainPanel : ResizeablePanelBase
             EnqueueOrWarn(MessageService.BCCOM_FAM_BOXES);
         }
 
+        // 0.9.6: auto-fire the structured-info fetch on Wep/Blood tab open
+        // so the new stat-values header populates immediately. Subsequent
+        // refreshes are driven by TickTabAutoRefresh (per-frame ticker).
+        if (MessageService.IsInitialized)
+        {
+            if (tab == PanelType.ExpertiseTab)
+            {
+                FireWepInfoFetch();
+            }
+            else if (tab == PanelType.BloodLegacyTab)
+            {
+                FireBlInfoFetch();
+            }
+        }
+
         AutoResizeIfEnabled();
+    }
+
+    // 0.9.6: per-tab auto-refresh of the live "current X" info displays so
+    // the stat-values stay current without the user needing to click Refresh.
+    // Wired once in ConstructPanelContent as a CoreUpdateBehavior tick;
+    // self-gates on ActiveTab + interval so it's a no-op for any other tab.
+    private double _lastWepAutoFetchAt;
+    private double _lastBlAutoFetchAt;
+    // 0.10.2: type-change tracking. When the user equips a new weapon or
+    // switches blood type, the bonus stats need to refresh ASAP rather than
+    // waiting for the next 10s tick. Subscribe to ExpertiseChanged /
+    // LegacyChanged in BuildExpertiseTab / BuildBloodLegacyTab; when a Type
+    // delta is detected, reset the per-tab fetch timer so the ticker fires
+    // next frame.
+    private PlayerStateService.WeaponType _wepTabLastType;
+    private PlayerStateService.BloodType  _blTabLastType;
+    private bool _wepTabTypeBaseline;
+    private bool _blTabTypeBaseline;
+    private System.Action _tabAutoRefreshTicker;
+    private const double TAB_AUTO_REFRESH_SECONDS = 10.0;
+
+    private void TickTabAutoRefresh()
+    {
+        if (!MessageService.IsInitialized) return;
+        // Only the panel-is-open path matters; tab tickers shouldn't run
+        // while the main panel is hidden.
+        if (!Enabled) return;
+        var now = UnityEngine.Time.realtimeSinceStartupAsDouble;
+        if (ActiveTab == PanelType.ExpertiseTab
+            && now - _lastWepAutoFetchAt >= TAB_AUTO_REFRESH_SECONDS)
+        {
+            FireWepInfoFetch();
+        }
+        else if (ActiveTab == PanelType.BloodLegacyTab
+              && now - _lastBlAutoFetchAt >= TAB_AUTO_REFRESH_SECONDS)
+        {
+            FireBlInfoFetch();
+        }
+    }
+
+    private void FireWepInfoFetch()
+    {
+        _lastWepAutoFetchAt = UnityEngine.Time.realtimeSinceStartupAsDouble;
+        // 0.10.2: silent enqueue — the wep tab already renders the reply in
+        // the structured display, so the chat copy is redundant noise.
+        if (MessageService.IsInitialized)
+            MessageService.EnqueueMessageSilent(MessageService.BCCOM_WEP_GET);
+        else
+            EnqueueOrWarn(MessageService.BCCOM_WEP_GET);
+    }
+
+    private void FireBlInfoFetch()
+    {
+        _lastBlAutoFetchAt = UnityEngine.Time.realtimeSinceStartupAsDouble;
+        var leg = PlayerStateService.Legacy;
+        // .bl get with no arg doesn't arm AwaitingBloodInfo (see
+        // MessageService_Processing.NoteOutboundForIntercept) — only the typed
+        // form does. If the player has no current blood yet, skip the fetch.
+        if ((int)leg.Type == 0) return;
+        if (MessageService.IsInitialized)
+            MessageService.EnqueueMessageSilent(string.Format(MessageService.BCCOM_BL_GET_FORMAT, leg.Type));
+        else
+            EnqueueOrWarn(string.Format(MessageService.BCCOM_BL_GET_FORMAT, leg.Type));
     }
 
     internal override void Reset()
     {
+        if (_tabAutoRefreshTicker != null)
+        {
+            BloodCraftHub.Behaviors.CoreUpdateBehavior.Actions.Remove(_tabAutoRefreshTicker);
+            _tabAutoRefreshTicker = null;
+        }
+        if (_sizePosReadoutTicker != null)
+        {
+            BloodCraftHub.Behaviors.CoreUpdateBehavior.Actions.Remove(_sizePosReadoutTicker);
+            _sizePosReadoutTicker = null;
+        }
+        _sizePosRefreshers.Clear();
+        if (_wepLastResponseSubscribed)
+        {
+            PlayerStateService.LastResponseChanged -= OnLastResponseChangedForWep;
+            _wepLastResponseSubscribed = false;
+        }
+        if (_vbSubscribed)
+        {
+            PlayerStateService.VBloodCollectionChanged -= OnVBloodCollectionChanged;
+            Services.VBloodScannerService.ScanStateChanged -= OnVBloodScanStateChanged;
+            _vbSubscribed = false;
+        }
+        if (_vbSummonStatusSubscribed)
+        {
+            Services.VBloodSummonService.StatusChanged -= OnVBSummonStatusChanged;
+            _vbSummonStatusSubscribed = false;
+        }
         if (_famSubscribed)
         {
             PlayerStateService.FamiliarChanged -= OnFamiliarChanged;
             _famSubscribed = false;
+        }
+        if (_famSearchSubscribed)
+        {
+            MessageService.FamSearchCompleted -= OnFamSearchCompletedForFamTab;
+            _famSearchSubscribed = false;
         }
         if (_classSubscribed)
         {

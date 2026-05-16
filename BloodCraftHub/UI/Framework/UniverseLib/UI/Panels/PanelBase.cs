@@ -45,7 +45,12 @@ public abstract class PanelBase : UIBehaviourModel, IPanelBase
     public GameObject CloseButton { get; private set; }
     protected Toggle PinPanelToggleControl;
 
-    public virtual bool IsPinned { get; protected set; }
+    // 0.10.14: setter widened to public so the main panel's "Lock
+    // overlays" toggle can drive IsPinned on every overlay from one
+    // place. Pre-0.10.14 IsPinned was protected-set and only flipped
+    // via the dormant per-panel PinPanelToggleControl (which is null
+    // in the current overlay implementations) or via ApplySaveData.
+    public virtual bool IsPinned { get; set; }
 
     public PanelBase(UIBase owner)
     {

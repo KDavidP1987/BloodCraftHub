@@ -1,5 +1,1539 @@
 # Changelog
 
+## 0.10.14 — Drag/resize regression fix, Lock-overlays toggle
+
+### Drag/resize regression fixed
+
+Friend-test after 0.10.13: "I'm unable to click and expand the UI
+and the overlays." Drag still worked; resize-by-edge did not.
+
+Root cause: `PanelDragger` caches its 10-px-border resize hit-area
+in `_resizeMask` at construction (and refreshes it in
+`OnEndResize` — i.e. only after a manual drag-resize). When the
+panel changes size *programmatically* — auto-resize on tab open,
+collapsible expand, last-response panel filling, the 0.10.13
+layout changes that resized the panel slightly — the cache pointed
+at the OLD bottom border. The user clicked the visible bottom edge
+of the panel and the cached mask still thought "bottom" was 60 px
+higher, so resize hover/click didn't register. Pre-0.10.13 this
+bug existed but the auto-resize delta was small enough that the
+stale-cache offset stayed within the 10-px tolerance band; 0.10.13's
+forceExpand fix made the delta larger and exposed the edge case.
+
+Fix: `MainPanel.AutoResizeIfEnabled` now calls
+`Dragger?.OnEndResize()` immediately after a programmatic
+`Rect.sizeDelta` change, which refreshes `_resizeMask` against the
+new rect. The same `OnEndResize` call already exists in
+`SetFullscreen`, `SetDefaultSize`, and `AdjustSize` paths — this
+patches the one remaining hole.
+
+### Lock-overlays toggle
+
+Friend-test: "as I ran into the resize issue I started accidentally
+dragging overlays around — could you add a lock toggle on the main
+panel beside Auto-resize so I don't accidentally click and drag an
+overlay during play?"
+
+Added `Settings.LockOverlays` (default off) plus a **Lock overlays**
+toggle in the main panel's footer row 2 (right of Auto-resize panel).
+When on:
+
+- Every overlay's `IsPinned` flag is set to true.
+- `PanelDragger.Update` early-returns when `IsPinned` is true, so
+  there's no drag, no resize-by-edge, no resize-hover cursor on
+  any overlay.
+- Programmatic resize via `Rect.sizeDelta` (auto-resize on data
+  arrival, Display Settings size nudges, V-Blood scan growing the
+  list) is unaffected: `IsPinned` only short-circuits user mouse
+  input, not direct rect mutations.
+
+Setting persists across sessions. New overlays constructed after
+the lock toggle is flipped (e.g. toggling an overlay off then back
+on) automatically pick up the lock state via a new
+`RespectsLockOverlays` virtual on `ResizeablePanelBase` —
+`MainPanel` overrides it to false so the main panel itself never
+gets pinned by the lock.
+
+### Implementation notes
+
+- `PanelBase.IsPinned` setter widened from `protected set` to
+  public set so the main panel's lock toggle can drive it from
+  outside the panel class.
+- New `BCHubUIManager.ApplyOverlayLockState()` reads the setting
+  and pins/unpins every live overlay in one call.
+- `ResizeablePanelBase.LateConstructUI` reads
+  `Settings.LockOverlays` after restoring save data and applies
+  `IsPinned = true` if `RespectsLockOverlays && Settings.LockOverlays`.
+  This handles the "lock was on at last session" case.
+
+## 0.10.13 — Italic-text readability, vertical-scale layout fix, overlay-toggle reformat
+
+### Italic body text replaced with muted normal-weight
+
+Friend-test: "there is a good amount of text in italics, which in
+standard mode text size is difficult to read." The 0.10.9 design
+used italic styling at small sizes (typically 11 pt) to signal
+"secondary content" — but italic glyphs render less crisply in V
+Rising's TMPro fallback font, and the small size compounded the
+issue.
+
+0.10.13 drops italic from every body-text helper and prose-hint
+label, and bumps default sizes 11 → 13:
+
+- `AddBodyText` helper (all card-wrapped prose hints across Levels /
+  Familiars / Boxes / Class / Expertise / Blood Legacy / Quests /
+  Kindred / Logistics tabs)
+- `AddAdminWarningIntro` (the three Kindred Admin intro paragraphs)
+- Tooltip footer text (the bottom messages bar)
+- Chat Logging settings help paragraph
+- Size & Positioning settings help paragraph
+
+The muted-grey color (`Theme.MutedBodyHex`) still does the "this is
+secondary content" visual job. Italic was redundant emphasis that
+hurt legibility without adding meaning.
+
+### Main panel — bottom footers no longer grow vertically
+
+Friend-test: "when you expand vertically [the main panel], the
+lower portion of the UI where the messages display for the tooltips
+grows unnecessarily when the area that's more important to grow is
+the pane where the settings and the text are."
+
+Cause: PanelBase creates ContentRoot's `VerticalLayoutGroup` with
+`childForceExpandHeight=true`. Unity's vertical layout distributes
+extra space EQUALLY among all children when force-expand is true,
+regardless of per-child `flexibleHeight` — so the LastResponse
+panel + OverlayFooter + TooltipFooter all absorbed extra space
+alongside the tab content area when the user dragged the panel
+taller. This is the vertical analog of the horizontal tab-strip
+fix from 0.9.8 (where `forceExpandWidth=true` was making the tab
+strip grow with panel width despite `flexibleWidth=0`).
+
+Fix: `MainPanel.ConstructPanelContent` now sets the ContentRoot
+VLG's `childForceExpandHeight = false` before building any children.
+Only `body` (flex=1) absorbs extra vertical space — the footers
+stay at their preferred heights.
+
+Same fix applied to `FamiliarBrowserOverlayPanel.ConstructPanelContent`:
+the box-name row, status line, and Unbind footer no longer grow
+when the overlay is resized — extra space goes to the scrollable
+familiar list (also flex=1). Friend-test: "the box label container
+is still unnecessarily large" was the same Unity-quirk symptom.
+
+### Overlay-toggle footer reformatted as a labeled container
+
+Friend-test: "the overlay toggle buttons look like loose buttons —
+reformat it so it's clear they're a container to manage overlay
+visibility."
+
+The bottom-of-panel toggle row now reads as a single grouped
+container:
+
+- Wrapped in a `Theme.CardBackground` inset box (10 px padding) so
+  the toggles visually belong together.
+- Added a bold **"Show overlays:"** label on the left of the toggle
+  row that frames the group as overlay-visibility management.
+- Auto-resize panel toggle moved to its own row below so it doesn't
+  get mistaken for an overlay toggle.
+- Toggle labels shortened ("XP overlay" → "XP", "Familiar overlay"
+  → "Familiar") so the row fits comfortably alongside the new
+  label prefix.
+
+### Known limitations not addressed
+
+The `MainPanel.ConstructPanelContent` fix and the FamiliarBrowser
+overlay fix both flip the VLG's `childForceExpandHeight` on
+ContentRoot. The other overlay panels (Experience, Familiar,
+Daily Quest, Profession) keep the inherited PanelBase default
+(force-expand=true), so their rows still grow when over-resized.
+None reported friction; can be flipped per-overlay if needed in a
+follow-up.
+
+## 0.10.12 — Admin / Kindred / Logistics tab polish, more form replies wired to UI
+
+### Tab polish — remaining unaddressed surfaces
+
+0.10.9 polished Levels / Prestige / Familiars / Weapon Expertise /
+Blood Legacy. 0.10.10 covered V-Bloods. 0.10.11 covered Boxes /
+Class / Unarmed Shift / Daily Quest. 0.10.12 extends the card-wrap
+pattern to the previously-unaddressed tabs:
+
+- **Bloodcraft Admin** — admin info note + diagnostics row wrapped
+  in cards. Trailing note converted to `AddBodyText` for muted styling.
+- **Kindred Logistics** — Intro (with inline `.l` / `.lg` Mono
+  command-name accents), Personal Toggles, Utility wrapped in cards.
+- **Kindred Logistics Admin** — admin info, Admin Globals, Admin Item
+  Spawn each in their own card.
+- **KindredCommands Player** — Intro, Self, Server Info, Lookups
+  wrapped in cards.
+- **Kindred Admin (Players / Server / World)** — `AddAdminWarningIntro`
+  helper now produces a card-wrapped italic-muted intro paragraph,
+  which cascades across all three tabs.
+
+Settings, Vanilla Admin, QuickStart, and About were already
+sufficiently structured by their existing helpers (`AddGuideSection`,
+`AddTextScaleRow`, etc.) — those receive no per-tab card-wrap but
+benefit from the 0.10.11 `AddCard` padding bump (6 → 10).
+
+### More form-reply commands surface in the UI
+
+The 0.10.11 fix routed `.fam s` results into a dedicated panel on the
+Familiars tab. 0.10.12 extends that principle to several more chat
+commands whose replies were previously chat-only:
+
+- `.fam sb "<name>"` (smart-bind) — single-match bind confirmation,
+  multi-match clarification list, or no-match error now all land in
+  the global LastResponse panel.
+- `.misc sct <type>` (toggle scrolling combat text) — new state reply.
+- `.lvl log` / `.quest log` / `.prof log` (per-system progress
+  logging toggles) — new state reply.
+- `.misc silence` (reset stuck combat music) — confirmation reply.
+
+These were added to `ShouldArmGenericCapture` in
+`MessageService_Processing.cs` AND classified with
+`HasBchUIDisplay = true` in `CommandClassifier.cs`, so:
+
+1. The chat reply is now captured + mirrored to
+   `PlayerStateService.LastResponse`, which the global "Last server
+   response" panel at the bottom of the main panel renders.
+2. The Bloodcraft chat-logging toggle can suppress the chat copy
+   (since the UI now shows it).
+
+Friend-test gap from 0.10.11: "ensure that, in cases like this where
+I'm specifically using a form to query information, that information
+is returned to the user." This pass closes the gap for the most
+common form-driven info commands.
+
+### Known limitations / deferred to a later release
+
+- **Settings tab** still uses its bespoke layout helpers
+  (`AddTextScaleRow`, `AddTransparencyRow`, toggle rows) and isn't
+  card-wrapped. It's already well-organized; nothing user-actionable
+  is hidden by the current structure.
+- **QuickStart / About** use `AddGuideSection` which renders headings
+  + wrapped prose cleanly. Not touched for 0.10.12.
+- **Vanilla Admin** has the 0.10.7 `AddCommandTableRow` + 0.10.8
+  ContentSizeFitter wrap-fix; visually fine. The 0.10.7 intro
+  `AddGuideSection` calls aren't card-wrapped — minor follow-up if
+  the user wants it.
+- A few outbound commands still go to chat only (battle-group
+  challenge replies, .clan list pagination details, KindredCommands
+  /KindredLogistics admin actions, vanilla console-style commands BCH
+  can't trigger). Most are pure action confirmations; surfacing the
+  rest case-by-case as users report friction is the right path.
+
+## 0.10.11 — Search-result UI surface, missing-glyph cleanup, overlay compression, more tab polish
+
+### Form-search results now render in the UI
+
+Friend-testing 0.10.10: "I used the Search boxes by name form on the
+Familiars tab and no results show up — they must be in chat but I
+have BCH chat suppression on." Correct diagnosis. The parser was
+already firing `MessageService.FamSearchCompleted` for every `.fam s`
+reply (the same event the box-sweep scanner consumed in 0.10.8 and
+earlier), but no UI subscriber was rendering the result.
+
+0.10.11 adds an in-panel **Last search result** card at the bottom
+of the Familiars tab's More Actions section. On every `.fam s` reply
+it shows:
+
+- Header: `Search: "name"  →  N box(es)` or `→ no matches`
+- One row per matching box, with a `★ shiny` indicator when the
+  server included the pink-star marker for that box
+
+So now the result is visible in the UI regardless of the Chat Logging
+toggle state.
+
+### Missing-glyph cleanup
+
+Friend-testing 0.10.9/0.10.10: "there's a square or shape that's
+shown, almost like a placeholder, with no color or visual." V
+Rising's TMPro fallback font is partial — only `←`, `→`, `★`, and
+`•` are confirmed to render reliably. 0.10.9 added action-button
+prefixes (`⚔ ⚒ ⚙ ℹ ⊘ 🔒 🎁 ♪ ↻ ↺ ▾`) and a V-Bloods shiny chip
+(`✦`) that all degraded to blank squares.
+
+0.10.11 strips every unreliable glyph from button labels and section
+headings, plus the Blood Legacy heading drop (`🩸`). The V-Bloods
+shiny column now uses `★` (confirmed working) instead of `✦`. The
+visual identity stays intact via the existing card tints (XP cyan,
+Legacy crimson, Expertise copper, Familiar violet, Profession green,
+Quest gold) — those do the section-coloring job that the glyphs were
+meant to reinforce.
+
+### Familiar Browser overlay — vertical-space compression
+
+Friend-testing: "there's extra space around the box label and below
+Unbind — could you reformat the heights so more of the familiar
+list shows?" Three changes:
+
+- Box-name row tightened: minHeight 24/preferred 26 → 20/22, zero
+  padding (was 6 px sides), nameLbl 22/24 → 18/20.
+- Status line word-wrap turned off and overflow mode set to Ellipsis,
+  so a long familiar name truncates instead of growing the row into
+  a 2-line block that steals scroll-list space.
+- Footer tightened: minHeight 30/32 → 26/28, unbind button 26/28 →
+  24/26.
+
+Net: about 12 px more familiar-list height in the default overlay
+size.
+
+### Divider overlap fix
+
+The 0.10.9 `AddDivider` helper passed a Vector4 padding in the wrong
+axis order (this codebase's Vector4 maps to `(top, bottom, left,
+right)` per `UIFactory.cs:254` — easy to get backwards). The 12-px
+"side padding" landed on top/bottom inside a 7-px wrap, which
+collapsed the inner layout and caused the divider line to render
+on top of the body text that followed it. The friend-test report
+was the Familiars tab's "Switch to the Boxes tab" line. AddDivider
+is now built from spacers + a 1-px Image at the parent level instead
+of a HorizontalLayoutGroup wrap, eliminating the padding-order trap.
+
+### More tab polish (Boxes, Class, Unarmed Shift, Daily Quest)
+
+The 0.10.9 polish covered Levels / Prestige / Familiars / Weapon
+Expertise / Blood Legacy, and 0.10.10 covered V-Bloods. 0.10.11
+extends the card-wrap pattern to the next batch:
+
+- **Boxes** — active-box header + tip wrapped in a Familiar-tinted
+  card so the label is no longer flush with the panel border.
+- **Class** — Active / Actions / Change Class as three cards.
+  Expertise-tinted current state.
+- **Unarmed Shift** — Shift Spell / Unarmed Expertise / Actions as
+  three cards.
+- **Daily Quest** — Daily / Weekly / Settings as three quest-tinted
+  cards.
+
+Default `AddCard` inner padding bumped 6 → 10 px so labels inside
+every card (across the whole panel) have more left/right breathing
+room. Friend-test wording: "ensure that within containers, down to
+the lowest level where the text itself is, there is at least a
+little left padding." This single default change cascades.
+
+### Known limitations not addressed in 0.10.11
+
+- Kindred admin tabs (Players / Server / World), Kindred Logistics
+  tabs, Vanilla Admin, Settings, QuickStart, and the Bloodcraft Admin
+  tab still use the un-carded layout. They'll get the same card-wrap
+  pattern in a follow-up. The bumped default `AddCard` padding helps
+  every existing card across the whole panel, but tabs that don't
+  use AddCard yet won't see the change.
+- Other forms that emit info-replies to chat (`.fam sb` smart-bind
+  list, `.fam bg <group>` battle-group details, `.class l` /
+  `.quest l` listings, etc.) don't yet have dedicated UI surfaces.
+  The `LastResponse` generic-capture pipeline already mirrors many
+  of these to per-tab "Last server response" panels, but a few
+  still need explicit wiring.
+
+## 0.10.10 — Scan opt-in by default, chat noise eliminated, overlay rebuilt, tabular V-Blood rows
+
+### V-Blood scan now opt-in by default
+
+Pre-0.10.10 the V-Bloods tab fired `VBloodScannerService.StartScan()`
+the first time the user opened it with an empty collection. The
+0.10.9 box-sweep takes ~30-60 seconds and walks every box — fast
+enough that an unannounced auto-scan was the dominant friend-testing
+annoyance. The behavior is now manual: open the tab, click **Scan all**.
+
+Added `Settings.AutoScanVBloodsOnTabOpen` (default `false`) plus a
+Display Settings toggle ("Auto-scan V-Bloods when the V-Bloods tab
+opens") for users who liked the old behavior and want to opt back in.
+
+### Scan chat noise eliminated
+
+The 0.10.9 box-sweep used `EnqueueMessageSilent`, but the silent flag
+only propagated to the BchAuto category for STRUCTURED intercepts —
+the `.fam cb` action-confirmation suppression branch and the
+`AwaitingBoxList` / `AwaitingBoxContent` legacy "ClearServerMessages"
+gate didn't honor it. Result: every box switch the scanner made
+leaked a `Box Selected - <color=white>{box}</color>` line into chat,
+plus all the per-entry `.fam l` rows for users who hadn't turned
+`ClearServerMessages` on.
+
+Two fixes:
+
+1. `NoteOutboundForIntercept` now arms a parallel `_actionForceSuppressUntil`
+   window whenever a familiar-action command is sent via the silent
+   path. The action-suppression branch in `HandleInboundChat` honors
+   either the user's `SuppressFamiliarActionChatter` setting OR the
+   new force window — so scanner-issued `.fam cb` confirmations are
+   eaten regardless of user setting.
+2. The `.fam boxes` and `.fam l` intercept-arming branches now call
+   `ClassifyAndStoreCategory` (matching the pattern used by the prestige
+   / blood-info / fam-search branches), and the BoxList / BoxContent
+   receive handlers consult `ShouldSuppressByCategory()` alongside the
+   legacy ClearServerMessages gate. The scanner classifies as BchAuto
+   (default hidden), so all of its replies stay out of chat.
+
+### V-Bloods tab — tabular row layout + header padding
+
+Friend-testing 0.10.9: "the attributes are showing out of place
+between rows — they're all the way across and adjusted differently
+per row." Root cause was the shiny-school column being OMITTED for
+non-shiny rows, which collapsed every column to its right.
+
+Strict fixed-width columns now: **Type** (36) | **Name** (flex) |
+**Lv** (70) | **Shiny** (96, with `—` placeholder when not shiny) |
+**Box** (100) | **Summon** (78). A column-header row above the
+list labels each column. The shiny column always renders even when
+empty, so Name / Box / Summon stay column-aligned across all rows.
+Missing rows use the same column slots with `—` placeholders so they
+align with captured rows.
+
+Card padding cascades through the tab — Header, Progress, Filter,
+and Rows are each wrapped in their own `AddCard` so labels and
+buttons no longer sit flush with the panel border. The "X / Y
+captured" progress label gets proper inner padding now.
+
+### Familiar Browser overlay — rebuilt layout + Scan button
+
+Friend-testing: "the box name and count overlap with the left and
+right buttons sometimes." Old layout packed ← BoxName → Reload into
+one row and View / Sort into another. The new layout has FIVE rows:
+
+1. **Toolbar** — every button: `← → Reload Scan View Sort`
+2. **Box name + count** on its own line ("Name (X / N)")
+3. **Mode / active-familiar / scan-progress status**
+4. **Scrollable list** (built unchanged)
+5. **Unbind footer**
+
+Box name now has its own line and can't be crowded by buttons. Adding
+the **Scan** button alongside Reload gives users a way to trigger a
+full V-Blood scan without switching back to the main UI's V-Bloods
+tab. The button cycles to **Cancel** while in-flight, mirroring the
+main-tab Scan all behavior; the overlay's status line shows live
+scan progress (`Scanning… box 3 / 14 — RoyalLineageBox`).
+
+### Cleanup
+
+- `OnScanStateChanged` subscription is now properly unregistered in
+  the overlay's `Reset()` path alongside `VBloodCollectionChanged`.
+- `FlushBoxList` / `FlushBoxContent` now call `ResetCaptureCategory()`
+  after parsing — the new classify-on-arm for those intercepts means
+  the receive-side category state must be reset so the next regular
+  EnqueueMessage doesn't inherit BchAuto by accident.
+
+## 0.10.9 — V-Bloods rebuilt (box-sweep, per-variant rows), cross-cutting visual polish
+
+### V-Bloods: box-sweep scanner + per-variant rows
+
+The 0.10.0–0.10.8 V-Blood path used 130 `.fam s` search queries
+(basename + "Primal " + basename for each of 64 V-Bloods) and aggregated
+per-name flags from the lossy reply (`box-name, anyShinyInBox`). Two
+unfixable problems with that approach surfaced during friend-testing:
+
+1. The reply doesn't distinguish basic vs shiny within a box — a box
+   holding BOTH a basic and a shiny Alpha came back as one row, so
+   the chip view couldn't show both.
+2. The 4-minute scan window let any other `.fam` command the user typed
+   clobber the shared `_intercept` state — summons were inconsistent
+   afterward because the scanner's "best box" was sometimes stale or
+   wrong.
+
+0.10.9 replaces the search-based scanner with a box-sweep:
+
+```
+.fam boxes  → for each box, .fam cb <box> + .fam l  → snapshot per-entry
+              (index, name, level, prestige, shiny, shiny-school, primal)
+```
+
+This is strictly more information (Bloodcraft's `.fam l` reply already
+carries per-entry shiny + color-hex-derived school + primal-prefix
+detection), and it runs in ~30–60 seconds across a typical 5–15-box
+inventory instead of ~4 minutes. The scanner snapshots
+`PlayerStateService.ActiveBox` at scan start and restores it at the
+end, so the user's box-tab navigation isn't disrupted.
+
+Data-model rewrite: `VBloodCaptureStatus` now stores a
+`List<VBloodInstance>` — one entry per *captured variant* (basic /
+shiny / primal / primal-shiny) with its exact (box, index, level,
+prestige, shiny-school). The four `HasBasic / HasShiny / HasPrimal /
+HasPrimalShiny` flags and `BestBox` / `BestIndex` are derived from
+that list for backwards compat with the Familiar Browser overlay's
+name-only smart-summon path.
+
+The V-Bloods tab is no longer a chip-vs-instance toggle — it's a
+single list where each row is one captured variant. Each row carries
+a color-coded variant tag (`[B]` green / `[S]` cyan / `[P]` gold /
+`[PS]` pink), the name, level/prestige, shiny school (when shiny), the
+box, and a Summon button. Un-captured V-Blood names render as muted
+"(not captured)" rows under All / Missing filters. The new
+`VBloodSummonService.SummonVariant(name, isShiny, isPrimal)` targets
+the exact captured instance — no more guessing, no more "which Alpha
+do I get?" ambiguity. Summon refuses with a status message if a scan
+is currently running, so the two flows can no longer race each other.
+
+### Theme additions
+
+- `Theme.CardBackground` — slightly lighter than `PanelBackground`,
+  used by the new `AddCard` helper to give a section a subtle inset
+  surface.
+- `Theme.MutedBody`, `Theme.MutedBodyHex` — dim grey for muted
+  explanatory prose. Replaces the pattern of stacking italic-white
+  helper text on the same background as primary labels.
+- `Theme.AccentMono`, `Theme.AccentMonoHex` — muted-cyan accent for
+  inline command-name spans (`.wep cst`, `.fam l`, …). TMPro can't
+  swap to a monospace font without us shipping one, so color +
+  bold-weight does the visual emphasis.
+- `Theme.DividerLine` — 55% grey, used by `AddDivider` for hairline
+  breaks between logical groups inside a card.
+- `Theme.SystemTintXP / Legacy / Expertise / Familiar / Profession /
+  Quest` — 6%-alpha background washes tied to the six progression
+  systems, used to color-code cards in Levels and Prestige.
+
+### Layout helpers (in MainPanel.cs)
+
+- `AddCard(parent, name, tint?, padding, innerSpacing)` — padded
+  inset container with `Theme.CardBackground`; optional tint draws an
+  ignore-layout `Image` BEHIND the card's children so the wash
+  modulates the background without affecting layout.
+- `AddStatRow(parent, label, value)` — left-label / right-value
+  table row. Replaces stacked single labels in dense data sections.
+- `AddDivider(parent, sidePadding)` — 1-px hairline between groups.
+- `AddBodyText(parent, text)` — muted italic prose label. ContentSize-
+  Fitted so it grows with wrapped text.
+- `Mono(s)` — wrap a string in the accent-color rich-text span for
+  inline-command emphasis.
+
+### Tab polish (Levels, Prestige, Familiars, Expertise, Blood Legacy)
+
+Pre-0.10.9 these tabs were stacked walls of labels on a single panel
+background — the audit called this "basic HTML on a red background."
+Polish applied:
+
+- **Levels** — every progression system (Player XP, Blood Legacy,
+  Weapon Expertise, Familiar, Professions) sits in its own
+  system-tinted card. Profession Tools and Player Tools cards
+  organize the action buttons and collapsibles. Action buttons get
+  Unicode glyph prefixes (`↻`, `⚙`, `ℹ`, `★`, `⚔`, `⊘`, `🔒`, `🎁`,
+  `♪`) so a row scans faster. Muted-prose `AddBodyText` replaces the
+  italic helper labels and embeds `Mono(".fam t")` / `Mono(".lvl log")`
+  spans.
+- **Prestige** — the four prestige summary lines (XP / Legacy /
+  Expertise / Familiar) become four tinted cards instead of a padded
+  VLG of four labels. Each card carries the system tint matching its
+  Levels-tab counterpart so the visual coding is consistent.
+- **Familiars** — Active Familiar / Actions / Emote Bindings / More
+  Actions / Battle Groups each become explicit cards with section
+  headings inside. Collapsibles now nest into the More Actions and
+  Battle Groups cards (visually grouped instead of floating loose).
+  Action-row buttons get Unicode glyphs.
+- **Weapon Expertise** & **Blood Legacy** — current state / Actions
+  / Choose Bonus Stat each become cards with tints
+  (Expertise / Legacy). Dividers separate the collapsibles from the
+  trailing body text, and prose hints use `AddBodyText` with `Mono`
+  command-name spans.
+
+### Minor V-Blood progress display refinements
+
+Header progress text now reports total instances captured alongside the
+unique-name count: `12 / 65 captured  ·  18 instances  ·  3 primal  ·
+4 shiny`. Scan status surfaces the current box being read in real
+time (`Scanning… box 4 / 14 — RoyalLineageBox`) instead of a generic
+query counter.
+
+### Cleanup / removed code
+
+- `VBloodCollection` no longer keys off the `.fam s` reply path; the
+  old `_famSearchSuccessRegex` / `_famSearchBoxTokenRegex` / scanner
+  infrastructure stays in place to support the manual user-triggered
+  `.fam s` form on the Familiars tab, but `FamSearchCompleted` no
+  longer has any subscribers.
+- The V-Bloods tab's instance-view toggle and BoxContents-walking
+  fallback are gone — one view, one source of truth.
+
+## 0.10.8 — V-Blood scan/summon correctness, XP-overlay scale fixes, overlay edge padding, About cleanup
+
+### V-Bloods: shiny is no longer double-counted as basic
+
+Pre-0.10.8 the scanner set BOTH `HasBasic=true` AND `HasShiny=true` for a
+single shiny-only capture. The chip view then drew both `B` and `S` chips
+even though shiny is a *buff on* a basic familiar — not a separate
+capture. Friend-testing surfaced this as "I only have a shiny Alpha but
+the UI shows me as having both."
+
+Root cause: the search reply tells us per-box `(name matches, at least
+one of those matches has the shiny star)`. Pre-0.10.8 we ratcheted
+`HasBasic=true` on ANY match and `HasShiny=true` only when the star was
+present — so a shiny-only capture flagged both. Fixed interpretation:
+
+- box returned WITHOUT the star → `HasBasic = true`
+- box returned WITH the star    → `HasShiny = true`
+
+Same logic for `HasPrimal` / `HasPrimalShiny`.
+
+Caveat: a box that contains BOTH a non-shiny and a shiny of the same
+name still returns a single star-marked row in the `.fam s` reply, so
+the basic-of-that-name will show as missing in chip view until the user
+opens that box's `.fam l`. The Instance view (0.10.7) already
+reconciles that case from BoxContents and is the precise tool when the
+same name has multiple captures.
+
+### V-Bloods Summon: no more spurious .fam ub when nothing is bound
+
+Pre-0.10.8 the Summon button (both chip-view and per-instance) always
+pre-issued `.fam ub`. With no familiar bound, Bloodcraft replied
+*"Couldn't find familiar to unbind! If this doesn't seem right try
+using .fam reset"* — and that reply leaked into chat even with the
+chat-suppression toggles on. Two underlying bugs:
+
+1. The "is a familiar active?" check used `Familiar.Name != "" ||
+   Level > 0`. `EclipseProtocolService` masks an empty server name with
+   the placeholder `"Familiar"` and floors level to 1, so the check
+   was ALWAYS true.
+2. The unbind-failure reply wasn't in
+   `IsKnownFamiliarActionConfirmation`, so action-chat suppression
+   skipped it.
+
+Fixes:
+
+- Added `FamiliarState.HasActive`, sourced from the raw protocol name
+  field (set before the placeholder mask), and switched every "is a
+  familiar bound?" callsite to use it (Summon, Levels tab,
+  FamiliarOverlay, MainPanel `RenderFamiliar`). Side effect: the Levels
+  tab and Familiar overlay now correctly show "(no familiar bound)" /
+  "Lv —" when nothing is bound, instead of "Familiar Lv 1".
+- Added `"Couldn't find familiar to unbind"`, `"Couldn't find familiar
+  actives"`, and `"Active familiar doesn't exist"` to the action-chat
+  suppression patterns so any future code path that speculatively
+  unbinds doesn't leak the failure message either.
+
+### V-Bloods Summon: bind step now actually runs after a box switch
+
+Pre-0.10.8 the Summon flow enqueued `.fam cb <box>` + `.fam l` to load
+the target box's contents and bind by index — but never called
+`PlayerStateService.SetActiveBox`. `FlushBoxContent` keys the parsed
+entries by `PlayerStateService.ActiveBox`, so the entries got either
+dropped (when ActiveBox was null, common case — user hadn't visited
+the Boxes tab) or written under the previously-active box's key. Either
+way, `BoxContentsChanged` either didn't fire OR fired with the wrong
+key, so `VBloodSummonService.OnBoxContentsChanged` never resolved the
+index and `.fam b N` never went out. Symptom: Summon issued an unbind
++ box switch, then sat silent.
+
+Both summon paths (the shared `VBloodSummonService` and the per-
+instance MainPanel path) now call `PlayerStateService.SetActiveBox`
+before the `.fam cb` so `FlushBoxContent` keys the entries under the
+right box, `BoxContentsChanged` fires, and the index lookup resolves.
+
+### XP overlay: no row/bar overlap at Large text scale
+
+At Standard scale (1.0×) rows looked correct. At Large (1.2×) the
+weapon's "Bonus Stats" sub-label and the blood-legacy "Bonus Stats"
+sub-label overflowed their fixed 32 px LayoutElement-preferredHeight
+and drew up into the progress bar above them; main rows similarly
+overflowed the fixed 20 px allocation. Two fixes:
+
+- `AddRow` now scales the row's preferredHeight with the row's font
+  size (`max(20, round(fontSize * 1.45))`). At any scale a 13 pt line
+  gets a 19 px row, a 16 pt line gets a 24 px row.
+- `ConfigureBonusStatsLabel` clears `LayoutElement.preferredHeight`
+  (sets it to `-1`) so the ContentSizeFitter resolves to TMP's actual
+  wrapped pixel height instead of being pinned at 32. Bonus rows now
+  match their rendered glyphs at every scale.
+
+`MinHeight` was also rebuilt to compose its floor from the same
+`ResolveRowHeight` formula, so a Large-scale overlay opens at a size
+that fits its own content instead of starting cramped.
+
+### Vanilla Admin reference: rows now grow with wrapped descriptions
+
+The 0.10.7 tabular layout wrapped the description column correctly but
+the row's LayoutElement hard-coded `preferredHeight=22`, so the wrapped
+second/third line drew into the row below. Added a ContentSizeFitter
+on the row itself and set the row's `preferredHeight=-1` so the row
+expands to whichever description is the tallest.
+
+### Overlays: configurable left/right edge padding
+
+Pre-0.10.8 every overlay's text sat flush with the panel border, and
+the Familiar Browser's V-Blood list specifically butted up against the
+scrollbar's left edge with no gutter. Added a Display Settings control
+(`Overlay edge padding`, default 6 px, range 0..32) that applies
+left/right padding to every overlay's `ContentRoot` VerticalLayoutGroup
+plus the Familiar Browser's scroll-content VLG (so the scrollbar
+gutter is symmetric with the panel edges). Wired into the
+`RequestRebuildAllOverlays` lifecycle so +/- nudges take effect live.
+
+### About tab cleanup
+
+Reorganized into four explicitly-spaced regions — Header (version +
+description), Mods (Bloodcraft / KindredCommands credits), About the
+author (Discord links + support), Project (GitHub / Thunderstore /
+license). Spacers between regions and section headings give the page
+the visual breathing room friend-testing said it was missing.
+
+## 0.10.7 — V-Blood scanner fix, overlay polish, per-instance V-Blood view, bump-process hardening
+
+### V-Blood scanner: quoted query args (CRITICAL bug fix)
+
+Pre-0.10.7 the scanner sent `.fam s Alpha the White Wolf` (no quotes). VCF
+only consumes the first whitespace-delimited word as a positional arg, so
+it failed to match Bloodcraft's `.fam s` command signature and instead
+echoed Bloodcraft's `usage:` template — the literal string `.fam s [Name]`.
+What you saw in chat: `[SYSTEM] [VCF] .familiar search .fam s [Name]`
+repeating every 2s for the entire 60+ V-Blood scan. The `[Name]` was a
+literal placeholder from the usage string, not a substituted value.
+
+Two problems caused by this:
+
+1. The scanner returned no results for any multi-word V-Blood (~60 of 64
+   names contain spaces). The V-Bloods tab stayed empty.
+2. The VCF usage echo didn't match any of the AwaitingFamSearch reply
+   patterns, so the silent-suppression flag never fired on it. Replies
+   leaked to chat regardless of the BCH-auto Chat Logging toggle.
+
+Fix: wrap every `.fam s` / `.fam sb` / `.fam echoes` arg in double quotes
+(`.fam s "Alpha the White Wolf"`). Updated both the format constants and
+the user form templates so manual UI searches work for multi-word names
+too. The intercept-arming Substring parse strips the wrapping quotes so
+the scanner correlation (`string.Equals(captured, expected)`) still
+matches the unquoted form.
+
+Defense in depth: also added an explicit VCF-usage-echo recognizer in
+the AwaitingFamSearch handler. If any future BCH path sends a malformed
+`.fam s` and trips the usage echo, the scanner now advances as no-match
+and the chat line gets suppressed unconditionally rather than leaking.
+
+### XP overlay polish
+
+- **Progress bar overlap fix.** Pre-0.10.7 the label rows had
+  `minHeight: 18` while the rendered glyph height at default text scale
+  is ~20 px. When the overlay was sized at its previous MinHeight (180)
+  with progress bars on, the cumulative preferredHeight exceeded the
+  panel and the VerticalLayoutGroup compressed rows below their
+  glyph-render height — adjacent labels visually overlapped the 12px
+  bar above. Tightened `minHeight = preferredHeight = 20` so the
+  layout group can't compress below the rendered text height.
+- **Computed MinHeight.** Replaces the static 180/300 floor with a
+  formula derived from what's actually rendered:
+  `25 (title) + 6 always-on rows × 20 + bars × (height+2) + bonus stats × 36 + counter × 20`.
+  Toggling bars / bonus stats / XP counter on grows the floor enough
+  to fit the new content without forcing the user to drag-resize.
+- **Weapon stats: preamble filter.** The cached `.wep get` reply included
+  the redundant "Your weapon expertise is X, prestige Y, and you have Z
+  expertise with W!" preamble — the same data the Weapon row title
+  already shows. The bonus-stats sub-label now filters out the
+  preamble and the "no bonuses" / "haven't gained any expertise"
+  placeholders, leaving only the actual "TypeName Stats: ..." bonus
+  lines.
+- **Optional XP counter row** (Settings → HUD extras → "Show numerical
+  Exp / Ess counter on the XP overlay"). Renders
+  `Exp: 123 / 4500 (2.7%)` under the Weapon row and the equivalent
+  `Ess: ...` under the Legacy row. The threshold is derived from the
+  raw count + percentage that Bloodcraft prints in the `.wep get` /
+  `.bl get` chat reply, so it's accurate to within ±1. Off by default.
+- **Progress bar height settings** (Settings → HUD extras). Absolute
+  pixel height with +/- nudge buttons (clamped 4..24, default 8) and a
+  companion "Scale bar height with overlay" toggle (off by default —
+  pre-0.10.7 the bars stretched with the overlay, which read as
+  inconsistent when users enlarged the overlay for new info rows).
+- **Optional prestige sub-line in progress bars** (Settings → HUD
+  extras). Eclipse-style: a slim 30%-height inset fill at the bottom
+  of each main bar reflecting `Level / MaxLevel` (progress toward the
+  next prestige tier). Applies to all three bars (XP / Weapon /
+  Legacy). Off by default.
+
+### V-Blood per-instance view (item 8)
+
+The chip view (1 row per V-Blood NAME with B/S/P/Ps capture chips)
+is great for "do I have this one?" but doesn't reflect that you might
+have multiple captures of the same V-Blood at different levels, and
+sort-by-level was meaningless against the chip aggregation.
+
+New "View" toggle button on the V-Bloods tab cycles between **Chips**
+(default, 0.10.0..0.10.6 behavior) and **Instances** (one row per
+captured familiar with explicit Lv / Pr / Shiny school / Primal /
+Box / Summon button). Sort-by-level now does what users expect.
+Summon targets the specific row's exact box + index rather than the
+"first match" guess — so a user with four Alpha the White Wolfs at
+different levels can pick which one to summon.
+
+Caveat (phase-1 implementation): instance view uses cached
+`PlayerStateService.BoxContents`, populated by manual box navigation
+(Familiars → Boxes) or the Familiar Browser overlay. Boxes you
+haven't visited won't appear yet. An automatic "Deep Scan" that
+cycles every box silently (with active-box restore) is on the roadmap
+for a follow-up.
+
+### Vanilla Admin reference: tabular layout
+
+The Vanilla Admin tab's per-section command listings used a single
+multi-line label with manually tab-padded alignment. Proportional fonts
+misaligned the columns based on the longest command in each section.
+New `AddCommandTable` helper renders each entry as a fixed-width bold
+command column + a wrap-enabled description column, so every section
+now has crisp alignment regardless of entry length.
+
+### Build-then-bump process hardening
+
+v0.10.6 shipped with a DLL embedding `PLUGIN_VERSION=0.10.5` because
+the csproj bump happened AFTER the last `dotnet build`. The About tab
+showed 0.10.5 in-game even though every text file in the repo said
+0.10.6 — wasted debugging cycles.
+
+Three fixes:
+
+1. **`tools/bump-version.ps1` now auto-runs `dotnet build -c Release`
+   at the end** (skip with `-NoBuild`). The freshly-bumped DLL is the
+   one that lands in `bin/Release` ready for deploy.
+2. **Preflight release check verifies DLL AssemblyVersion matches
+   csproj `<Version>`.** Reads the metadata via
+   `AssemblyName.GetAssemblyName(...)` so it doesn't load the assembly
+   into the PS AppDomain. Catches the failure mode if anyone edits
+   code after bump and forgets to rebuild.
+3. **CLAUDE.md updated** with the new bump-then-build invariant so
+   future sessions don't repeat the v0.10.6 mistake.
+
+### Minor
+
+- `MiniBar.CreateWithSubLine` is the new bar constructor — returns
+  both the main fill RT and an optional sub-line fill RT. The existing
+  `MiniBar.Create` is now a forwarder that discards the sub RT.
+- `MiniBar.SetHeight` lets a consumer live-resize an existing bar's
+  container height; used by the overlay's per-render
+  `ApplyBarChrome()` so toggling Settings.ProgressBarHeight takes
+  effect without rebuilding the overlay panel.
+
+## 0.10.6 — Chat Logging diagnostic section + Vanilla Admin tab audit
+
+Two features landing together.
+
+### Chat Logging
+
+New section at the bottom of the Settings tab. Three per-category
+toggles for chat visibility plus master Show-all / Hide-all buttons.
+Designed and implemented per the design discussion: suppression
+applies ONLY to commands whose data BCH already mirrors to its own UI
+surfaces — anything BCH doesn't structurally parse (action confirmations,
+admin replies, Kindred commands BCH hasn't wired structurally yet)
+stays visible regardless of the toggles. This guarantees no user ever
+loses the ONLY visibility of a server reply.
+
+**Categories** (and defaults):
+
+- **BCH internal auto-fires** — default OFF (hidden). Replies to BCH's
+  own background commands (V-Blood scanner `.fam s`, overlay bonus-stats
+  ticker `.wep get` / `.bl get`, tab auto-refresh). Toggle ON for
+  diagnostic visibility when troubleshooting BCH itself.
+- **Bloodcraft command replies** — default ON (visible). Replies to
+  user-initiated Bloodcraft commands BCH structurally parses
+  (`.fam boxes` / `.fam l` / `.fam s` / `.fam gl` / `.bl get` / `.wep get` /
+  `.prestige get`). Off = the BCH UI is the only place the data shows.
+- **Kindred command replies** — default ON. Same shape as Bloodcraft
+  but for KindredCommands / KindredLogistics. BCH doesn't structurally
+  parse any Kindred replies in 0.10.6, so the toggle is currently a
+  no-op — wired in advance for future structured Kindred parsing.
+
+**Master buttons:**
+
+- `Show all mod chat` — flip all three categories on (useful during
+  diagnosis).
+- `Hide all mod chat` — flip all three off (maximum chat quiet). Does
+  NOT touch the global `ClearServerMessages` admin setting — those
+  are independent.
+
+**Spontaneous notifications stay visible.** Game-system messages that
+aren't replies to BCH commands — quest progress, level-up notifications,
+familiar capture events, server announcements, player join/leave — flow
+through the inbound chat path with `_intercept = Idle`, so none of the
+chat-logging suppression touches them. They remain in chat regardless
+of category settings.
+
+**Implementation:**
+
+- New `Services/CommandClassifier.cs` — classifies outbound commands
+  into `(CommandCategory, HasBchUIDisplay)` pairs. Prefix-based for
+  user-fired commands; `EnqueueMessageSilent` forces BchAuto.
+- `MessageService_Processing` — the 0.10.2 `_suppressCurrentCaptureChat`
+  per-intercept bool is replaced by `_currentCaptureCategory` +
+  `_currentCaptureHasBchUI`. Receive-side handlers route through
+  `ShouldSuppressByCategory()` which reads the appropriate setting.
+- Settings — three new bools (`ShowChatBchAuto` / `ShowChatBloodcraft` /
+  `ShowChatKindred`) plus `ShowAllChat()` / `HideAllChat()` master
+  helpers. Persisted across sessions.
+
+**Eclipse compatibility:** unchanged from 0.10.2/0.10.4. The
+suppression only destroys plain colored chat entities Eclipse already
+ignores (Eclipse's prefix gates on the MAC-signed `[ECLIPSE]` pattern).
+
+### Vanilla Admin tab audit
+
+The Help → Vanilla Admin tab was a reference list of vanilla V Rising
+console commands. Audit added the commonly-missed entries:
+
+- **New Character actions section**: Suicide, KillPlayer, RevivePlayer,
+  HealPlayer, DamagePlayer, ResetCharacter, KillUnit, HealUnit,
+  DamageUnit, Despawn.
+- **Player management expanded** with: PlayerInfo, UserList,
+  WhoIsOnline, ForceConnectInfo.
+- **Item / character spawning expanded** with: SpawnCastle, FillStorage,
+  ClearAllInventories, DespawnAll.
+- **New Teleportation section** (split from spawning): teleporttowaypoint,
+  TeleportToPlayer, TeleportToBoss, TeleportToHorse, TeleportToOwner,
+  TeleportToWorld, UnlockAllPlayerWaypoints, MapMarker.
+- **New Time, world & difficulty section**: Time, ChangeMapTime,
+  SetTimeOfDay, weather, GameDifficulty, Lockdown, alllockdown.
+- **Server administration expanded** with: AutoSave, StopAutoSave,
+  ReloadServerSettings, Restart, ShowVersion, ShowAdminCommands.
+- **New Debugging / display section**: DebugHud, ShowDebugUI, ShowFPS,
+  ShowInputBindings, BlockUserInput, Console.SetCheats.
+- **Authoritative list note** at the bottom: points users at the in-game
+  `List` command as the live source of truth, since V Rising's command
+  set drifts between patches and any reference list can go stale.
+
+These remain documentation-only entries — vanilla console commands
+require the in-game F1 console and can't be triggered by chat-based
+client mods like BCH. Chat-command equivalents for the common admin
+actions are still wired in the KINDRED → Admin tabs.
+
+
+## 0.10.5 — V-Blood overlay view + .wep get first-line suppression
+
+**V-Blood view toggle in the Familiar Browser overlay.** New `View: Box`
+/ `View: V-Bloods` cycle button on the overlay's second header row.
+Box view is the existing box-by-box browser; V-Blood view replaces the
+list with the captured V-Blood collection sourced from
+`PlayerStateService.VBloodCollection` (populated by the scanner running
+off the main UI's V-Bloods tab).
+
+V-Blood rows are compact one-liners: `Name  [B][S][P][Ps]  box03`.
+Chip colors mirror the main tab's convention (green = captured, gray =
+missing). Click a row → triggers the smart summon via the new shared
+`Services/VBloodSummonService` (unbind active → switch box → fetch
+contents → bind by index). The header row's status text reports
+summon progress (`Summoning Alpha the White Wolf from box01 (slot 3)…`).
+
+Header restructured into two rows so the new toggle fits inside the
+default overlay width:
+- Row 1: `← BoxName → [Reload]` (hidden in V-Blood mode)
+- Row 2: `[View: …] [Sort: …]` (visible in both modes)
+
+Sort settings apply to both views — Region/Location mode works in
+V-Blood view because every entry has a canonical region; in Box view
+the Region mode is collapsed to Default (a single mixed-region box
+doesn't benefit from regional ordering).
+
+**`.wep get` first-line chat suppression fix.** v0.10.4 silenced the
+stat lines (those start with `<color=#c0c0c0>`) but the FIRST line of
+each Bloodcraft `.wep get` reply starts with plain text — `"Your weapon
+expertise is..."` — and slipped past the generic-capture `<color`-prefix
+filter. So even with silent enqueue + auto-fire suppression, the
+most-info-bearing line of every refresh still surfaced in chat.
+
+Fix: new `_genericReplyPlainHeaders` table maps each command's known
+plain-leading reply prefixes (`.wep get` lists three: `"Your weapon
+expertise is"`, `"No bonuses from currently equipped"`, `"You haven't
+gained any expertise for"`). The generic-capture handler now matches
+either `<color`-prefix OR a known plain header for the current
+command. With both checks, silent-mode replies are fully destroyed.
+
+**Shared smart-summon service.** `Services/VBloodSummonService` lifts
+the pending-summon state machine + BoxContents subscription out of
+MainPanel. Both the main UI V-Bloods tab and the overlay V-Blood rows
+now call `VBloodSummonService.SummonVBlood(name)`. State is global —
+one summon in flight at a time across the whole UI — and status text
+fans out via `VBloodSummonService.StatusChanged` so the UI surface
+that initiated the call can show progress.
+
+### Deploy fix
+
+If you were stuck on 0.10.3 with the V-Blood scanner mis-detecting
+captures and chat spam: a duplicate top-level `BloodCraftHub.dll`
+under `…/plugins/BloodCraftHub.dll` was loading instead of the
+DEV-subfolder DLL my deploys had been writing to. 0.10.5 deploys to
+both paths. Once you verify the About tab shows 0.10.5, the V-Blood
+scanner should run with zero chat noise and detect captures correctly.
+
+### Deferred: Chat Logging diagnostic section
+
+User asked for a "Chat Logging" settings section that exposes per-mod
+visibility toggles (BCH-auto / Bloodcraft / Kindred) with a master
+show-all / hide-all button. Planned as 0.10.6 — design is in the
+release summary so the user can review before implementation.
+
+
+## 0.10.4 — V-Blood scanner chat-spam fix + overlay layout polish
+
+Four user-reported issues from 0.10.3 friend-testing. The V-Blood
+overlay-view item from the same report is deferred to 0.10.5 (substantial
+UI work — separate from these regression fixes).
+
+**V-Blood scanner no longer floods chat (and no longer mis-scans).**
+Three bugs were stacked:
+
+1. The scanner used `EnqueueMessage` instead of the silent variant added
+   in 0.10.2 for the bonus-stats refresh — so every `.fam s "<name>"`
+   reply (130 per scan) landed in the player's chat box.
+2. `AwaitingFamSearch` arming didn't read `_suppressNextCaptureChat`,
+   so even if I'd switched the scanner to `EnqueueMessageSilent` the
+   per-intercept suppress flag would still be false.
+3. Bloodcraft's "You don't have any unlocked familiars yet." reply
+   (FamiliarCommands.cs:1096, fires when the player has zero captured
+   familiars at all) wasn't matched by the no-match regex — so each
+   search waited the full 0.6s timeout before moving on, instead of
+   completing instantly. New players saw constant `.fam s` traffic
+   while the scanner ground through the full 4-minute timeout loop.
+
+All three fixed together: scanner uses `EnqueueMessageSilent`,
+arming wires the suppress flag through to the AwaitingFamSearch
+parser, and the no-match regex now catches the "no unlocks" line.
+Result: scans on a fresh character complete in seconds (every search
+immediately resolves as no-match), and there's zero scanner chat
+chatter while the silent flag is in effect.
+
+**Overlay sort button no longer overhangs the edge.** Pre-0.10.4 the
+sort cycle button was 88-96 px wide with the longest label "Sort:
+Region" — combined with the other header elements (←/→/box-name/
+Reload) the row totaled ~366 px, which spilled past the 280 px
+overlay minWidth and looked broken. Two fixes: dropped the "Region"
+mode from the overlay's cycle (region grouping only reads naturally
+on the V-Bloods tab which spans all 64 entries — a single mixed-region
+box doesn't benefit from that ordering), and tightened the button
+to 60 px with compact labels ("A→Z", "Lv↓", "Box"). The V-Bloods tab
+keeps the full 4-mode cycle including Region. If the saved setting is
+Region (e.g. cycled from the V-Bloods tab), the overlay treats it as
+Default for rendering until the user cycles the overlay button.
+
+**XP overlay default size tightened.** Pre-0.10.4 default sizes were
+220 px (bonus stats off) / 360 px (on) with conservative per-row
+padding — produced ~30-40 px of unused vertical margin most users
+didn't want. New floors: 180 / 300, with row preferredHeight trimmed
+from 24 → 20 and bonus-stat label preferredHeight from 44 → 32. Users
+who want even more compactness can still drag the panel smaller
+manually; the new floors are just the Default-button reset point.
+
+**Weapon/Blood expertise auto-fire suppression (was already in 0.10.2,
+re-verified)**. The bonus-stats ticker and the per-tab auto-refresh
+both call `EnqueueMessageSilent` — replies get destroyed before
+reaching the chat window. If users still see chat noise from these,
+likely they're on an older DLL than 0.10.4.
+
+### Deferred to 0.10.5
+
+V-Blood view toggle in the Familiar Browser overlay. The user
+requested a way to see V-Blood captures inline in the overlay (not
+just the box-cycled familiar list). Implementation needs a "View:
+Box / V-Bloods" cycle button + a second header row to fit it +
+extraction of the smart-summon logic from MainPanel into a
+reusable service so the overlay's V-Blood rows can summon directly.
+~150 lines of UI; held back so the chat-noise fix in 0.10.4 ships
+without delay.
+
+
+## 0.10.3 — Critical fix: plugin load NRE introduced in 0.10.0
+
+**Hotfix. 0.10.0 / 0.10.1 / 0.10.2 all fail to load** with the following
+exception at plugin startup:
+
+```
+System.TypeInitializationException: The type initializer for
+'BloodCraftHub.Services.MessageService' threw an exception.
+---> Il2CppInterop.Runtime.Il2CppException: System.NullReferenceException
+  at Unity.Entities.TypeManager.FindTypeIndex (System.Type type)
+  at Unity.Entities.ComponentType.ReadOnly (System.Type type)
+  at BloodCraftHub.Services.MessageService..cctor()
+```
+
+**Root cause**: 0.10.0 added `VBloodScannerService.Initialize()` to
+`Plugin.Load`, which subscribed to `MessageService.FamSearchCompleted`.
+Subscribing to a static event reads its backing field — and that is the
+first MessageService static-field access ANY code path made at Plugin.Load
+time. Reading a static field triggers the type's static constructor, which
+ran the `NetworkEventComponents` initializer with
+`ComponentType.ReadOnly(Il2CppType.Of<FromCharacter>())` etc. Those calls
+route into `Unity.Entities.TypeManager.FindTypeIndex`, which NREs when
+V Rising's ECS World hasn't been built yet. Plugin.Load runs BEFORE the
+World exists; the cctor died; plugin load aborted.
+
+Pre-0.10.0 the cctor only fired during the first frame's
+`CoreUpdateBehavior` tick when `ProcessAllMessages` ran, by which point
+the World was up. Nothing in `Plugin.Load` touched any
+MessageService static field before 0.10.0 introduced the scanner.
+
+This is the exact landmine called out in the NOTE block at the top of
+`Services/EclipseProtocolService.cs` — "do NOT add static
+ComponentType[] fields here" because Plugin.Load triggers the cctor
+before TypeManager is built. The 0.10.x V-Blood work tripped it from a
+different angle (event subscription instead of property setter).
+
+**Fix, in two parts:**
+
+1. `MessageService.NetworkEventComponents` is now a **lazy property**.
+   The `ComponentType.ReadOnly(...)` calls resolve at SendMessage time
+   (gameplay, ECS up) instead of cctor time (plugin load, ECS not up).
+   This permanently neutralizes the bug class — any future early access
+   to MessageService statics will no longer crash plugin load.
+2. `VBloodScannerService.Initialize()` is **deferred to
+   `Plugin.UIOnInitialize`** (called from `InitializationPatch` once
+   LocalCharacter is bound). Same pattern Eclipse-main uses for its
+   own ECS-dependent init. Belt-and-suspenders with the lazy refactor.
+
+The per-frame `VBloodScannerService.Tick` is still registered in
+`Plugin.Load` because the tick body bails out via `MessageService.IsInitialized`
+checks until the scanner's `Initialize()` has run.
+
+No feature changes. If 0.10.2 had loaded for you, all its features
+(Region sort, fast type-switch refresh, chat suppression, tab-strip
+width, dynamic overlay default, alignment toggle) remain present in
+0.10.3.
+
+
+## 0.10.2 — V-Blood region sort, fast type-switch refresh, overlay polish, chat-noise suppression
+
+Six items addressing 0.10.1 friend-testing feedback plus the deferred
+Location sort mode.
+
+**Location sort now works for V-Bloods + Familiar Browser.** Ported
+FamBook's `vbloods.json` page layout into `VBloodRegistry` as a region
+mapping (page 1 = Farbane Woods through page 7 = Endgame). The Sort
+cycle in both UIs now includes `Region` as the fourth mode, ordering
+V-Bloods by their original encounter region (alpha within each region
+for stable order). Non-V-Blood familiars (regular drops) fall into a
+"unknown" bucket and sink to the bottom alphabetically. `Primal &lt;name&gt;`
+entries match their base form's region.
+
+**Faster overlay/tab refresh when you switch weapons or blood types.**
+Pre-0.10.2, the bonus-stats display lagged 15-20s behind a weapon
+swap because the auto-fetch was on a fixed cadence. The XP overlay
+and the Weapon Expertise / Blood Legacy tabs now track the last-seen
+`WeaponType` / `BloodType`; when an Eclipse stream tick reports a
+delta (typically within 1-3s of equipping), the next auto-fetch timer
+fires immediately rather than waiting for the next 10s tick. Old
+cached stat values get hidden while the new reply is in flight so
+the user doesn't see stale data for the unequipped weapon.
+
+**Auto-fired `.wep get` / `.bl get` chat replies are now suppressed**
+when the trigger is the overlay's bonus-stats ticker or the tab's
+auto-refresh. New `MessageService.EnqueueMessageSilent(text)` sets a
+one-shot flag on the intercept arming so the receive-side handler
+destroys the chat copy. Manual user clicks (the Refresh button in
+either tab, or any `.fam s` from the search form) keep using the
+regular `EnqueueMessage` path — those replies still appear in chat as
+before. **Eclipse compatibility unchanged**: Eclipse only consumes
+MAC-signed `[ECLIPSE]` entities; the plain colored `.wep get` / `.bl
+get` lines BCH suppresses are already ignored by Eclipse's prefix per
+its `CheckMAC` gate.
+
+**Tab strip width bumped 180 → 220.** The v0.9.8 "Help" → "SETTINGS AND
+HELP" rename pushed the longest group header past the 180px cap,
+overlapping the rail edge at Standard text scale and truncating at
+Large. 220 covers Large with margin; the right content area still
+absorbs all extra horizontal space as the main panel widens.
+
+**Dynamic Default size for the XP overlay.** `MinHeight` is now
+conditional on `Settings.ShowOverlayBonusStats`: 220 when the bonus-
+stats display is off (compact view), 360 when on (room for the wrapped
+weapon + legacy stat sub-lines). Clicking `[Default]` in the Size &
+Positioning section now picks the right floor for the current toggle
+state — pre-0.10.2 the floor was always 220 and the stat lines
+overlapped the EXO row at default size.
+
+**Overlay text alignment setting (Left default / Right).** New
+`OverlayTextAlignment` setting + cycle button in Display Settings →
+HUD extras. Applies to every overlay (XP, Familiar, Familiar Browser,
+Daily Quest, Professions). Toggle triggers `RequestRebuildAllOverlays`
+so labels pick up the new alignment immediately. Right is useful when
+you've pinned an overlay to the right edge of the screen and want the
+values closer to the panel border instead of left-floating in a wide
+overlay.
+
+### Deferred to future versions
+
+The user flagged three more substantial items for future work that did
+NOT land in 0.10.2:
+
+- **Asset-ID database for admin forms** (`.give`, `.spawnnpc`, gems,
+  familiar reset) — currently a free-text `TextField`; future version
+  could render a searchable dropdown over a curated PrefabGUID list.
+- **Periodic active+offline player query for admin dropdowns** —
+  research whether KindredCommands exposes a parseable player-list
+  reply, then surface as a dropdown alongside the existing
+  `PlayerNameField`.
+- **Server-side companion mod (2.0)** — admin-installed variant that
+  auto-deploys to clients. Architecturally a different mod; would mirror
+  Bloodcraft + Eclipse's signed protocol pattern.
+
+These are tracked in memory (`project_bloodcrafthub_roadmap.md`) so
+future sessions can pick them up without context loss.
+
+
+## 0.10.1 — V-Blood tracker follow-ups: smart summon, re-scan subtraction, sort options
+
+Three additions on top of the v0.10.0 V-Blood tracker.
+
+**Smart V-Blood summon chain.** The summon button now composes the full
+bind sequence instead of just switching boxes and asking the user to
+finish manually:
+
+1. **Unbind** any currently-active familiar (server tolerates a no-op
+   reply when none is bound).
+2. **Switch box** (`.fam cb &lt;box&gt;`) if the V-Blood's box differs from
+   the active one, and trigger `.fam l` so the box-content intercept
+   fills `BoxContents[BestBox]` with per-entry indices.
+3. **Resolve the V-Blood entry** by name (prefer exact-basename match;
+   fall back to `Primal &lt;name&gt;` if only the primal variant is present).
+4. **Bind** via `.fam b &lt;index&gt;`.
+
+If box contents are already cached for the target box (the user has
+visited it previously), the bind fires immediately. Otherwise a
+pending-summon waiter listens on `BoxContentsChanged` and triggers
+once the data arrives, with a 12-second timeout safeguard so a slow
+server doesn't leave a zombie waiter. Status text in the V-Bloods
+tab reports each phase ("Summoning Alpha the White Wolf from box01
+(slot 3)…").
+
+**Re-scan now subtracts deleted V-Bloods.** Pre-0.10.1, the scanner
+accumulated results per-name without clearing prior state — a V-Blood
+deleted via `.fam r` between scans kept showing as captured. v0.10.1
+clears `VBloodCollection` at `StartScan` so the scan begins from a
+clean slate; deletions and box-moves now reflect on the next scan.
+The grid renders the cleared (all-gray) state briefly while the scan
+streams results back in.
+
+**Sort options shared across V-Bloods tab + Familiar Browser overlay.**
+New `FamiliarSortOrder` setting cycles between:
+- **Default**: server / registry order (Familiar Browser: box order
+  per `.fam l`; V-Bloods tab: alphabetical from `VBloodRegistry`)
+- **Alphabetical**: A→Z by familiar name
+- **Level**: descending by max captured level (looked up from
+  `BoxContents` per row; uncaptured rows sink to the bottom)
+- **Location**: reserved for 0.10.2. Falls back to alphabetical for
+  now — needs a static map-region table for each V-Blood, which the
+  user has offered to supply.
+
+Two cycle buttons surface the setting:
+- In the V-Bloods tab filter row: `Sort: Default / Alpha / Level`
+- In the Familiar Browser overlay header: `Sort: Box / A→Z / Lv↓`
+
+Changing the setting from either UI updates both. The overlay
+re-renders its list immediately; the V-Bloods tab reorders its 65
+rows via `SetSiblingIndex` (no rebuild, scroll position preserved).
+
+
+## 0.10.0 — V-Blood collection tracker
+
+New feature category. A "V-Bloods" tab (peer of Familiars / Boxes inside
+the BLOODCRAFT group) tracks which of the 65 Bloodcraft-recognized
+V-Bloods you've captured across all your boxes, with status chips for
+each of the four possible variants per V-Blood:
+
+- **B**  — basic variant captured
+- **S**  — basic + shiny captured (Bloodcraft applies one of 6 schools
+  to a random fraction of captures)
+- **P**  — Primal variant captured (server prefab uses the "Primal "
+  name prefix; e.g. "Primal Angram the Purifier")
+- **PS** — Primal + shiny captured
+
+Each row shows the V-Blood's name, the four chips (green when captured,
+gray when not), the first known box that contains it, and a one-click
+Summon button. Filter buttons across the top: All / Captured / Missing /
+Shiny so you can focus on what's left to collect.
+
+**Scanner — silent and non-disruptive.** When you open the tab for the
+first time, the scanner auto-starts and walks all 65 names (basic + primal,
+130 queries total) using `.fam s "<name>"`. The search is read-only on
+the server side — it never switches your active box, so the scanner can
+run in the background while you play. The outbound queue throttles
+between sends, so a full scan completes in roughly 4 minutes. Partial
+results stream into the grid as they arrive.
+
+The scan progress is shown next to the header counter
+(`23 / 65 captured  ·  4 primal  ·  6 shiny`) and there's an explicit
+`Cancel` button if you want to stop early. You can rerun the scan any
+time to pick up new captures.
+
+**Why .fam s instead of walking boxes:** an earlier draft used `.fam cb`
++ `.fam l` to enumerate every box's contents directly. That gives richer
+data (per-entry level / prestige / shiny school) but switches the
+player's active box during the walk, which is jarring while playing.
+The `.fam s` approach trades that data fidelity for invisibility — at
+the cost of not being able to surface shiny SCHOOL (the search reply
+only carries a per-box shiny bit, not which school the shiny is). Future
+0.10.x versions can opt into a deep-scan mode that calls `.fam cb` +
+`.fam l` to resolve schools, gated behind an explicit opt-in.
+
+**Summon flow** reuses the existing outbound commands:
+`.fam cb <box>` switches to the V-Blood's box and `.fam b <index>` binds.
+The 2s queue serializes them. When the index is unknown (default for
+fresh scans), a status note tells you to open the Boxes tab to pick a
+specific familiar after the box switch.
+
+**Implementation files:**
+
+- `Resources/VBloodRegistry.cs` (new) — canonical 65-name list mirrored
+  from Bloodcraft's `Utilities/Familiars.cs::VBloodNamePrefabGuidMap`.
+- `Services/VBloodScannerService.cs` (new) — queue + tick + result
+  fold. Initializes once in `Plugin.Load`; tick registered on
+  `CoreUpdateBehavior.Actions`.
+- `Services/PlayerStateService.cs` — new `VBloodCaptureStatus` struct,
+  `VBloodCollection` dictionary, `VBloodCollectionChanged` event.
+- `Services/MessageService_Processing.cs` — new
+  `InterceptFlag.AwaitingFamSearch` with regex parsing of the two reply
+  shapes (`"Matching/VBlood familiar(s) found in: <colored boxes>"` and
+  `"Couldn't find..."`). New public `FamSearchCompleted` event and
+  `FamSearchResult` payload type.
+- `UI/ModContent/MainPanel.cs` — `BuildVBloodsTab` builder + per-row
+  refresh path. Tab inserted in the BLOODCRAFT group between Boxes and
+  Class so it's discoverable but not interrupting the existing
+  Familiars / Boxes flow.
+- `UI/ModContent/Data/PanelType.cs` — new `VBloodsTab` enum value.
+
+**Nothing existing was rewired.** The Boxes tab, Familiar Browser
+overlay, summon/unbind/auto-swap logic, and outbound queue all behave
+exactly as in 0.9.9. The V-Blood tab is purely additive; if you never
+open it, the scanner never runs and there's zero impact.
+
+
+## 0.9.9 — XP overlay bonus-stats: weapon stats now display, lines now wrap
+
+Two follow-on fixes for the `ShowOverlayBonusStats` setting added in 0.9.6:
+
+**Weapon expertise stats now actually appear** (pre-0.9.9 only blood
+showed). Root cause: `MessageService.EnqueueMessage` sends commands
+immediately and arms the regex intercept right away. The bonus-stats
+ticker fired `.wep get` and `.bl get <CurrentBlood>` back-to-back; the
+second `NoteOutboundForIntercept` call overwrote the first's
+`AwaitingGenericResponse` with `AwaitingBloodInfo` before the wep reply
+arrived from the server, so the wep stat lines hit the receiver with
+the flag already pointing at the blood-info state machine and got
+silently dropped. Fix: alternate the two fetches per tick via a toggle
+flag. Each command now refreshes every ~20 seconds (toggle period =
+2 × `OVERLAY_BONUS_REFRESH_SECONDS`), which is fine because bonus
+values only change on level-up or when the player picks a new stat
+via `.wep cst` / `.bl cst`.
+
+**Stat lines now wrap inside the overlay width** instead of overflowing
+past the right edge. `AddRow` defaults to `enableWordWrapping=false`
+(correct for the single-line value rows like Level / Class / XP%), so
+the new `ConfigureBonusStatsLabel` helper overrides those settings on
+the two stat sub-labels: enables word-wrap, adds a vertical-axis
+`ContentSizeFitter` so the label auto-grows, and switches the rendering
+to newline-join. Also strips TMPro `<color=...>` tags from the captured
+`.wep get` lines — each tag chews ~16 chars of label width without
+rendering glyphs, so removing them buys back a lot of usable line space
+inside a narrow overlay (BloodInfo.StatLines already had tags stripped
+upstream by the regex intercept).
+
+The race between competing intercept consumers (overlay's
+bonus-stats ticker + main panel's tab auto-refresh on the Expertise
+tab) still exists in theory but is much less likely to hit in practice:
+both consumers fire on independent ~10s timers, so a collision requires
+their fire windows to overlap within the server's reply-round-trip
+window (a few hundred ms). A proper fix would give each consumer its
+own intercept state, but that's a refactor — flagged in
+`docs/LESSONS_LEARNED.md`-worthy territory and deferred until it
+actually surfaces as a problem in testing.
+
+
+## 0.9.8 — Discord DM link; "Settings and Help" rename; three Size & Positioning fixes
+
+Visibility + correctness round-up from 0.9.7 friend-testing:
+
+**About tab: "DM me on Discord" row** linking directly to
+`https://discord.com/users/PerpetualChaos`. Friend-testing: users wanted
+a one-on-one channel for mod feedback / bug reports without joining the
+server Discord first. Slots in alongside the existing Server Discord
+row in the "About me" section.
+
+**Left-rail group renamed: "HELP" → "SETTINGS AND HELP".** Multiple
+friend-testers didn't realize there was a Settings page tucked under a
+"Help" group — the rename makes the actionable child visible from the
+collapsed state. No structural change; same four tabs (Quick Start,
+Settings, Vanilla Admin, About) live under it.
+
+**Tab-strip width cap now actually holds.** 0.9.7 set the strip's
+`preferredWidth=180` and `flexibleWidth=0`, but the parent body's
+`HorizontalLayoutGroup.childForceExpandWidth=true` overrode it — Unity
+gives every child an equal share of extra space when `forceExpandWidth`
+is on, regardless of individual `flexibleWidth=0` settings. Switched the
+body's `forceExpandWidth` to `false`; the content area's
+`flexibleWidth=1` still absorbs all the extra horizontal space when the
+panel widens, so the visible result is just "left rail stops growing,
+right side keeps growing". Which is what 0.9.7 was supposed to do.
+
+**Size & Positioning [Default] button now resets size only — not
+position.** Pre-0.9.8 the button called `SetDefaultSizeAndPosition()`
+which re-anchored each overlay to its `DefaultPosition`. For the XP
+overlay that's the top-left corner of the screen, so clicking [Default]
+sent overlays flying. New `ResizeablePanelBase.SetDefaultSize()` only
+resets `sizeDelta` to `MinWidth × MinHeight`; anchors/pivot/position
+are untouched. Drag the overlay if you also want to re-center.
+
+**Size readouts now update during manual drag-resize.** Pre-0.9.8 the
+`Width: 720 px` / `Height: 480 px` labels in the Settings section only
+refreshed inside the +/- click handlers, so dragging a panel by its
+edge left the readout stale until the user clicked +/-. Added a per-
+frame refresher gated on `ActiveTab == SettingsTab` — zero cost when
+the user is on any other tab; live sync when they're on Settings.
+
+
+## 0.9.7 — Title-bar maximize, Size & Positioning section, About-tab version block, tab-strip width cap
+
+Friend-testing feedback batch:
+
+**Title-bar maximize/restore button on the Main UI.** New `[ ]` button to
+the left of the existing `[—]` close button on the panel title bar.
+Clicking toggles the panel between its current size+position and a
+fullscreen stretch (with a 20 px inset on each edge so the resize handles
+stay grabbable). Clicking again restores the prior layout pixel-for-pixel.
+Toggle is transient — not persisted across logouts. Fullscreen-toggle is
+intentionally Primary-UI only; overlays are size-only.
+
+**New Size & Positioning section in Settings.** Per-component subsections
+(Primary UI + each of the 5 overlays). Each subsection exposes:
+
+- `[Default]` button: calls `SetDefaultSizeAndPosition()` on that panel.
+- `Width:  [-]  N px  [+]` and `Height:  [-]  N px  [+]` rows. Each click
+  adjusts by 20 px; hold Shift while clicking for 100 px steps. Clamps to
+  the panel's MinWidth / MinHeight / MaxWidth. The displayed value updates
+  after each click so the user can see the current size.
+- Primary UI additionally has `[Auto-size]` (mirrors the footer toggle)
+  and `[Fullscreen]` (mirrors the title-bar button).
+
+Manual drag-from-edge resize is unaffected — the new section just gives a
+click-driven alternative for users who didn't realize the panels were
+resizable. Friend-testing: "users had provided feedback that they were
+not aware that you could resize them."
+
+**Tab-strip max width.** The left rail (BLOODCRAFT / KINDRED / HELP) is
+now capped at 180 px regardless of how wide the main panel grows. Pre-
+0.9.7 the rail scaled proportionally with the panel — friend-testing
+feedback: "The main reason that people change the size of the UI is to
+enable them to see more information in the right side panel." Extra
+width now flows entirely to the content area on the right.
+
+**About tab — version block + Thunderstore link.** Bottom of the About
+tab now shows `BloodCraftHub vX.Y.Z` with a paragraph mirroring the
+Thunderstore listing description. Added a "BloodCraftHub on Thunderstore"
+link row alongside the existing GitHub link. Useful for users who got
+the DLL directly (Discord, friend hand-off, etc.) and wouldn't have
+seen the Thunderstore page.
+
+**Quick Start: drag/resize note.** Welcome section now explicitly calls
+out that both the main panel AND every overlay are draggable AND
+resizable from their edges, and points users at the new maximize button
++ Settings tab size controls. Friend-testing: "some users had provided
+feedback that they were not aware that you could resize them."
+
+**Display settings: stale "(0.9.0)" version annotation removed** from
+the section heading. Version info now lives only in the About tab.
+
+Implementation notes:
+
+- `ResizeablePanelBase.AdjustSize(int dWidth, int dHeight)` is the new
+  public API. Applies the delta, runs the existing `MinWidth` / `MaxWidth`
+  / `MinHeight` clamps via `EnsureValidSize()`, and persists the new size
+  to config via `SaveInternalData()` so it survives a session.
+- `MainPanel.SetFullscreen(bool)` snapshots `sizeDelta`, `anchoredPosition`,
+  `anchorMin`, `anchorMax`, and `pivot` before swapping to a stretch
+  layout — restore reverts each field to its captured value.
+- Setting `MainPanel.ToggleFullscreen` flips the title-bar button text
+  between `[ ]` and `[X]` so the user sees current state at a glance.
+  Plain-text glyphs (vs Unicode maximize icons) per the TMPro fallback-
+  font lessons in `docs/LESSONS_LEARNED.md`.
+
+
+## 0.9.6 — XP overlay Blood Legacy row + per-row stat values; tab headers carry full current-state info
+
+Friend-testing feedback addressed in one batch:
+
+**Blood Legacy row added to the XP overlay.** Mirrors the Weapon row shape:
+`Legacy: Warrior  Lv 50 (45.3%)  Pr 1` plus an optional crimson progress
+bar (controlled by the same `Settings.ShowProgressBars` toggle as the XP
+and weapon bars). Data feeds from `PlayerStateService.Legacy` which the
+Eclipse `ProgressToClient` stream already populates at indices 4..8.
+
+**XP overlay height fix.** Friend-testing surfaced that the EXO Prestige
+row (added in 0.8.3) was rendering BELOW the panel background border on
+cold-installs, because the panel's `MinHeight = 90` predated the
+Weapon (0.9.4) and now Legacy (this version) rows. Bumped to 220 so all
+rows fit comfortably; `ResizeablePanelBase.EnsureValidSize` will grow
+existing users' saved panels up to the new minimum on first load.
+
+**New `Settings.ShowOverlayBonusStats` toggle (default OFF).** When on,
+the overlay shows an italicized sub-line under the Weapon and Legacy
+rows carrying the chosen bonus-stat names with their current numeric
+values — matching what Eclipse displays. Friend-testing: "in the
+original eclipse mod ... the Weapon Expertise and Blood Legacy stats
+show within the overlay. Both the selected expertise and legacy
+attributes, as well as the percentage of them." Default OFF preserves
+the compact overlay for users who want a minimal HUD; toggle in
+Display settings.
+
+Data plumbing for the new line:
+- Weapon values: subscribe to `LastResponseChanged`; cache the line
+  buffer when `Command == ".wep get"` (snapshots survive subsequent
+  unrelated generic captures like `.lvl get`).
+- Legacy values: read `PlayerStateService.BloodInfoLatest.StatLines`
+  populated by the existing `AwaitingBloodInfo` intercept.
+- A 10s ticker on `CoreUpdateBehavior` auto-fires `.wep get` and
+  `.bl get <CurrentBlood>` while the overlay is visible AND the setting
+  is on. Stops cleanly when the setting toggles off or the overlay
+  closes; no chat traffic when nobody's looking.
+
+**Tab headers now auto-populate with current stat values.** Friend-
+testing: "add in the current weapon expertise and sub stats and
+attributes and the blood legacy attributes and percentages into the
+header of their respective tabs in the main UI ... separate from the
+search features within these tabs".
+
+- Weapon Expertise tab: new italicized "stat values" line below the
+  existing bonus-name line, populated from the cached `.wep get`
+  reply. The full Bloodcraft response (raw color-tagged lines) is
+  rendered with bullet separators.
+- Blood Legacy tab: new italicized "stat values" line below the
+  existing bonus-name line, populated from `BloodInfoLatest.StatLines`
+  when the queried blood matches the currently-equipped blood. The
+  existing full Blood Info display further down the page still serves
+  the "query ANY blood" form unchanged.
+- Both tabs auto-fire their respective queries on tab open AND every
+  10s while the tab is the active page (per-frame `TickTabAutoRefresh`
+  ticker on `MainPanel`). Self-gates on `Enabled` + `ActiveTab` so
+  it's a no-op when the panel is closed or the user is on a different
+  tab.
+
+
+## 0.9.5 — Eclipse-mod coexistence fix
+
+Friend-testing report: installing BloodCraftHub alongside the standalone
+Eclipse client mod caused Eclipse's overlay to render with all progress
+bars and numbers blanked/zeroed. Uninstalling BCH restored Eclipse.
+
+Root cause: Bloodcraft's server-side mod broadcasts a single MAC-signed
+`[N]:csv;mac<hash>` stream per player. Both BCH (`EclipseProtocolService`)
+and Eclipse (`Eclipse.Patches.ClientChatSystemPatch`) independently
+Harmony-prefix `ClientChatSystem.OnUpdate` and consume that stream. BCH
+destroyed the chat entity after parsing (to keep the protocol noise out
+of the chat window), so Eclipse's prefix saw a dead entity and rendered
+zero-filled bars.
+
+Fix lives in two places:
+
+- `EclipseProtocolService.IsEclipseModLoaded()` looks up
+  `io.zfolmt.Eclipse` in BepInEx's `IL2CPPChainloader.Instance.Plugins`
+  the first time it's called and caches the result. The lookup has to be
+  lazy because BCH's `Plugin.Load` runs before BepInEx has finished
+  loading the rest of the plugin set (alphabetical: BCH < Eclipse).
+- `Patches/ClientChatPatch.OnUpdate_Prefix` only calls
+  `EntityManager.DestroyEntity` on a MAC-verified entity when
+  `IsEclipseModLoaded()` returns false. When Eclipse is present we let
+  Eclipse's own prefix destroy the entity after Eclipse parses it — the
+  chat-window noise is still suppressed, just by Eclipse instead of BCH.
+- `OnUpdate_Prefix` is now `[HarmonyPriority(Priority.High)]` so BCH
+  reliably runs *before* Eclipse's normal-priority prefix. Without this,
+  Eclipse could win the race, destroy the entity, and starve BCH's
+  overlays instead — same bug, opposite direction.
+
+No effect when Eclipse is not installed: detection returns false on the
+first call and the destroy-after-parse behavior is unchanged. The legacy
+`MessageService.HandleInboundChat` regex pipeline is untouched — its
+intercept flags are already only-destroy-on-match so non-protocol traffic
+(real Bloodcraft chat replies, KindredCommands output, etc.) is unaffected.
+
+
+
 ## 0.9.4 — Equipped-weapon expertise row on the XP overlay
 
 Friend-testing follow-up: "I didn't see in any of the experience overlays

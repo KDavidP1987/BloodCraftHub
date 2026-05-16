@@ -33,13 +33,30 @@ public static partial class MessageService
 {
     static EntityManager EntityManager => Plugin.EntityManager;
 
-    private static readonly ComponentType[] NetworkEventComponents =
-    {
-        ComponentType.ReadOnly(Il2CppType.Of<FromCharacter>()),
-        ComponentType.ReadOnly(Il2CppType.Of<NetworkEventType>()),
-        ComponentType.ReadOnly(Il2CppType.Of<SendNetworkEventTag>()),
-        ComponentType.ReadOnly(Il2CppType.Of<ChatMessageEvent>()),
-    };
+    // 0.10.3 critical fix: this used to be a static-field initializer that
+    // ran inside MessageService's cctor. Every ComponentType.ReadOnly call
+    // routes into Unity.Entities.TypeManager.FindTypeIndex, which NREs when
+    // V Rising's ECS World hasn't been created yet. Pre-0.10.0 the cctor
+    // happened to fire late enough that the World existed by then, but 0.10.0
+    // added VBloodScannerService.Initialize() at Plugin.Load time which
+    // touches MessageService.FamSearchCompleted — the first MessageService
+    // static-field access ANY code path makes triggers the cctor, and at
+    // Plugin.Load the World is definitely not up. Lazy-init the field so the
+    // ComponentType.ReadOnly calls happen at SendMessage-time (gameplay,
+    // World is up) rather than cctor time (plugin load, World is not).
+    //
+    // Same lesson is documented in EclipseProtocolService.cs's NOTE block —
+    // copy/pasting it here so the next contributor sees the rationale right
+    // next to the lazy pattern.
+    private static ComponentType[] _networkEventComponents;
+    private static ComponentType[] NetworkEventComponents =>
+        _networkEventComponents ??= new[]
+        {
+            ComponentType.ReadOnly(Il2CppType.Of<FromCharacter>()),
+            ComponentType.ReadOnly(Il2CppType.Of<NetworkEventType>()),
+            ComponentType.ReadOnly(Il2CppType.Of<SendNetworkEventTag>()),
+            ComponentType.ReadOnly(Il2CppType.Of<ChatMessageEvent>()),
+        };
 
     private static readonly Queue<string> OutputMessages = new();
     private static Entity _localCharacter = Entity.Null;
@@ -82,6 +99,43 @@ public static partial class MessageService
             return;
         }
         NoteOutboundForIntercept(text);
+        SendMessage(text);
+    }
+
+    /// <summary>
+    /// 0.10.2: same as EnqueueMessage but tells the chat-capture pipeline to
+    /// destroy the server's reply lines so they don't clutter chat. Used by
+    /// the overlay's bonus-stats ticker, the V-Bloods scanner, and the
+    /// per-tab auto-refresh paths — their replies are already rendered in
+    /// the BCH UI, so the chat copy is pure noise. Manual user-triggered
+    /// commands (Refresh button etc.) MUST use the regular EnqueueMessage
+    /// so the user still sees their explicit query reply in chat.
+    ///
+    /// Mechanism: sets the static "next-capture-silent" flag on
+    /// MessageService_Processing immediately before arming the intercept.
+    /// NoteOutboundForIntercept consumes it during arming and stores its
+    /// decision in a per-intercept slot, so subsequent regular EnqueueMessage
+    /// calls aren't affected.
+    /// </summary>
+    public static void EnqueueMessageSilent(string text)
+    {
+        if (string.IsNullOrEmpty(text)) return;
+        if (!_isInitialized)
+        {
+            LogUtils.LogWarning($"EnqueueMessageSilent('{text}') ignored — character/user not bound yet.");
+            return;
+        }
+        // 0.10.6: _nextCommandIsBchAuto replaces the prior
+        // _suppressNextCaptureChat flag. The intercept arming reads this
+        // and classifies the command as BchAuto category (rather than
+        // running the prefix classifier), so the Chat Logging BchAuto
+        // toggle controls visibility. Same partial-class field — no prefix.
+        _nextCommandIsBchAuto = true;
+        NoteOutboundForIntercept(text);
+        // Defensive reset: NoteOutboundForIntercept clears the flag after
+        // arming, but if the command didn't match any arming branch we
+        // need to clear so the next call isn't accidentally tagged auto.
+        _nextCommandIsBchAuto = false;
         SendMessage(text);
     }
 

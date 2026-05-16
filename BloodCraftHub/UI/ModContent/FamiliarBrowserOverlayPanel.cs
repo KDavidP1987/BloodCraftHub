@@ -72,6 +72,24 @@ public class FamiliarBrowserOverlayPanel : ResizeablePanelBase
     private GameObject _famListContainer;
     // Footer
     private ButtonRef _unbindBtn;
+    // 0.10.1: sort cycle button in the header.
+    private ButtonRef _sortBtn;
+    // 0.10.10: in-overlay scan button — same backend as the V-Bloods tab.
+    private ButtonRef _scanBtn;
+    // 0.10.5: V-Blood view toggle. The overlay can render either the
+    // current box's familiars (BoxView, original behavior) or a compact
+    // list of every captured V-Blood from VBloodCollection (VBloodView).
+    // The two modes share the same scroll container — Render() repopulates
+    // it differently based on _viewMode. Header elements specific to one
+    // mode (box-cycle arrows in BoxView, scan status in VBloodView) are
+    // toggled visible/hidden alongside.
+    private enum ViewMode { BoxView, VBloodView }
+    private ViewMode _viewMode = ViewMode.BoxView;
+    private ButtonRef _viewBtn;
+    private GameObject _boxNavRow;     // ← BoxName → Reload — hidden in V-Blood mode
+    private TextMeshProUGUI _vbStatusLabel; // shown in V-Blood mode (replaces _activeFamLabel)
+    private bool _vbSummonStatusSubscribed;
+    private bool _vbCollectionSubscribed;
 
     // Two-click destruction-confirm state — mirrors MainPanel's auto-swap
     // logic but kept local so arming in the overlay doesn't leak into the
@@ -90,6 +108,18 @@ public class FamiliarBrowserOverlayPanel : ResizeablePanelBase
     {
         base.ConstructPanelContent();
 
+        // 0.10.13: force-expand=false on the ContentRoot VLG so the
+        // toolbar / name / status / footer rows don't absorb extra
+        // height when the overlay is resized — all extra space goes
+        // to the scrollview (flex=1) instead. Mirrors the same fix
+        // applied to the main panel; friend-test: "the box label
+        // container is still unnecessarily large." The box-name row
+        // was being force-expanded beyond its preferredHeight=22
+        // because Unity's VLG distributes extra space evenly among
+        // all children when forceExpand is true.
+        var rootVlg = ContentRoot.GetComponent<UnityEngine.UI.VerticalLayoutGroup>();
+        if (rootVlg != null) rootVlg.childForceExpandHeight = false;
+
         BuildHeader();
         BuildFamiliarList();
         BuildFooter();
@@ -102,6 +132,17 @@ public class FamiliarBrowserOverlayPanel : ResizeablePanelBase
             PlayerStateService.FamiliarChanged    += OnAnyBoxStateChanged;
             _subscribed = true;
         }
+        // 0.10.5: V-Blood collection updates also trigger a render so the
+        // overlay's V-Blood view reflects scanner progress in real time.
+        if (!_vbCollectionSubscribed)
+        {
+            PlayerStateService.VBloodCollectionChanged += OnAnyBoxStateChanged;
+            VBloodScannerService.ScanStateChanged      += OnScanStateChanged;
+            _vbCollectionSubscribed = true;
+        }
+        // Apply initial view-mode visibility (BoxView default; ApplyViewModeVisibility
+        // shows the box-nav row).
+        ApplyViewModeVisibility();
 
         // Per-frame ticker that fires the first-load auto-pull as soon as
         // MessageService is ready. Pre-0.8.1 the auto-pull was an inline check
@@ -129,59 +170,58 @@ public class FamiliarBrowserOverlayPanel : ResizeablePanelBase
         EnqueueOrWarn(MessageService.BCCOM_FAM_BOXES);
     }
 
+    /// <summary>0.10.10: header rebuilt for clarity. Friend-testing 0.10.9
+    /// surfaced "box name overlaps the ◄ / ► nav buttons in some states."
+    /// New layout has FIVE stacked rows instead of two:
+    ///
+    ///   Row 1 — toolbar: ◄  ►  Reload  Scan  View  Sort
+    ///   Row 2 — box name + count (own line; "Name (X / N)")
+    ///   Row 3 — mode / filter / active-familiar status
+    ///   Row 4 — scroll list (built by BuildFamiliarList)
+    ///   Row 5 — Unbind footer
+    ///
+    /// All controls sit on Row 1, so the box-name label can't be crowded
+    /// by buttons regardless of overlay width. Row 2 is hidden in V-Blood
+    /// view, Row 3 takes its place describing the alternate mode.</summary>
     private void BuildHeader()
     {
-        // Box-cycling row: ◄ BoxName ► [Refresh]
-        var headerRow = UIFactory.CreateHorizontalGroup(ContentRoot, "BoxHeader",
+        // ── Row 1: toolbar (every button) ───────────────────────────────
+        var toolbar = UIFactory.CreateHorizontalGroup(ContentRoot, "OverlayToolbar",
             forceExpandWidth: true, forceExpandHeight: false,
             childControlWidth: true, childControlHeight: true,
-            spacing: 6, padding: new Vector4(0, 0, 0, 0));
-        UIFactory.SetLayoutElement(headerRow,
+            spacing: 4, padding: new Vector4(0, 0, 0, 0));
+        UIFactory.SetLayoutElement(toolbar,
             minWidth: 260, preferredWidth: 280, flexibleWidth: 1,
             minHeight: 28, preferredHeight: 30, flexibleHeight: 0);
 
-        // Use ← / → (LEFTWARDS / RIGHTWARDS ARROW, U+2190 / U+2192) — these
-        // render correctly in V Rising's TMPro fallback font (we use ← elsewhere
-        // for the main Boxes tab Back button and it works). The earlier ◄ / ►
-        // (BLACK POINTERS, U+25C4 / U+25BA) and ↻ (CLOCKWISE OPEN CIRCLE ARROW,
-        // U+21BB) glyphs were missing from the font and rendered as squares.
-        // Refresh now uses the word "Reload" since no compact safe glyph exists.
-        var prev = UIFactory.CreateButton(headerRow, "BoxPrev", "←");
+        // Box prev (←) — narrowed slightly so a 6-button toolbar still fits
+        // the overlay's default width.
+        var prev = UIFactory.CreateButton(toolbar, "BoxPrev", "←");
         UIFactory.SetLayoutElement(prev.GameObject,
-            minWidth: 36, preferredWidth: 36, flexibleWidth: 0,
+            minWidth: 28, preferredWidth: 30, flexibleWidth: 0,
             minHeight: 26, preferredHeight: 28, flexibleHeight: 0);
         var prevTxt = prev.Component.GetComponentInChildren<TextMeshProUGUI>();
-        if (prevTxt != null) { prevTxt.fontSize = Theme.ScaledOverlay(18); prevTxt.fontStyle = FontStyles.Bold; }
+        if (prevTxt != null) { prevTxt.fontSize = Theme.ScaledOverlay(16); prevTxt.fontStyle = FontStyles.Bold; }
         prev.OnClick = () => CycleBox(-1);
         UI.TooltipHover.Attach(prev.GameObject, "Previous box (cycles left through your familiar boxes).");
 
-        // Box-name label now shows "Name  (X / N)" so you can see where you
-        // are in the cycle.
-        var nameLbl = UIFactory.CreateLabel(headerRow, "BoxName", "(no box)",
-            TextAlignmentOptions.Center, color: null, fontSize: Theme.ScaledOverlay(14));
-        UIFactory.SetLayoutElement(nameLbl.GameObject,
-            minWidth: 130, preferredWidth: 170, flexibleWidth: 1,
-            minHeight: 26, preferredHeight: 28, flexibleHeight: 0);
-        nameLbl.TextMesh.fontStyle = FontStyles.Bold;
-        nameLbl.TextMesh.enableWordWrapping = false;
-        nameLbl.TextMesh.overflowMode = TextOverflowModes.Overflow;
-        _boxNameLabel = nameLbl.TextMesh;
-
-        var next = UIFactory.CreateButton(headerRow, "BoxNext", "→");
+        // Box next (→).
+        var next = UIFactory.CreateButton(toolbar, "BoxNext", "→");
         UIFactory.SetLayoutElement(next.GameObject,
-            minWidth: 36, preferredWidth: 36, flexibleWidth: 0,
+            minWidth: 28, preferredWidth: 30, flexibleWidth: 0,
             minHeight: 26, preferredHeight: 28, flexibleHeight: 0);
         var nextTxt = next.Component.GetComponentInChildren<TextMeshProUGUI>();
-        if (nextTxt != null) { nextTxt.fontSize = Theme.ScaledOverlay(18); nextTxt.fontStyle = FontStyles.Bold; }
+        if (nextTxt != null) { nextTxt.fontSize = Theme.ScaledOverlay(16); nextTxt.fontStyle = FontStyles.Bold; }
         next.OnClick = () => CycleBox(+1);
         UI.TooltipHover.Attach(next.GameObject, "Next box (cycles right through your familiar boxes).");
 
-        var refresh = UIFactory.CreateButton(headerRow, "BoxRefresh", "Reload");
+        // Reload button — refreshes box list + current box contents.
+        var refresh = UIFactory.CreateButton(toolbar, "BoxRefresh", "Reload");
         UIFactory.SetLayoutElement(refresh.GameObject,
-            minWidth: 60, preferredWidth: 64, flexibleWidth: 0,
+            minWidth: 54, preferredWidth: 60, flexibleWidth: 0,
             minHeight: 26, preferredHeight: 28, flexibleHeight: 0);
         var refreshTxt = refresh.Component.GetComponentInChildren<TextMeshProUGUI>();
-        if (refreshTxt != null) refreshTxt.fontSize = Theme.ScaledOverlay(12);
+        if (refreshTxt != null) refreshTxt.fontSize = Theme.ScaledOverlay(11);
         refresh.OnClick = () =>
         {
             EnqueueOrWarn(MessageService.BCCOM_FAM_BOXES);
@@ -189,21 +229,116 @@ public class FamiliarBrowserOverlayPanel : ResizeablePanelBase
         };
         UI.TooltipHover.Attach(refresh.GameObject, "Re-pull the box list AND the current box's familiar list from the server.");
 
-        // Combined active-familiar / swap-warning label. When idle this shows
-        // "Active: {name}" in italic; when a swap is armed this shows the
-        // warning text in warm orange. Sharing one slot saves the ~36px the
-        // dedicated warning row used to reserve, which the user reported as
-        // wasted space at the top of the overlay (compressed the familiar
-        // list and forced extra scrolling for full-10 boxes).
-        var status = UIFactory.CreateLabel(ContentRoot, "StatusLine",
-            "Active: (none)", TextAlignmentOptions.MidlineLeft, color: null, fontSize: Theme.ScaledOverlay(12));
-        UIFactory.SetLayoutElement(status.GameObject,
+        // 0.10.10: Scan button — triggers a full V-Blood box-sweep without
+        // requiring the user to switch to the main UI's V-Bloods tab. Same
+        // backend as the V-Bloods tab's Scan all; cycles to "Cancel" while
+        // a scan is running.
+        _scanBtn = UIFactory.CreateButton(toolbar, "OverlayScanBtn", FormatScanBtnText());
+        UIFactory.SetLayoutElement(_scanBtn.GameObject,
+            minWidth: 54, preferredWidth: 60, flexibleWidth: 0,
+            minHeight: 26, preferredHeight: 28, flexibleHeight: 0);
+        var scanTxt = _scanBtn.Component.GetComponentInChildren<TextMeshProUGUI>();
+        if (scanTxt != null) scanTxt.fontSize = Theme.ScaledOverlay(11);
+        _scanBtn.OnClick = () =>
+        {
+            if (VBloodScannerService.Scanning) VBloodScannerService.CancelScan();
+            else                                VBloodScannerService.StartScan();
+            RefreshScanBtnText();
+        };
+        UI.TooltipHover.Attach(_scanBtn.GameObject,
+            "Run the V-Blood box-sweep scan from the overlay — same as the V-Bloods tab's Scan all button. Walks every box; ~30-60s; restores your active box at the end. Click again while running to cancel.");
+
+        // View toggle — Box ↔ V-Blood collection.
+        _viewBtn = UIFactory.CreateButton(toolbar, "ViewModeBtn", FormatViewBtnText());
+        UIFactory.SetLayoutElement(_viewBtn.GameObject,
+            minWidth: 60, preferredWidth: 70, flexibleWidth: 0,
+            minHeight: 26, preferredHeight: 28, flexibleHeight: 0);
+        var viewTxt = _viewBtn.Component.GetComponentInChildren<TextMeshProUGUI>();
+        if (viewTxt != null) viewTxt.fontSize = Theme.ScaledOverlay(10);
+        _viewBtn.OnClick = () =>
+        {
+            _viewMode = _viewMode == ViewMode.BoxView ? ViewMode.VBloodView : ViewMode.BoxView;
+            RefreshViewBtnText();
+            ApplyViewModeVisibility();
+            Render();
+        };
+        UI.TooltipHover.Attach(_viewBtn.GameObject,
+            "Switch between the box-by-box familiar browser (default) and a compact V-Blood collection view sourced from the V-Blood scanner. Click Scan above to populate V-Blood data.");
+
+        // Sort cycle.
+        _sortBtn = UIFactory.CreateButton(toolbar, "FamSortBtn", FormatSortBtnText());
+        UIFactory.SetLayoutElement(_sortBtn.GameObject,
+            minWidth: 50, preferredWidth: 56, flexibleWidth: 0,
+            minHeight: 26, preferredHeight: 28, flexibleHeight: 0);
+        var sortTxt = _sortBtn.Component.GetComponentInChildren<TextMeshProUGUI>();
+        if (sortTxt != null) sortTxt.fontSize = Theme.ScaledOverlay(10);
+        _sortBtn.OnClick = () =>
+        {
+            var current = Settings.FamiliarSortOrderSetting;
+            var effective = current == Settings.FamiliarSortOrder.Location
+                ? Settings.FamiliarSortOrder.Default
+                : current;
+            var nextMode = effective switch
+            {
+                Settings.FamiliarSortOrder.Default      => Settings.FamiliarSortOrder.Alphabetical,
+                Settings.FamiliarSortOrder.Alphabetical => Settings.FamiliarSortOrder.Level,
+                Settings.FamiliarSortOrder.Level        => Settings.FamiliarSortOrder.Default,
+                _                                       => Settings.FamiliarSortOrder.Default,
+            };
+            Settings.SetFamiliarSortOrder(nextMode);
+            RefreshSortBtnText();
+            Render();
+        };
+        UI.TooltipHover.Attach(_sortBtn.GameObject,
+            "Cycle the list sort order: Box (server order) → A→Z → Level (descending).");
+
+        // ── Row 2: box name + count (its OWN line so nothing crowds it) ─
+        // 0.10.11: tighter row height (was 24/26 → 20/22) and zero
+        // padding — friend-test 0.10.10 surfaced ~6 px of unused space
+        // around this row that compressed the visible familiar list.
+        var nameRow = UIFactory.CreateHorizontalGroup(ContentRoot, "BoxNameRow",
+            forceExpandWidth: true, forceExpandHeight: false,
+            childControlWidth: true, childControlHeight: true,
+            spacing: 0, padding: new Vector4(0, 0, 0, 0));
+        UIFactory.SetLayoutElement(nameRow,
             minWidth: 260, preferredWidth: 280, flexibleWidth: 1,
             minHeight: 20, preferredHeight: 22, flexibleHeight: 0);
-        status.TextMesh.enableWordWrapping = true;
-        status.TextMesh.overflowMode = TextOverflowModes.Overflow;
+        _boxNavRow = nameRow; // hidden in V-Blood view via ApplyViewModeVisibility
+
+        var nameLbl = UIFactory.CreateLabel(nameRow, "BoxName", "(no box)",
+            TextAlignmentOptions.Center, color: null, fontSize: Theme.ScaledOverlay(13));
+        UIFactory.SetLayoutElement(nameLbl.GameObject,
+            minWidth: 200, preferredWidth: 260, flexibleWidth: 1,
+            minHeight: 18, preferredHeight: 20, flexibleHeight: 0);
+        nameLbl.TextMesh.fontStyle = FontStyles.Bold;
+        nameLbl.TextMesh.enableWordWrapping = false;
+        nameLbl.TextMesh.overflowMode = TextOverflowModes.Overflow;
+        _boxNameLabel = nameLbl.TextMesh;
+
+        // ── Row 3: mode-aware status (active familiar / scan progress) ──
+        // 0.10.11: word-wrap OFF so a long familiar name can't grow this
+        // row into a 2-line block that steals scroll-list space. Overflow
+        // mode set to Ellipsis so long names truncate cleanly.
+        var status = UIFactory.CreateLabel(ContentRoot, "StatusLine",
+            "Active: (none)", Theme.OverlayMidlineAlignment(), color: null, fontSize: Theme.ScaledOverlay(12));
+        UIFactory.SetLayoutElement(status.GameObject,
+            minWidth: 260, preferredWidth: 280, flexibleWidth: 1,
+            minHeight: 18, preferredHeight: 20, flexibleHeight: 0);
+        status.TextMesh.enableWordWrapping = false;
+        status.TextMesh.overflowMode = TextOverflowModes.Ellipsis;
         _activeFamLabel = status.TextMesh;
         _swapWarningLabel = status.TextMesh; // same widget, dual-purpose
+    }
+
+    /// <summary>0.10.10: scan-button label format. Mirrors the V-Bloods tab's
+    /// Scan all/Cancel cycle.</summary>
+    private string FormatScanBtnText() => VBloodScannerService.Scanning ? "Cancel" : "Scan";
+
+    private void RefreshScanBtnText()
+    {
+        if (_scanBtn == null) return;
+        var t = _scanBtn.Component.GetComponentInChildren<TextMeshProUGUI>();
+        if (t != null) t.text = FormatScanBtnText();
     }
 
     private void BuildFamiliarList()
@@ -218,22 +353,47 @@ public class FamiliarBrowserOverlayPanel : ResizeablePanelBase
         UIFactory.SetLayoutElement(scrollWrap,
             minWidth: 260, preferredWidth: 280, flexibleWidth: 1,
             minHeight: 80, flexibleHeight: 1);
+
+        // 0.10.8: gutter padding on the scroll content so V-Blood / familiar
+        // row labels don't run flush against the scrollbar's left edge.
+        // ResizeablePanelBase.ApplyContentEdgePadding pads the panel's
+        // outermost VerticalLayoutGroup — but the scroll content is its
+        // own nested VLG that the outer padding doesn't reach, and the
+        // scrollbar lives at the right inside of the panel's padded area,
+        // so without an explicit right pad here the row labels still touch
+        // the scrollbar's left edge. Use the same setting so left/right
+        // padding stays symmetric across overlays.
+        if (_famListContainer != null)
+        {
+            var contentVlg = _famListContainer.GetComponent<UnityEngine.UI.VerticalLayoutGroup>();
+            if (contentVlg != null)
+            {
+                int pad = Config.Settings.OverlayEdgePadding;
+                var p = contentVlg.padding;
+                p.left  = pad;
+                p.right = pad;
+                contentVlg.padding = p;
+            }
+        }
     }
 
     private void BuildFooter()
     {
+        // 0.10.11: tighter footer height (was 30/32 → 26/28) so the
+        // overlay shows ~4 px more familiar list. The button itself stays
+        // at 24/26, leaving just ~2 px of breathing room top/bottom.
         var footer = UIFactory.CreateHorizontalGroup(ContentRoot, "Footer",
             forceExpandWidth: true, forceExpandHeight: false,
             childControlWidth: true, childControlHeight: true,
             spacing: 6, padding: new Vector4(0, 0, 0, 0));
         UIFactory.SetLayoutElement(footer,
             minWidth: 260, preferredWidth: 280, flexibleWidth: 1,
-            minHeight: 30, preferredHeight: 32, flexibleHeight: 0);
+            minHeight: 26, preferredHeight: 28, flexibleHeight: 0);
 
         _unbindBtn = UIFactory.CreateButton(footer, "Unbind", "Unbind active");
         UIFactory.SetLayoutElement(_unbindBtn.GameObject,
             minWidth: 120, preferredWidth: 200, flexibleWidth: 1,
-            minHeight: 26, preferredHeight: 28, flexibleHeight: 0);
+            minHeight: 24, preferredHeight: 26, flexibleHeight: 0);
         _unbindBtn.OnClick = () => EnqueueOrWarn(MessageService.BCCOM_FAM_UNBIND);
     }
 
@@ -269,9 +429,35 @@ public class FamiliarBrowserOverlayPanel : ResizeablePanelBase
         Render();
     }
 
+    /// <summary>0.10.10: keep the Scan button label in sync with the
+    /// scanner's running state, and surface live scan progress in the
+    /// status line.</summary>
+    private void OnScanStateChanged()
+    {
+        RefreshScanBtnText();
+        if (_activeFamLabel == null) return;
+        if (VBloodScannerService.Scanning)
+        {
+            string box = VBloodScannerService.CurrentBoxBeingScanned;
+            string suffix = string.IsNullOrEmpty(box) ? "" : $" — {box}";
+            _activeFamLabel.text = $"Scanning… box {VBloodScannerService.CompletedForCurrentScan + 1} / {VBloodScannerService.TotalForCurrentScan}{suffix}";
+        }
+        // When scan ends we let the normal Render() reset the active-fam
+        // label on the next BoxList / FamiliarChanged event.
+    }
+
     private void Render()
     {
         if (_boxNameLabel == null) return;
+
+        // 0.10.5: branch on view mode. V-Blood view bypasses the box-cycling
+        // header rendering and shows the collection grid instead. Box view
+        // (default) runs the existing box-by-box render path.
+        if (_viewMode == ViewMode.VBloodView)
+        {
+            RenderVBloodView();
+            return;
+        }
 
         // Header label "Name  (X / N)"
         var boxes = PlayerStateService.BoxList;
@@ -321,7 +507,46 @@ public class FamiliarBrowserOverlayPanel : ResizeablePanelBase
             return;
         }
 
-        foreach (var entry in entries)
+        // 0.10.1: respect the shared FamiliarSortOrder setting (cycled via
+        // the Sort button in the overlay header). Default leaves the
+        // server-provided box order; Alphabetical / Level reorder per the
+        // setting. We work on a local copy so we don't mutate the cached
+        // BoxContents list (other consumers rely on its index-aligned form).
+        var sortedEntries = new System.Collections.Generic.List<PlayerStateService.FamiliarBoxEntry>(entries);
+        switch (Settings.FamiliarSortOrderSetting)
+        {
+            case Settings.FamiliarSortOrder.Alphabetical:
+                sortedEntries.Sort((a, b) => string.Compare(a.Name, b.Name, System.StringComparison.OrdinalIgnoreCase));
+                break;
+            case Settings.FamiliarSortOrder.Level:
+                sortedEntries.Sort((a, b) =>
+                {
+                    if (b.Level != a.Level) return b.Level.CompareTo(a.Level);
+                    return string.Compare(a.Name, b.Name, System.StringComparison.OrdinalIgnoreCase);
+                });
+                break;
+            case Settings.FamiliarSortOrder.Location:
+                // 0.10.2: region-based ordering. V-Bloods in the box sort by
+                // their canonical region (1=Farbane through 7=Endgame); regular
+                // familiars (not in the V-Blood registry) collapse to region 99
+                // and sink to the bottom, alphabetized within that bucket.
+                // "Primal <name>" entries match their base form's region.
+                sortedEntries.Sort((a, b) =>
+                {
+                    string keyA = a.Name != null && a.Name.StartsWith("Primal ", System.StringComparison.OrdinalIgnoreCase)
+                        ? a.Name.Substring("Primal ".Length) : a.Name;
+                    string keyB = b.Name != null && b.Name.StartsWith("Primal ", System.StringComparison.OrdinalIgnoreCase)
+                        ? b.Name.Substring("Primal ".Length) : b.Name;
+                    int ra = BloodCraftHub.Resources.VBloodRegistry.RegionOrderFor(keyA);
+                    int rb = BloodCraftHub.Resources.VBloodRegistry.RegionOrderFor(keyB);
+                    if (ra != rb) return ra.CompareTo(rb);
+                    return string.Compare(a.Name, b.Name, System.StringComparison.OrdinalIgnoreCase);
+                });
+                break;
+            // Default falls through unchanged (server-provided order).
+        }
+
+        foreach (var entry in sortedEntries)
         {
             int idx = entry.Index;
             string label = $"{entry.Index:00}  —  {entry.Name}";
@@ -341,7 +566,7 @@ public class FamiliarBrowserOverlayPanel : ResizeablePanelBase
             var t = b.Component.GetComponentInChildren<TextMeshProUGUI>();
             if (t != null)
             {
-                t.alignment = TextAlignmentOptions.MidlineLeft;
+                t.alignment = Theme.OverlayMidlineAlignment();
                 t.fontSize = Theme.ScaledOverlay(12);
                 t.enableWordWrapping = false;
                 t.overflowMode = TextOverflowModes.Overflow;
@@ -350,10 +575,196 @@ public class FamiliarBrowserOverlayPanel : ResizeablePanelBase
         }
     }
 
+    // 0.10.1: public hook for MainPanel's V-Bloods tab to notify us when the
+    // shared sort setting changes — keeps the overlay's button text + list
+    // in sync without forcing the user to interact with the overlay directly.
+    public void NotifySortOrderChanged()
+    {
+        RefreshSortBtnText();
+        if (Enabled) Render();
+    }
+
+    // 0.10.5: view-mode toggle helpers.
+    private string FormatViewBtnText() => _viewMode == ViewMode.VBloodView ? "View: V-Bloods" : "View: Box";
+
+    private void RefreshViewBtnText()
+    {
+        if (_viewBtn == null) return;
+        var t = _viewBtn.Component.GetComponentInChildren<TextMeshProUGUI>();
+        if (t != null) t.text = FormatViewBtnText();
+    }
+
+    private void ApplyViewModeVisibility()
+    {
+        // Hide the box-nav row in V-Blood mode (no per-box cycling makes
+        // sense when we're showing the cross-box V-Blood collection).
+        if (_boxNavRow != null) _boxNavRow.SetActive(_viewMode == ViewMode.BoxView);
+        // The "Active: …" status line is reused for V-Blood summon status
+        // text in V-Blood mode. Visible in both modes — content differs.
+    }
+
+    private string FormatSortBtnText()
+    {
+        // 0.10.4: compact 1-line labels so the button stays narrow.
+        var mode = Settings.FamiliarSortOrderSetting;
+        return mode switch
+        {
+            Settings.FamiliarSortOrder.Alphabetical => "A→Z",
+            Settings.FamiliarSortOrder.Level        => "Lv↓",
+            Settings.FamiliarSortOrder.Location     => "Box",  // overlay treats Region as Default (box order)
+            _                                       => "Box",
+        };
+    }
+
+    private void RefreshSortBtnText()
+    {
+        if (_sortBtn == null) return;
+        var t = _sortBtn.Component.GetComponentInChildren<TextMeshProUGUI>();
+        if (t != null) t.text = FormatSortBtnText();
+    }
+
+    // 0.10.5: V-Blood-collection rendering for the overlay. Reads
+    // PlayerStateService.VBloodCollection (populated by the V-Blood
+    // scanner running off the main UI). Each row is a button — click
+    // dispatches into VBloodSummonService which composes the smart
+    // summon chain (unbind → cb → l → bind). Compact rows so the full
+    // collection fits inside a typical overlay width.
+    private const string CHIP_GREEN_OVERLAY = "#7CDA7C";
+    private const string CHIP_GRAY_OVERLAY  = "#666666";
+
+    private void RenderVBloodView()
+    {
+        // Repurpose the active-fam label as a V-Blood summary while in
+        // V-Blood mode. Counts captured / total + last summon status.
+        int total = Resources.VBloodRegistry.All.Length;
+        int captured = 0, primals = 0, shinies = 0;
+        foreach (var slot in PlayerStateService.VBloodCollection.Values)
+        {
+            if (slot.HasBasic) captured++;
+            if (slot.HasPrimal) primals++;
+            if (slot.HasShiny || slot.HasPrimalShiny) shinies++;
+        }
+        string header = $"V-Bloods: {captured} / {total}";
+        if (primals > 0) header += $" · {primals}P";
+        if (shinies > 0) header += $" · {shinies}★";
+        var summonStatus = Services.VBloodSummonService.LastStatus;
+        if (!string.IsNullOrEmpty(summonStatus)) header += $"   |  {summonStatus}";
+        _activeFamLabel.text = header;
+
+        if (_unbindBtn != null) _unbindBtn.Component.interactable = false; // no per-row unbind concept in V-Blood view
+
+        ClearChildren(_famListContainer);
+
+        if (PlayerStateService.VBloodCollection.Count == 0)
+        {
+            AddListLine("(no scan yet — open V-Bloods tab in main UI and click Scan)");
+            return;
+        }
+
+        // Build a sorted name list using the same sort setting as everywhere
+        // else. Location/Region sort works here because V-Bloods all have a
+        // canonical region — same logic as the V-Bloods tab in MainPanel.
+        var names = new System.Collections.Generic.List<string>(Resources.VBloodRegistry.All);
+        switch (Settings.FamiliarSortOrderSetting)
+        {
+            case Settings.FamiliarSortOrder.Alphabetical:
+                names.Sort(System.StringComparer.OrdinalIgnoreCase);
+                break;
+            case Settings.FamiliarSortOrder.Level:
+                // V-Blood "level" = max captured level across all variants;
+                // 0 when uncaptured. Sinks uncaptured rows to bottom.
+                names.Sort((a, b) =>
+                {
+                    int la = GetVBloodMaxLevelFromBoxContents(a);
+                    int lb = GetVBloodMaxLevelFromBoxContents(b);
+                    if (lb != la) return lb.CompareTo(la);
+                    return string.Compare(a, b, System.StringComparison.OrdinalIgnoreCase);
+                });
+                break;
+            case Settings.FamiliarSortOrder.Location:
+                names.Sort((a, b) =>
+                {
+                    int ra = Resources.VBloodRegistry.RegionOrderFor(a);
+                    int rb = Resources.VBloodRegistry.RegionOrderFor(b);
+                    if (ra != rb) return ra.CompareTo(rb);
+                    return string.Compare(a, b, System.StringComparison.OrdinalIgnoreCase);
+                });
+                break;
+            // Default: registry order (already alphabetical).
+        }
+
+        foreach (var name in names)
+        {
+            PlayerStateService.VBloodCollection.TryGetValue(name, out var slot);
+            string chips = BuildOverlayChipBar(slot);
+            // Compact row label: "Name   [chips]   box03"
+            string label = $"{name}   {chips}";
+            if (!string.IsNullOrEmpty(slot.BestBox)) label += $"   {slot.BestBox}";
+
+            var btn = UIFactory.CreateButton(_famListContainer, $"VBRow_{name}", label);
+            UIFactory.SetLayoutElement(btn.GameObject,
+                minWidth: 240, preferredWidth: 260, flexibleWidth: 1,
+                minHeight: 20, preferredHeight: 22, flexibleHeight: 0);
+            var t = btn.Component.GetComponentInChildren<TextMeshProUGUI>();
+            if (t != null)
+            {
+                t.alignment = Theme.OverlayMidlineAlignment();
+                t.fontSize = Theme.ScaledOverlay(11);
+                t.enableWordWrapping = false;
+                t.overflowMode = TextOverflowModes.Overflow;
+            }
+            // Click → smart summon via shared service. The service handles
+            // the no-known-box case (logs to status label) so we can dispatch
+            // unconditionally here.
+            string captured_name = name; // capture for closure
+            btn.OnClick = () =>
+            {
+                if (!_vbSummonStatusSubscribed)
+                {
+                    Services.VBloodSummonService.StatusChanged += OnVBSummonStatus;
+                    _vbSummonStatusSubscribed = true;
+                }
+                Services.VBloodSummonService.SummonVBlood(captured_name);
+            };
+        }
+    }
+
+    private void OnVBSummonStatus(string status)
+    {
+        // Re-render header so the status text appears. Cheap.
+        if (_viewMode == ViewMode.VBloodView && Enabled) Render();
+    }
+
+    private static string BuildOverlayChipBar(PlayerStateService.VBloodCaptureStatus s)
+    {
+        string Chip(string glyph, bool on) =>
+            $"<color={(on ? CHIP_GREEN_OVERLAY : CHIP_GRAY_OVERLAY)}>{glyph}</color>";
+        // Compact glyph-only chips (no brackets) to fit the narrow overlay.
+        return Chip("B", s.HasBasic) + Chip("S", s.HasShiny) + Chip("P", s.HasPrimal) + Chip("Ps", s.HasPrimalShiny);
+    }
+
+    private static int GetVBloodMaxLevelFromBoxContents(string vbloodName)
+    {
+        int max = 0;
+        string primalName = "Primal " + vbloodName;
+        foreach (var kv in PlayerStateService.BoxContents)
+        {
+            if (kv.Value == null) continue;
+            foreach (var e in kv.Value)
+            {
+                bool nameMatches =
+                    string.Equals(e.Name, vbloodName,  System.StringComparison.OrdinalIgnoreCase)
+                 || string.Equals(e.Name, primalName,  System.StringComparison.OrdinalIgnoreCase);
+                if (nameMatches && e.Level > max) max = e.Level;
+            }
+        }
+        return max;
+    }
+
     private void AddListLine(string text)
     {
         var lbl = UIFactory.CreateLabel(_famListContainer, "ListLine", text,
-            TextAlignmentOptions.MidlineLeft, color: null, fontSize: Theme.ScaledOverlay(12));
+            Theme.OverlayMidlineAlignment(), color: null, fontSize: Theme.ScaledOverlay(12));
         UIFactory.SetLayoutElement(lbl.GameObject,
             minWidth: 240, preferredWidth: 260, flexibleWidth: 1,
             minHeight: 20, preferredHeight: 22, flexibleHeight: 0);
@@ -418,6 +829,12 @@ public class FamiliarBrowserOverlayPanel : ResizeablePanelBase
             PlayerStateService.ActiveBoxChanged   -= OnAnyBoxStateChanged;
             PlayerStateService.FamiliarChanged    -= OnAnyBoxStateChanged;
             _subscribed = false;
+        }
+        if (_vbCollectionSubscribed)
+        {
+            PlayerStateService.VBloodCollectionChanged -= OnAnyBoxStateChanged;
+            VBloodScannerService.ScanStateChanged      -= OnScanStateChanged;
+            _vbCollectionSubscribed = false;
         }
         // Always remove the auto-pull ticker so it doesn't keep firing after
         // panel destruction. Idempotent — Remove on a non-registered handler
