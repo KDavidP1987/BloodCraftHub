@@ -76,7 +76,7 @@ public static class FormBuilder
             TextAlignmentOptions.MidlineLeft, color: null, fontSize: Theme.ScaledUI(13));
         UIFactory.SetLayoutElement(titleLbl.GameObject,
             minWidth: 360, preferredWidth: 400, flexibleWidth: 1,
-            minHeight: 20, preferredHeight: 22, flexibleHeight: 0);
+            minHeight: Theme.ScaledHeight(20), preferredHeight: Theme.ScaledHeight(22), flexibleHeight: 0);
         titleLbl.TextMesh.fontStyle = FontStyles.Bold | FontStyles.Italic;
         titleLbl.TextMesh.enableWordWrapping = false;
         titleLbl.TextMesh.overflowMode = TextOverflowModes.Overflow;
@@ -90,13 +90,13 @@ public static class FormBuilder
                 spacing: 6, padding: new Vector4(0, 0, 0, 0));
             UIFactory.SetLayoutElement(row,
                 minWidth: 360, preferredWidth: 400, flexibleWidth: 1,
-                minHeight: 28, preferredHeight: 30, flexibleHeight: 0);
+                minHeight: Theme.ScaledHeight(28), preferredHeight: Theme.ScaledHeight(30), flexibleHeight: 0);
 
             var lbl = UIFactory.CreateLabel(row, "Label", field.Label + ":",
                 TextAlignmentOptions.MidlineLeft, color: null, fontSize: Theme.ScaledUI(12));
             UIFactory.SetLayoutElement(lbl.GameObject,
                 minWidth: 90, preferredWidth: 100, flexibleWidth: 0,
-                minHeight: 24, preferredHeight: 26, flexibleHeight: 0);
+                minHeight: Theme.ScaledHeight(24), preferredHeight: Theme.ScaledHeight(26), flexibleHeight: 0);
             lbl.TextMesh.enableWordWrapping = false;
             lbl.TextMesh.overflowMode = TextOverflowModes.Overflow;
 
@@ -110,13 +110,13 @@ public static class FormBuilder
             spacing: 6, padding: new Vector4(0, 0, 2, 2));
         UIFactory.SetLayoutElement(submitRow,
             minWidth: 360, preferredWidth: 400, flexibleWidth: 1,
-            minHeight: 30, preferredHeight: 32, flexibleHeight: 0);
+            minHeight: Theme.ScaledHeight(30), preferredHeight: Theme.ScaledHeight(32), flexibleHeight: 0);
 
         var statusLbl = UIFactory.CreateLabel(submitRow, "FormStatus", "",
             TextAlignmentOptions.MidlineLeft, color: null, fontSize: Theme.ScaledUI(11));
         UIFactory.SetLayoutElement(statusLbl.GameObject,
             minWidth: 100, preferredWidth: 220, flexibleWidth: 1,
-            minHeight: 22, preferredHeight: 24, flexibleHeight: 0);
+            minHeight: Theme.ScaledHeight(22), preferredHeight: Theme.ScaledHeight(24), flexibleHeight: 0);
         statusLbl.TextMesh.fontStyle = FontStyles.Italic;
         statusLbl.TextMesh.enableWordWrapping = false;
         statusLbl.TextMesh.overflowMode = TextOverflowModes.Overflow;
@@ -124,7 +124,7 @@ public static class FormBuilder
         var submit = UIFactory.CreateButton(submitRow, "Submit", "Submit");
         UIFactory.SetLayoutElement(submit.GameObject,
             minWidth: 90, preferredWidth: 110, flexibleWidth: 0,
-            minHeight: 26, preferredHeight: 28, flexibleHeight: 0);
+            minHeight: Theme.ScaledHeight(26), preferredHeight: Theme.ScaledHeight(28), flexibleHeight: 0);
         var submitText = submit.Component.GetComponentInChildren<TextMeshProUGUI>();
         if (submitText != null)
         {

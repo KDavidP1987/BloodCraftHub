@@ -89,6 +89,11 @@ public class Plugin : BasePlugin
         // actively running; cheap when idle (one bool check + return).
         CoreUpdateBehavior.Actions.Add(VBloodScannerService.Tick);
 
+        // 0.11.0: shift-spell cooldown polling. Self-throttles to 10 Hz; cheap
+        // when no shift overlay is open (the service runs but the panel just
+        // never reads the values).
+        CoreUpdateBehavior.Actions.Add(ShiftCooldownService.Tick);
+
         // Tooltip hover loop. TickAll no-ops until the MainPanel sets
         // TooltipHover.Sink (during BuildTooltipFooter), so this is safe at
         // Load time. Registering here (not lazily on first MainPanel build)

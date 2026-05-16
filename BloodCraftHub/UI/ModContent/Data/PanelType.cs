@@ -13,6 +13,7 @@ public enum PanelType
     FamiliarsTab,
     BoxesTab,
     VBloodsTab,             // 0.10.0: collection tracker for V-Blood familiars across all boxes
+    AllFamiliarsTab,        // 0.11.0: cross-box list of every captured familiar with filter/sort/delete
     ClassTab,
     ExpertiseTab,
     BloodLegacyTab,
@@ -44,6 +45,7 @@ public enum PanelType
     FamiliarOverlay,
     FamiliarBrowserOverlay,
     ProfessionOverlay,
+    ShiftSpellOverlay,      // 0.11.0: visual cooldown ring/bar for the shift slot (Eclipse-style)
 
     // Legacy panel identities from BloodCraftUI — kept so the existing
     // ResizeablePanelBase config keys (Panels/<PanelType>) survive a port.

@@ -47,7 +47,7 @@ public class TextField : FormField
         Input = UIFactory.CreateInputField(row, $"Field_{Name}", Placeholder);
         UIFactory.SetLayoutElement(Input.GameObject,
             minWidth: 100, preferredWidth: 200, flexibleWidth: 1,
-            minHeight: 24, preferredHeight: 26, flexibleHeight: 0);
+            minHeight: Theme.ScaledHeight(24), preferredHeight: Theme.ScaledHeight(26), flexibleHeight: 0);
         if (!string.IsNullOrEmpty(Tooltip))
             TooltipHover.Attach(Input.GameObject, Tooltip);
     }
@@ -209,7 +209,7 @@ public class EnumField<T> : FormField where T : struct, Enum
 
         UIFactory.SetLayoutElement(go,
             minWidth: 100, preferredWidth: 200, flexibleWidth: 1,
-            minHeight: 24, preferredHeight: 26, flexibleHeight: 0);
+            minHeight: Theme.ScaledHeight(24), preferredHeight: Theme.ScaledHeight(26), flexibleHeight: 0);
         if (!string.IsNullOrEmpty(Tooltip))
             TooltipHover.Attach(go, Tooltip);
 
@@ -250,6 +250,137 @@ public class EnumIndexField<T> : EnumField<T> where T : struct, Enum
 }
 
 // ---------------------------------------------------------------------------
+// BoxNameDropdownField - TMP_Dropdown populated from PlayerStateService.BoxList
+// at Build time, refreshed whenever the box list changes. Used by the box-
+// mutation forms (Delete box, Rename box's "current name" slot, Move familiar's
+// destination slot) so the user picks from a list of EXISTING boxes instead
+// of free-typing one and risking a typo.
+//
+// If the box list is empty when Build runs, we kick off a `.fam boxes` so the
+// dropdown auto-fills as soon as the server replies. The subscription stays
+// alive for the panel's lifetime — there's no field-disposal hook in the
+// FormBuilder, so we null-check the dropdown GameObject before touching it
+// (avoids UAF after the field is destroyed by a panel rebuild).
+// ---------------------------------------------------------------------------
+public class BoxNameDropdownField : FormField
+{
+    public string Placeholder { get; set; } = "(select a box)";
+    /// <summary>0.11.0: when true, Build seeds an extra empty entry at the top so
+    /// the user can keep the field blank — useful for optional box pickers.
+    /// Default false; the box-mutation forms all REQUIRE a box.</summary>
+    public bool AllowEmpty { get; set; }
+
+    protected TMP_Dropdown Dropdown;
+    private System.Action _boxListChangedHandler;
+
+    public BoxNameDropdownField() { }
+    public BoxNameDropdownField(string name, string label, string tooltip = null, bool allowEmpty = false)
+    {
+        Name = name; Label = label; Tooltip = tooltip; AllowEmpty = allowEmpty;
+    }
+
+    public override void Build(GameObject row)
+    {
+        var initialOpts = BuildOptionList();
+        var go = UIFactory.CreateDropdown(row, $"Field_{Name}", out var dropdown,
+            initialOpts.Length > 0 ? initialOpts[0] : Placeholder,
+            itemFontSize: Theme.ScaledUI(13),
+            onValueChanged: null,
+            defaultOptions: initialOpts);
+        Dropdown = dropdown;
+        Dropdown.value = 0;
+
+        UIFactory.SetLayoutElement(go,
+            minWidth: 100, preferredWidth: 200, flexibleWidth: 1,
+            minHeight: Theme.ScaledHeight(24), preferredHeight: Theme.ScaledHeight(26), flexibleHeight: 0);
+        if (!string.IsNullOrEmpty(Tooltip))
+            TooltipHover.Attach(go, Tooltip);
+
+        FormDropdownRegistry.Register(dropdown);
+
+        // Listen for box-list updates so the dropdown stays in sync with
+        // server-side changes (.fam ab / .fam db / .fam rb).
+        _boxListChangedHandler = OnBoxListChanged;
+        Services.PlayerStateService.BoxListChanged += _boxListChangedHandler;
+
+        // Kick the server for a fresh box list if we don't have one yet — keeps
+        // the form usable on the first open before the user clicks Reload.
+        if ((Services.PlayerStateService.BoxList == null || Services.PlayerStateService.BoxList.Count == 0)
+            && Services.MessageService.IsInitialized)
+        {
+            Services.MessageService.EnqueueMessage(Services.MessageService.BCCOM_FAM_BOXES);
+        }
+    }
+
+    private void OnBoxListChanged()
+    {
+        if (Dropdown == null) { Services.PlayerStateService.BoxListChanged -= _boxListChangedHandler; return; }
+        // Defensive: the underlying GameObject may have been destroyed by a
+        // panel rebuild while our subscription is still wired. Detach and bail.
+        try { if (Dropdown.gameObject == null) { Services.PlayerStateService.BoxListChanged -= _boxListChangedHandler; Dropdown = null; return; } }
+        catch { Services.PlayerStateService.BoxListChanged -= _boxListChangedHandler; Dropdown = null; return; }
+
+        // Remember the previously-selected name so the new list keeps the
+        // user's selection across a refresh.
+        string previous = GetValueString();
+        var opts = BuildOptionList();
+
+        // Avoid TMP_Dropdown.AddOptions/ClearOptions because those have
+        // IL2CPP-bridge overloads that prefer Il2CppSystem.Collections.Generic.List<string>
+        // and the bridge is finicky on this Unity build. Mutate options
+        // directly — matches the upstream UIFactory.CreateDropdown pattern.
+        Dropdown.options.Clear();
+        foreach (var s in opts)
+            Dropdown.options.Add(new TMP_Dropdown.OptionData(s));
+
+        int restoreIdx = 0;
+        if (!string.IsNullOrEmpty(previous))
+        {
+            for (int i = 0; i < opts.Length; i++)
+            {
+                if (string.Equals(opts[i], previous, System.StringComparison.OrdinalIgnoreCase))
+                {
+                    restoreIdx = i; break;
+                }
+            }
+        }
+        Dropdown.value = restoreIdx;
+        Dropdown.RefreshShownValue();
+    }
+
+    private string[] BuildOptionList()
+    {
+        var list = new System.Collections.Generic.List<string>();
+        if (AllowEmpty) list.Add(""); // empty top entry the user can pick to leave the field blank
+        var boxes = Services.PlayerStateService.BoxList;
+        if (boxes != null)
+        {
+            foreach (var b in boxes)
+                if (!string.IsNullOrWhiteSpace(b)) list.Add(b);
+        }
+        if (list.Count == 0) list.Add(Placeholder);
+        return list.ToArray();
+    }
+
+    public override string GetValueString()
+    {
+        if (Dropdown == null) return "";
+        int idx = Dropdown.value;
+        var ilOpts = Dropdown.options;
+        if (ilOpts == null || idx < 0 || idx >= ilOpts.Count) return "";
+        var text = ilOpts[idx].text ?? "";
+        if (string.Equals(text, Placeholder, System.StringComparison.Ordinal)) return "";
+        return text;
+    }
+
+    public override bool IsValid()
+    {
+        if (AllowEmpty) return true;
+        return !string.IsNullOrEmpty(GetValueString());
+    }
+}
+
+// ---------------------------------------------------------------------------
 // BoolField - toggle. Emits "true"/"false" for commands that take a boolean arg.
 // ---------------------------------------------------------------------------
 public class BoolField : FormField
@@ -273,7 +404,7 @@ public class BoolField : FormField
         Toggle.Text.text = "";
         UIFactory.SetLayoutElement(Toggle.GameObject,
             minWidth: 60, preferredWidth: 80, flexibleWidth: 0,
-            minHeight: 24, preferredHeight: 26, flexibleHeight: 0);
+            minHeight: Theme.ScaledHeight(24), preferredHeight: Theme.ScaledHeight(26), flexibleHeight: 0);
         if (!string.IsNullOrEmpty(Tooltip))
             TooltipHover.Attach(Toggle.GameObject, Tooltip);
     }

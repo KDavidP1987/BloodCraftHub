@@ -55,7 +55,7 @@ public static class CollapsibleSection
         var header = UIFactory.CreateButton(group, "Header", BuildHeaderText(title, startExpanded));
         UIFactory.SetLayoutElement(header.GameObject,
             minWidth: 360, preferredWidth: 400, flexibleWidth: 1,
-            minHeight: 26, preferredHeight: 26, flexibleHeight: 0);
+            minHeight: Theme.ScaledHeight(26), preferredHeight: Theme.ScaledHeight(26), flexibleHeight: 0);
         var headerText = header.Component.GetComponentInChildren<TextMeshProUGUI>();
         if (headerText != null)
         {

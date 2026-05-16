@@ -57,6 +57,7 @@ public partial class MainPanel : ResizeablePanelBase
     private Toggle _famBrowserToggle;
     private Toggle _dqOverlayToggle;
     private Toggle _profOverlayToggle;
+    private Toggle _shiftOverlayToggle;
 
     // Familiars-tab live labels
     private TextMeshProUGUI _famNameLabel;
@@ -220,6 +221,7 @@ public partial class MainPanel : ResizeablePanelBase
                 (PanelType.FamiliarsTab,    "Familiars"),
                 (PanelType.BoxesTab,        "Boxes"),
                 (PanelType.VBloodsTab,      "V-Bloods"),
+                (PanelType.AllFamiliarsTab, "All Familiars"),
                 (PanelType.ClassTab,        "Class"),
                 (PanelType.ExpertiseTab,    "Weapon Expertise"),
                 (PanelType.BloodLegacyTab,  "Blood Legacy"),
@@ -811,6 +813,9 @@ public partial class MainPanel : ResizeablePanelBase
                 case PanelType.VBloodsTab:
                     BuildVBloodsTab(page);
                     break;
+                case PanelType.AllFamiliarsTab:
+                    BuildAllFamiliarsTab(page);
+                    break;
                 case PanelType.ClassTab:
                     BuildClassTab(page);
                     break;
@@ -1352,8 +1357,8 @@ public partial class MainPanel : ResizeablePanelBase
                 title: "Delete empty box",
                 commandTemplate: ".fam db {boxName}",
                 onSubmitted: refreshBoxes,
-                new TextField("boxName", "Box name", placeholder: "MyBox",
-                    tooltip: "Name of the box to delete. Server will reject if it's not empty.")));
+                new BoxNameDropdownField("boxName", "Box name",
+                    tooltip: "Pick the box to delete. Server will reject if it isn't empty — move familiars out first.")));
 
         CollapsibleSection.Build(_boxesPickerSection,
             title: "Rename box (.fam rb)",
@@ -1363,8 +1368,8 @@ public partial class MainPanel : ResizeablePanelBase
                 title: "Rename box",
                 commandTemplate: ".fam rb {current} {newName}",
                 onSubmitted: refreshBoxes,
-                new TextField("current", "Current name", placeholder: "OldName",
-                    tooltip: "The box's current name."),
+                new BoxNameDropdownField("current", "Current name",
+                    tooltip: "Pick the box to rename."),
                 new TextField("newName", "New name", placeholder: "NewName",
                     tooltip: "What to rename it to.")));
 
@@ -1473,8 +1478,8 @@ public partial class MainPanel : ResizeablePanelBase
                     // familiar disappears from the visible list immediately.
                     EnqueueOrWarn(MessageService.BCCOM_FAM_LIST_CURRENT_BOX);
                 },
-                new TextField("boxName", "Destination box", placeholder: "TargetBox",
-                    tooltip: "Name of the box to move the active familiar into. Must already exist; create one with the box management form on the picker view.")));
+                new BoxNameDropdownField("boxName", "Destination box",
+                    tooltip: "Pick the destination box. Must already exist; create one with the box management form on the picker view.")));
 
         CollapsibleSection.Build(_boxesContentSection,
             title: "Permanently delete familiar from box (.fam r)",
@@ -5090,11 +5095,13 @@ public partial class MainPanel : ResizeablePanelBase
         AddScaleButton(row, "Small",    () => Pick(0.85f));
         AddScaleButton(row, "Standard", () => Pick(1.00f));
         AddScaleButton(row, "Large",    () => Pick(1.20f));
+        AddScaleButton(row, "X-Large",  () => Pick(1.50f));
     }
 
     private static string FormatScaleHint(float v)
     {
         if (v <= 0.9f)  return "(current: Small)";
+        if (v >= 1.35f) return "(current: X-Large)";
         if (v >= 1.1f)  return "(current: Large)";
         return "(current: Standard)";
     }
@@ -5504,7 +5511,7 @@ public partial class MainPanel : ResizeablePanelBase
             TextAlignmentOptions.MidlineLeft, color: null, fontSize: fontSize);
         UIFactory.SetLayoutElement(lbl.GameObject,
             minWidth: 360, preferredWidth: 400, flexibleWidth: 1,
-            minHeight: 24, preferredHeight: 26, flexibleHeight: 0);
+            minHeight: Theme.ScaledHeight(24), preferredHeight: Theme.ScaledHeight(26), flexibleHeight: 0);
         lbl.TextMesh.fontStyle = style;
         lbl.TextMesh.enableWordWrapping = false;
         lbl.TextMesh.overflowMode = TextOverflowModes.Overflow;
@@ -5526,7 +5533,7 @@ public partial class MainPanel : ResizeablePanelBase
         // heading itself fixes the root cause.
         UIFactory.SetLayoutElement(lbl.GameObject,
             minWidth: 360, preferredWidth: 400, flexibleWidth: 1,
-            minHeight: 26, preferredHeight: 30, flexibleHeight: 0);
+            minHeight: Theme.ScaledHeight(26), preferredHeight: Theme.ScaledHeight(30), flexibleHeight: 0);
         lbl.TextMesh.fontStyle = FontStyles.Bold | FontStyles.Italic;
         lbl.TextMesh.enableWordWrapping = false;
         lbl.TextMesh.overflowMode = TextOverflowModes.Overflow;
@@ -5571,7 +5578,7 @@ public partial class MainPanel : ResizeablePanelBase
             bgColor: Theme.CardBackground);
         UIFactory.SetLayoutElement(card,
             minWidth: 360, preferredWidth: 400, flexibleWidth: 1,
-            minHeight: 28, flexibleHeight: 0);
+            minHeight: Theme.ScaledHeight(28), flexibleHeight: 0);
         // Optional system tint overlay — draws ON TOP of the card
         // background image so the wash modulates it down into the
         // theme-tinted hue. Uses a child Image with stretched anchors
@@ -5615,14 +5622,14 @@ public partial class MainPanel : ResizeablePanelBase
             spacing: 8, padding: new Vector4(0, 0, 0, 0));
         UIFactory.SetLayoutElement(row,
             minWidth: 320, preferredWidth: 380, flexibleWidth: 1,
-            minHeight: 20, preferredHeight: 22, flexibleHeight: 0);
+            minHeight: Theme.ScaledHeight(20), preferredHeight: Theme.ScaledHeight(22), flexibleHeight: 0);
 
         var lbl = UIFactory.CreateLabel(row, "Label",
             $"<color={Theme.MutedBodyHex}>{label}</color>",
             TextAlignmentOptions.MidlineLeft, color: null, fontSize: fs);
         UIFactory.SetLayoutElement(lbl.GameObject,
             minWidth: 140, preferredWidth: 170, flexibleWidth: 0,
-            minHeight: 20, preferredHeight: 22, flexibleHeight: 0);
+            minHeight: Theme.ScaledHeight(20), preferredHeight: Theme.ScaledHeight(22), flexibleHeight: 0);
         lbl.TextMesh.enableWordWrapping = false;
         lbl.TextMesh.overflowMode = TextOverflowModes.Overflow;
 
@@ -5630,7 +5637,7 @@ public partial class MainPanel : ResizeablePanelBase
             TextAlignmentOptions.MidlineRight, color: null, fontSize: fs);
         UIFactory.SetLayoutElement(val.GameObject,
             minWidth: 120, preferredWidth: 200, flexibleWidth: 1,
-            minHeight: 20, preferredHeight: 22, flexibleHeight: 0);
+            minHeight: Theme.ScaledHeight(20), preferredHeight: Theme.ScaledHeight(22), flexibleHeight: 0);
         val.TextMesh.fontStyle = valueStyle;
         val.TextMesh.enableWordWrapping = false;
         val.TextMesh.overflowMode = TextOverflowModes.Overflow;
@@ -5683,7 +5690,7 @@ public partial class MainPanel : ResizeablePanelBase
             TextAlignmentOptions.TopLeft, color: null, fontSize: fs);
         UIFactory.SetLayoutElement(lbl.GameObject,
             minWidth: 320, preferredWidth: 380, flexibleWidth: 1,
-            minHeight: 22, flexibleHeight: 0);
+            minHeight: Theme.ScaledHeight(22), flexibleHeight: 0);
         lbl.TextMesh.fontStyle = FontStyles.Normal;
         lbl.TextMesh.enableWordWrapping = true;
         lbl.TextMesh.overflowMode = TextOverflowModes.Overflow;
@@ -5707,7 +5714,7 @@ public partial class MainPanel : ResizeablePanelBase
         var b = UIFactory.CreateButton(parent, $"Cmd_{label}", label, color);
         UIFactory.SetLayoutElement(b.GameObject,
             minWidth: 70, preferredWidth: 110, flexibleWidth: 1,
-            minHeight: 28, preferredHeight: 30, flexibleHeight: 0);
+            minHeight: Theme.ScaledHeight(28), preferredHeight: Theme.ScaledHeight(30), flexibleHeight: 0);
         // Action rows use childForceExpandWidth so buttons share the row; tell
         // their inner TMP text not to wrap, so labels render on one line and
         // overflow visually (which is fine - shorter than wrap) instead of
@@ -5808,11 +5815,12 @@ public partial class MainPanel : ResizeablePanelBase
         visLabel.TextMesh.enableWordWrapping = false;
         visLabel.TextMesh.overflowMode = TextOverflowModes.Overflow;
 
-        _xpOverlayToggle   = AddOverlayToggle(row1, "XP",                PanelType.ExperienceOverlay);
-        _famOverlayToggle  = AddOverlayToggle(row1, "Familiar",          PanelType.FamiliarOverlay);
-        _famBrowserToggle  = AddOverlayToggle(row1, "Familiar Browser",  PanelType.FamiliarBrowserOverlay);
-        _dqOverlayToggle   = AddOverlayToggle(row1, "Daily quest",       PanelType.DailyQuestOverlay);
-        _profOverlayToggle = AddOverlayToggle(row1, "Professions",       PanelType.ProfessionOverlay);
+        _xpOverlayToggle    = AddOverlayToggle(row1, "XP",                PanelType.ExperienceOverlay);
+        _famOverlayToggle   = AddOverlayToggle(row1, "Familiar",          PanelType.FamiliarOverlay);
+        _famBrowserToggle   = AddOverlayToggle(row1, "Familiar Browser",  PanelType.FamiliarBrowserOverlay);
+        _dqOverlayToggle    = AddOverlayToggle(row1, "Daily quest",       PanelType.DailyQuestOverlay);
+        _profOverlayToggle  = AddOverlayToggle(row1, "Professions",       PanelType.ProfessionOverlay);
+        _shiftOverlayToggle = AddOverlayToggle(row1, "Shift spell",       PanelType.ShiftSpellOverlay);
 
         // Row 2: panel behavior — visually separated by the spacing in
         // the parent VLG, so it doesn't get confused with the visibility

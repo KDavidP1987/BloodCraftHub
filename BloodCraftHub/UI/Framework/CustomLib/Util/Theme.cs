@@ -138,6 +138,25 @@ public static class Theme
     public static int ScaledOverlay(int baseSize) =>
         UnityEngine.Mathf.Max(8, UnityEngine.Mathf.RoundToInt(baseSize * OverlayFontMultiplier));
 
+    // 0.11.0: layout-height helpers. Font scaling alone clips labels when
+    // the multiplier crosses ~1.3 — the text grows but the row's minHeight
+    // doesn't. ScaledHeight / ScaledOverlayHeight scale layout heights in
+    // lockstep with the font multiplier so cards / labels / buttons stay
+    // legible at X-Large (1.5×) without manually retuning every layout
+    // value. Applied inside the shared helpers (AddInfoLabel, AddCard,
+    // AddSectionHeading, AddBodyText) so the dominant cases are covered;
+    // tab-local custom layouts may still need per-tab tweaks at X-Large.
+    //
+    // Scaling stays at 1.0 below Standard so Small/Standard layouts are
+    // pixel-identical to pre-0.11.0; only Large+ stretches heights.
+    public static int ScaledHeight(int baseHeight) =>
+        UnityEngine.Mathf.Max(baseHeight,
+            UnityEngine.Mathf.RoundToInt(baseHeight * UnityEngine.Mathf.Max(1.0f, UIFontMultiplier)));
+
+    public static int ScaledOverlayHeight(int baseHeight) =>
+        UnityEngine.Mathf.Max(baseHeight,
+            UnityEngine.Mathf.RoundToInt(baseHeight * UnityEngine.Mathf.Max(1.0f, OverlayFontMultiplier)));
+
     static Theme()
     {
         Opacity = 0.8f;

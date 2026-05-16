@@ -324,12 +324,25 @@ public static class VBloodScannerService
         if (string.IsNullOrEmpty(localizedName)) return false;
 
         // Primal first — its base name is the suffix after the prefix.
+        // 0.11.0: Bloodcraft server-side strips " the X" from the registry
+        // name (e.g., "Adam the Firstborn" → "Primal Adam"; "Frostmaw the
+        // Mountain Terror" → "Primal Frostmaw"). The previous "full-name
+        // match only" logic missed every primal except for entries with
+        // no " the " in the name. Now we try full-name first (defensive,
+        // in case Bloodcraft changes its mind) then fall back to the
+        // stem lookup that handles the dominant case.
         if (localizedName.StartsWith(primalPrefix, StringComparison.OrdinalIgnoreCase))
         {
             string suffix = localizedName.Substring(primalPrefix.Length).Trim();
             if (VBloodRegistry.Contains(suffix))
             {
                 baseName = VBloodRegistry.CanonicalNameOf(suffix);
+                isPrimal = true;
+                return true;
+            }
+            if (VBloodRegistry.TryResolvePrimalStem(suffix, out var canonical))
+            {
+                baseName = canonical;
                 isPrimal = true;
                 return true;
             }

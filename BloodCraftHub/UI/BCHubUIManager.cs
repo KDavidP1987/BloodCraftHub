@@ -32,6 +32,7 @@ public class BCHubUIManager : UIManagerBase
     private FamiliarBrowserOverlayPanel _familiarBrowserOverlay;
     private DailyQuestOverlayPanel _dailyQuestOverlay;
     private ProfessionOverlayPanel _professionOverlay;
+    private ShiftSpellOverlayPanel _shiftSpellOverlay;
 
     // 0.9.0: session-only flag flipped by the master-overlay button on the
     // floating-button strip. When true, every overlay is hidden regardless
@@ -55,6 +56,7 @@ public class BCHubUIManager : UIManagerBase
     public FamiliarBrowserOverlayPanel  FamiliarBrowserOverlay => _familiarBrowserOverlay;
     public DailyQuestOverlayPanel       DailyQuestOverlay     => _dailyQuestOverlay;
     public ProfessionOverlayPanel       ProfessionOverlay     => _professionOverlay;
+    public ShiftSpellOverlayPanel       ShiftSpellOverlay     => _shiftSpellOverlay;
 
     /// <summary>0.10.14: read the global Settings.LockOverlays toggle and
     /// apply IsPinned to every currently-constructed overlay. Called when
@@ -69,6 +71,7 @@ public class BCHubUIManager : UIManagerBase
         ApplyPinnedTo(_familiarBrowserOverlay, pinned);
         ApplyPinnedTo(_dailyQuestOverlay, pinned);
         ApplyPinnedTo(_professionOverlay, pinned);
+        ApplyPinnedTo(_shiftSpellOverlay, pinned);
     }
 
     private static void ApplyPinnedTo(ResizeablePanelBase panel, bool pinned)
@@ -95,6 +98,7 @@ public class BCHubUIManager : UIManagerBase
         _familiarBrowserOverlay = null;
         _dailyQuestOverlay = null;
         _professionOverlay = null;
+        _shiftSpellOverlay = null;
     }
 
     protected override void AddMainContentPanel()
@@ -116,6 +120,7 @@ public class BCHubUIManager : UIManagerBase
         _familiarBrowserOverlay?.SetActive(active && (_familiarBrowserOverlay?.Enabled ?? false));
         _dailyQuestOverlay?.SetActive(active && (_dailyQuestOverlay?.Enabled ?? false));
         _professionOverlay?.SetActive(active && (_professionOverlay?.Enabled ?? false));
+        _shiftSpellOverlay?.SetActive(active && (_shiftSpellOverlay?.Enabled ?? false));
     }
 
     /// <summary>Show or hide the main tabbed panel.</summary>
@@ -163,6 +168,11 @@ public class BCHubUIManager : UIManagerBase
                 _professionOverlay.SetActive(!_professionOverlay.Enabled);
                 BloodCraftHub.Config.Settings.SetShowProfessionOverlay(_professionOverlay.Enabled);
                 break;
+            case PanelType.ShiftSpellOverlay:
+                EnsureShiftSpellOverlay();
+                _shiftSpellOverlay.SetActive(!_shiftSpellOverlay.Enabled);
+                BloodCraftHub.Config.Settings.SetShowShiftSpellOverlay(_shiftSpellOverlay.Enabled);
+                break;
             default:
                 throw new ArgumentOutOfRangeException(nameof(overlay), overlay, "Not a secondary overlay.");
         }
@@ -195,6 +205,7 @@ public class BCHubUIManager : UIManagerBase
             _familiarBrowserOverlay?.SetActive(false);
             _dailyQuestOverlay?.SetActive(false);
             _professionOverlay?.SetActive(false);
+            _shiftSpellOverlay?.SetActive(false);
             return;
         }
         // Un-suppress: re-show only overlays whose per-overlay Settings flag
@@ -223,6 +234,11 @@ public class BCHubUIManager : UIManagerBase
         {
             EnsureProfessionOverlay();
             _professionOverlay.SetActive(true);
+        }
+        if (BloodCraftHub.Config.Settings.ShowShiftSpellOverlay)
+        {
+            EnsureShiftSpellOverlay();
+            _shiftSpellOverlay.SetActive(true);
         }
     }
 
@@ -260,6 +276,11 @@ public class BCHubUIManager : UIManagerBase
             EnsureProfessionOverlay();
             _professionOverlay.SetActive(true);
         }
+        if (BloodCraftHub.Config.Settings.ShowShiftSpellOverlay)
+        {
+            EnsureShiftSpellOverlay();
+            _shiftSpellOverlay.SetActive(true);
+        }
     }
 
     public bool IsOverlayOpen(PanelType overlay) => overlay switch
@@ -269,6 +290,7 @@ public class BCHubUIManager : UIManagerBase
         PanelType.FamiliarBrowserOverlay => _familiarBrowserOverlay?.Enabled ?? false,
         PanelType.DailyQuestOverlay      => _dailyQuestOverlay?.Enabled ?? false,
         PanelType.ProfessionOverlay      => _professionOverlay?.Enabled ?? false,
+        PanelType.ShiftSpellOverlay      => _shiftSpellOverlay?.Enabled ?? false,
         _ => false,
     };
 
@@ -320,6 +342,14 @@ public class BCHubUIManager : UIManagerBase
         _professionOverlay.SetActive(false);
     }
 
+    private void EnsureShiftSpellOverlay()
+    {
+        if (_shiftSpellOverlay != null) return;
+        _shiftSpellOverlay = new ShiftSpellOverlayPanel(UiBase);
+        _panels.Add(_shiftSpellOverlay);
+        _shiftSpellOverlay.SetActive(false);
+    }
+
     // -----------------------------------------------------------------------
     // 0.9.2: live refresh helpers for the Settings tab.
     //
@@ -345,6 +375,7 @@ public class BCHubUIManager : UIManagerBase
         _familiarBrowserOverlay?.RefreshOpacity();
         _dailyQuestOverlay?.RefreshOpacity();
         _professionOverlay?.RefreshOpacity();
+        _shiftSpellOverlay?.RefreshOpacity();
         _mainPanel?.RefreshOpacity();
         _floatingButton?.RefreshOpacity();
     }
@@ -399,6 +430,7 @@ public class BCHubUIManager : UIManagerBase
         RebuildOverlay(ref _familiarBrowserOverlay, BloodCraftHub.Config.Settings.ShowFamiliarBrowser,   b => new FamiliarBrowserOverlayPanel(b));
         RebuildOverlay(ref _dailyQuestOverlay,      BloodCraftHub.Config.Settings.ShowDailyQuestOverlay, b => new DailyQuestOverlayPanel(b));
         RebuildOverlay(ref _professionOverlay,      BloodCraftHub.Config.Settings.ShowProfessionOverlay, b => new ProfessionOverlayPanel(b));
+        RebuildOverlay(ref _shiftSpellOverlay,      BloodCraftHub.Config.Settings.ShowShiftSpellOverlay, b => new ShiftSpellOverlayPanel(b));
     }
 
     private void RebuildOverlay<T>(ref T slot, bool wasVisibleByConfig, System.Func<BloodCraftHub.UI.Framework.UniverseLib.UI.UIBase, T> factory)

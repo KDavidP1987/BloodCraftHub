@@ -623,28 +623,60 @@ public class FamiliarBrowserOverlayPanel : ResizeablePanelBase
         if (t != null) t.text = FormatSortBtnText();
     }
 
-    // 0.10.5: V-Blood-collection rendering for the overlay. Reads
-    // PlayerStateService.VBloodCollection (populated by the V-Blood
-    // scanner running off the main UI). Each row is a button — click
-    // dispatches into VBloodSummonService which composes the smart
-    // summon chain (unbind → cb → l → bind). Compact rows so the full
-    // collection fits inside a typical overlay width.
-    private const string CHIP_GREEN_OVERLAY = "#7CDA7C";
-    private const string CHIP_GRAY_OVERLAY  = "#666666";
-
+    // 0.11.0: V-Blood overlay rows now mirror the BoxView per-familiar row
+    // format (index — name  Lv X  Pn  ★ school) instead of the compact
+    // chip bar. Friend-test feedback: "can't see shiny status, attribute,
+    // or level." Each captured variant gets its own row (so a V-Blood with
+    // basic + shiny + primal + primal-shiny shows four rows, one per
+    // instance) — same shape as the regular box view, just filtered to
+    // names in the V-Blood registry across every box. Uncaptured V-Bloods
+    // are not listed (they live in the V-Bloods tab of the main panel).
+    //
+    // Sort modes available here:
+    //   Default      — group by box, in scan order
+    //   Alphabetical — by base name, basic before primal
+    //   Level        — descending level, then name
+    //   Location     — region order from VBloodRegistry, then base name
     private void RenderVBloodView()
     {
-        // Repurpose the active-fam label as a V-Blood summary while in
-        // V-Blood mode. Counts captured / total + last summon status.
+        // Build the flat row list from VBloodCollection.Instances (one row
+        // per captured variant). Each row carries enough state to render
+        // and dispatch the summon click — we don't reach back into the
+        // collection per row at click time.
+        var rows = new System.Collections.Generic.List<VBloodOverlayRow>();
+        foreach (var kv in PlayerStateService.VBloodCollection)
+        {
+            var slot = kv.Value;
+            if (slot.Instances == null) continue;
+            foreach (var inst in slot.Instances)
+            {
+                rows.Add(new VBloodOverlayRow
+                {
+                    BaseName   = slot.Name,
+                    DisplayName = inst.IsPrimal ? "Primal " + slot.Name : slot.Name,
+                    Box        = inst.Box,
+                    Index      = inst.Index,
+                    Level      = inst.Level,
+                    Prestige   = inst.Prestige,
+                    IsShiny    = inst.IsShiny,
+                    IsPrimal   = inst.IsPrimal,
+                    ShinySchool = inst.ShinySchool,
+                });
+            }
+        }
+
+        // Header summary — counts the number of captured INSTANCES (rows
+        // visible), plus how many distinct V-Blood entries that covers, so
+        // the user can see both numbers at a glance.
         int total = Resources.VBloodRegistry.All.Length;
-        int captured = 0, primals = 0, shinies = 0;
+        int distinct = 0, primals = 0, shinies = 0;
         foreach (var slot in PlayerStateService.VBloodCollection.Values)
         {
-            if (slot.HasBasic) captured++;
-            if (slot.HasPrimal) primals++;
+            if (slot.HasBasic || slot.HasShiny || slot.HasPrimal || slot.HasPrimalShiny) distinct++;
+            if (slot.HasPrimal || slot.HasPrimalShiny) primals++;
             if (slot.HasShiny || slot.HasPrimalShiny) shinies++;
         }
-        string header = $"V-Bloods: {captured} / {total}";
+        string header = $"V-Bloods: {distinct} / {total}  ({rows.Count} captured)";
         if (primals > 0) header += $" · {primals}P";
         if (shinies > 0) header += $" · {shinies}★";
         var summonStatus = Services.VBloodSummonService.LastStatus;
@@ -655,53 +687,76 @@ public class FamiliarBrowserOverlayPanel : ResizeablePanelBase
 
         ClearChildren(_famListContainer);
 
-        if (PlayerStateService.VBloodCollection.Count == 0)
+        if (rows.Count == 0)
         {
-            AddListLine("(no scan yet — open V-Bloods tab in main UI and click Scan)");
+            AddListLine(PlayerStateService.VBloodCollection.Count == 0
+                ? "(no scan yet — click Scan above)"
+                : "(no V-Bloods captured in your boxes)");
             return;
         }
 
-        // Build a sorted name list using the same sort setting as everywhere
-        // else. Location/Region sort works here because V-Bloods all have a
-        // canonical region — same logic as the V-Bloods tab in MainPanel.
-        var names = new System.Collections.Generic.List<string>(Resources.VBloodRegistry.All);
+        // Sort variants. Within the same base name, basic always precedes
+        // primal, and within those, non-shiny precedes shiny — so the
+        // default per-row ordering reads naturally.
+        int VariantOrder(VBloodOverlayRow r)
+            => (r.IsPrimal ? 2 : 0) + (r.IsShiny ? 1 : 0);
+
         switch (Settings.FamiliarSortOrderSetting)
         {
             case Settings.FamiliarSortOrder.Alphabetical:
-                names.Sort(System.StringComparer.OrdinalIgnoreCase);
+                rows.Sort((a, b) =>
+                {
+                    int c = string.Compare(a.BaseName, b.BaseName, System.StringComparison.OrdinalIgnoreCase);
+                    if (c != 0) return c;
+                    return VariantOrder(a).CompareTo(VariantOrder(b));
+                });
                 break;
             case Settings.FamiliarSortOrder.Level:
-                // V-Blood "level" = max captured level across all variants;
-                // 0 when uncaptured. Sinks uncaptured rows to bottom.
-                names.Sort((a, b) =>
+                rows.Sort((a, b) =>
                 {
-                    int la = GetVBloodMaxLevelFromBoxContents(a);
-                    int lb = GetVBloodMaxLevelFromBoxContents(b);
-                    if (lb != la) return lb.CompareTo(la);
-                    return string.Compare(a, b, System.StringComparison.OrdinalIgnoreCase);
+                    if (b.Level != a.Level) return b.Level.CompareTo(a.Level);
+                    int c = string.Compare(a.BaseName, b.BaseName, System.StringComparison.OrdinalIgnoreCase);
+                    if (c != 0) return c;
+                    return VariantOrder(a).CompareTo(VariantOrder(b));
                 });
                 break;
             case Settings.FamiliarSortOrder.Location:
-                names.Sort((a, b) =>
+                rows.Sort((a, b) =>
                 {
-                    int ra = Resources.VBloodRegistry.RegionOrderFor(a);
-                    int rb = Resources.VBloodRegistry.RegionOrderFor(b);
+                    int ra = Resources.VBloodRegistry.RegionOrderFor(a.BaseName);
+                    int rb = Resources.VBloodRegistry.RegionOrderFor(b.BaseName);
                     if (ra != rb) return ra.CompareTo(rb);
-                    return string.Compare(a, b, System.StringComparison.OrdinalIgnoreCase);
+                    int c = string.Compare(a.BaseName, b.BaseName, System.StringComparison.OrdinalIgnoreCase);
+                    if (c != 0) return c;
+                    return VariantOrder(a).CompareTo(VariantOrder(b));
                 });
                 break;
-            // Default: registry order (already alphabetical).
+            default:
+                // Default: group by box, then by index inside box — mirrors
+                // BoxView's natural ordering for the boxes the scanner walked.
+                rows.Sort((a, b) =>
+                {
+                    int c = string.Compare(a.Box ?? "", b.Box ?? "", System.StringComparison.OrdinalIgnoreCase);
+                    if (c != 0) return c;
+                    return a.Index.CompareTo(b.Index);
+                });
+                break;
         }
 
-        foreach (var name in names)
+        foreach (var r in rows)
         {
-            PlayerStateService.VBloodCollection.TryGetValue(name, out var slot);
-            string chips = BuildOverlayChipBar(slot);
-            // Compact row label: "Name   [chips]   box03"
-            string label = $"{name}   {chips}";
-            if (!string.IsNullOrEmpty(slot.BestBox)) label += $"   {slot.BestBox}";
+            // Row format mirrors BoxView: "<idx>  —  <name>  Lv X  Pn  ★ school   [box]"
+            string label = $"{r.Index:00}  —  {r.DisplayName}";
+            if (r.Level > 0)    label += $"  Lv {r.Level}";
+            if (r.Prestige > 0) label += $"  P{r.Prestige}";
+            if (r.IsShiny)
+            {
+                label += "  ★";
+                if (!string.IsNullOrEmpty(r.ShinySchool)) label += $" {r.ShinySchool}";
+            }
+            if (!string.IsNullOrEmpty(r.Box)) label += $"   [{r.Box}]";
 
-            var btn = UIFactory.CreateButton(_famListContainer, $"VBRow_{name}", label);
+            var btn = UIFactory.CreateButton(_famListContainer, $"VBRow_{r.BaseName}_{r.Box}_{r.Index}_{(r.IsPrimal?'P':'B')}{(r.IsShiny?'S':'N')}", label);
             UIFactory.SetLayoutElement(btn.GameObject,
                 minWidth: 240, preferredWidth: 260, flexibleWidth: 1,
                 minHeight: 20, preferredHeight: 22, flexibleHeight: 0);
@@ -709,14 +764,14 @@ public class FamiliarBrowserOverlayPanel : ResizeablePanelBase
             if (t != null)
             {
                 t.alignment = Theme.OverlayMidlineAlignment();
-                t.fontSize = Theme.ScaledOverlay(11);
+                t.fontSize = Theme.ScaledOverlay(12);
                 t.enableWordWrapping = false;
                 t.overflowMode = TextOverflowModes.Overflow;
             }
-            // Click → smart summon via shared service. The service handles
-            // the no-known-box case (logs to status label) so we can dispatch
-            // unconditionally here.
-            string captured_name = name; // capture for closure
+            // Click → smart summon via shared service. Pass the base name —
+            // the summon service picks the best available variant based on
+            // VBloodSummonService's internal preference (basic over primal).
+            string captured_name = r.BaseName;
             btn.OnClick = () =>
             {
                 if (!_vbSummonStatusSubscribed)
@@ -735,30 +790,17 @@ public class FamiliarBrowserOverlayPanel : ResizeablePanelBase
         if (_viewMode == ViewMode.VBloodView && Enabled) Render();
     }
 
-    private static string BuildOverlayChipBar(PlayerStateService.VBloodCaptureStatus s)
+    private struct VBloodOverlayRow
     {
-        string Chip(string glyph, bool on) =>
-            $"<color={(on ? CHIP_GREEN_OVERLAY : CHIP_GRAY_OVERLAY)}>{glyph}</color>";
-        // Compact glyph-only chips (no brackets) to fit the narrow overlay.
-        return Chip("B", s.HasBasic) + Chip("S", s.HasShiny) + Chip("P", s.HasPrimal) + Chip("Ps", s.HasPrimalShiny);
-    }
-
-    private static int GetVBloodMaxLevelFromBoxContents(string vbloodName)
-    {
-        int max = 0;
-        string primalName = "Primal " + vbloodName;
-        foreach (var kv in PlayerStateService.BoxContents)
-        {
-            if (kv.Value == null) continue;
-            foreach (var e in kv.Value)
-            {
-                bool nameMatches =
-                    string.Equals(e.Name, vbloodName,  System.StringComparison.OrdinalIgnoreCase)
-                 || string.Equals(e.Name, primalName,  System.StringComparison.OrdinalIgnoreCase);
-                if (nameMatches && e.Level > max) max = e.Level;
-            }
-        }
-        return max;
+        public string BaseName;
+        public string DisplayName;
+        public string Box;
+        public int    Index;
+        public int    Level;
+        public int    Prestige;
+        public bool   IsShiny;
+        public bool   IsPrimal;
+        public string ShinySchool;
     }
 
     private void AddListLine(string text)

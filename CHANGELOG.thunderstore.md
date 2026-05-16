@@ -7,6 +7,35 @@
 > bundled copy summarizes earlier versions and reproduces the most
 > recent release in full.
 
+## 0.11.0 — Friend-test feedback bundle
+
+Six items from the 0.10.x friend-testing round:
+
+- **Primal V-Bloods now appear in the V-Bloods collection.** The scanner
+  was stripping the `Primal ` prefix and looking up the full registry
+  name, but Bloodcraft actually names primals as `Primal <FirstWord>`
+  (e.g. `Primal Frostmaw` for *Frostmaw the Mountain Terror*). Fixed
+  with a precomputed stem map in `VBloodRegistry`.
+- **V-Bloods overlay rows redesigned** to one-row-per-captured-variant,
+  formatted like the BoxView rows — shows level, prestige, shiny school,
+  and box on every entry. Uncaptured V-Bloods stay in the main tab.
+- **New "All Familiars" tab** in the main panel. Lists every familiar
+  across every box (same data as the V-Blood scanner) with search
+  filter, sort cycle (Box+# / A→Z / Level desc / Shinies first), and
+  inline Bind + two-click Delete buttons per row.
+- **Box-mutation forms use dropdowns** of existing boxes (Delete box,
+  Rename box's current-name field, Move-familiar destination). New
+  `BoxNameDropdownField` auto-syncs when boxes are added / renamed /
+  deleted.
+- **X-Large font scale** (1.5×) added to both UI and Overlay text-scale
+  pickers in Display Settings. Plus a layout-height plumbing pass so
+  rows don't clip at the new tier.
+- **Eclipse-style shift-spell cooldown overlay.** Draggable widget with
+  a "SHIFT" label, cooldown bar, and remaining-time countdown. Reads
+  game state directly (`AbilityCooldownState` + `AbilityChargesState`)
+  at 10 Hz. Visual readout only — clicking does nothing; press your
+  bound Shift key to cast. Coexists with Eclipse.
+
 ## 0.10.14 — Drag/resize regression fix, Lock-overlays toggle
 
 ### Drag/resize regression fixed

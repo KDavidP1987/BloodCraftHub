@@ -87,9 +87,46 @@ public static class VBloodRegistry
 
     private static readonly HashSet<string> _set = new(All, System.StringComparer.OrdinalIgnoreCase);
 
+    // 0.11.0: precomputed "primal stem" → canonical-name map. Bloodcraft
+    // server-side names primal V-Bloods as "Primal <stem>" where <stem> is
+    // the registry name with " the X" stripped (per Bloodcraft CHANGELOG
+    // examples: '.fam sb "Primal Frostmaw"', '.fam sb "Primal Polora"').
+    // For entries without " the " in the name (currently only "Putrid Rat"),
+    // the stem is the full name. Used by the scanner to route the
+    // "Primal Adam" reply back to the "Adam the Firstborn" registry entry.
+    private static readonly Dictionary<string, string> _stemToCanonical = BuildStemMap();
+
+    private static Dictionary<string, string> BuildStemMap()
+    {
+        var map = new Dictionary<string, string>(System.StringComparer.OrdinalIgnoreCase);
+        foreach (var name in All)
+        {
+            int theIdx = name.IndexOf(" the ", System.StringComparison.OrdinalIgnoreCase);
+            var stem = theIdx > 0 ? name.Substring(0, theIdx) : name;
+            // Last write wins on collision; with the current 65-entry list
+            // every stem is unique (verified visually — see Familiars.cs
+            // ref). If Bloodcraft adds a colliding pair the scanner will
+            // map both occurrences to whichever the dictionary ends on,
+            // which is wrong but rare; we'd add a disambiguation rule then.
+            map[stem] = name;
+        }
+        return map;
+    }
+
     /// <summary>Case-insensitive membership test against the canonical list.</summary>
     public static bool Contains(string name)
         => !string.IsNullOrEmpty(name) && _set.Contains(name);
+
+    /// <summary>0.11.0: resolve a "Primal &lt;suffix&gt;" reply back to the
+    /// base V-Blood. Returns true and populates <paramref name="canonical"/>
+    /// when <paramref name="suffix"/> is the part-before-" the " of a known
+    /// registry name (e.g., "Frostmaw" → "Frostmaw the Mountain Terror").</summary>
+    public static bool TryResolvePrimalStem(string suffix, out string canonical)
+    {
+        canonical = null;
+        if (string.IsNullOrEmpty(suffix)) return false;
+        return _stemToCanonical.TryGetValue(suffix.Trim(), out canonical);
+    }
 
     // 0.10.2: region grouping mirrored from FamBook's vbloods.json page layout.
     // The seven pages correspond loosely to V Rising progression / region tiers:

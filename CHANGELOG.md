@@ -1,5 +1,174 @@
 # Changelog
 
+## 0.11.0 — Friend-test feedback bundle: Primals fix, All-Familiars tab, shift overlay, X-Large text, box dropdowns
+
+This release bundles six items the friend-test group surfaced in 0.10.x.
+Each is a discrete feature on its own; together they fill in the
+remaining rough spots in the familiar workflow + accessibility story.
+
+### Primal V-Bloods now appear in the V-Bloods collection
+
+Friend-test: "Primals are not coming up in the V Blood List."
+
+Root cause: the V-Blood scanner's `TryClassifyName` stripped the
+`Primal ` prefix from incoming familiar names and looked up the
+**remainder** against the full V-Blood registry. But Bloodcraft
+server-side actually names primal variants as `Primal <FirstWord>`
+(per Bloodcraft's own changelog example: `.fam sb "Primal Frostmaw"`
+where the base V-Blood is *Frostmaw the Mountain Terror*). So the
+classifier compared `"Frostmaw"` against the full registry list of
+`"Frostmaw the Mountain Terror"` etc. and never matched.
+
+Fix: `VBloodRegistry` now precomputes a stem map — for each registry
+name, the substring before `" the X"` (or the full name when no
+`" the "` separator is present, e.g. `"Putrid Rat"`). The scanner
+now tries the original full-name match first (defensive — in case
+Bloodcraft ever switches conventions), then falls back to the stem
+match. `"Primal General Elena"` correctly routes to *General Elena
+the Hollow*; `"Primal Adam"` routes to *Adam the Firstborn*; etc.
+
+The underlying data model (`VBloodInstance` with `IsShiny + IsPrimal`)
+was already in place from 0.10.9 — only the name classifier had the
+bug. So all four variants (basic / shiny / primal / primal-shiny)
+now populate correctly per V-Blood.
+
+### V-Bloods overlay rows redesigned to show shiny / level / attribute
+
+Friend-test: "The VBLOOD menu text in Familiar browser overlay needs
+updating — doesn't all fit and looks messy. Can't see shiny status,
+attribute, or level. It should resemble the normal familiars menu
+in the overlay, but only show V Bloods."
+
+Before: one compact row per V-Blood with `B S P Ps` chips showing
+whether each variant was captured. Functional but lost the per-
+instance level / prestige / shiny-school context.
+
+After: one row per **captured variant**, formatted identically to
+the BoxView's per-familiar row — `01 — Primal Adam  Lv 50  P2  ★ Storm  [box03]`.
+A V-Blood with all four variants now occupies four rows; one with
+only a basic capture occupies one. Uncaptured V-Bloods don't appear
+in the overlay (they still appear in the main panel's V-Bloods tab
+with the chip view + Summon for missing entries).
+
+Sort modes work per-row: Default groups by box+index; Alphabetical
+sorts by base name with basic before primal; Level descending; and
+Location uses the region-page order from `VBloodRegistry`. Click any
+row to smart-summon via `VBloodSummonService` (same flow as before).
+
+### New "All Familiars" tab in the main panel
+
+Friend-test: "Add a list similar to V Bloods but for All Familiars,
+to search, filter, and sort by alpha, level, box, location. Include
+an in-line button in the list to delete out unwanted familiars."
+
+New top-level tab inside the Bloodcraft tab group (between V-Bloods
+and Class). Lists every familiar across every box that the V-Blood
+scanner walked — same data source as the V-Blood collection, so a
+single Scan-all populates both views.
+
+Per-row controls:
+- **Bind** — switches to the row's box and binds the familiar
+  (issues an unbind first if you have an active familiar).
+- **Delete** — two-click confirm; `.fam cb <box>` then `.fam r <idx>`.
+  First click changes the label to "Confirm?" for 3 seconds.
+
+Header shows total familiars / total boxes / shiny count. Filter is
+a free-text "contains" filter (case-insensitive). Sort cycles:
+Box+index (default) → A→Z → Level descending → Shinies first.
+
+### Box-mutation forms now use dropdowns of existing boxes
+
+Friend-test: "In the Boxes forms (Delete box, rename box, move
+familiar between boxes) load dropdown list of boxes names, so they
+don't need to be typed in."
+
+New `BoxNameDropdownField` form-field type. Populates from
+`PlayerStateService.BoxList` at form-build time and stays in sync
+when the box list changes (subscribes to `BoxListChanged`). If the
+list is empty when the form opens, it auto-sends `.fam boxes` so the
+dropdown self-populates as soon as the server replies. Wired into:
+
+- **Delete empty box (.fam db)** — the `boxName` field is now a dropdown.
+- **Rename box (.fam rb)** — the "Current name" field is now a dropdown
+  (the "New name" stays a text input).
+- **Move active familiar to box (.fam mb)** — the destination is a
+  dropdown.
+
+The free-text Create-new-box (`.fam ab`) form keeps its TextField —
+that one needs you to type a brand-new name that doesn't exist yet.
+
+### X-Large font scale option
+
+Friend-test: "Some users still advised they struggled to read large
+mode."
+
+Added a fourth tier (1.50× multiplier) to both the UI and Overlay
+text-scale rows in Display Settings — Small (0.85) / Standard (1.0)
+/ Large (1.2) / **X-Large (1.5)**. Same picker pattern; same
+"close and reopen the panel for new sizes to take effect" caveat.
+
+Plus a layout-height plumbing pass — `Theme.ScaledHeight()` and
+`Theme.ScaledOverlayHeight()` multiply layout heights in lockstep
+with the font multiplier so labels don't clip at X-Large. Applied
+inside the central helpers — `AddInfoLabel`, `AddSectionHeading`,
+`AddBodyText`, `AddCard`, `AddStatRow`, `AddCommandButton`,
+`FormBuilder` rows + submit button, `FormField` inputs / dropdowns /
+toggles, `CollapsibleSection` headers. Scaling is gated to ≥ 1.0
+so Small / Standard layouts are pixel-identical to pre-0.11.0;
+only Large and X-Large stretch heights. Tab-local custom layouts
+may still need per-tab tweaks — friend-test will surface them.
+
+### Eclipse-style shift-spell cooldown overlay
+
+Friend-test: "Add in shift spell button from Eclipse — a button you
+could place on your window with a loading circle representing the
+cooldown."
+
+New draggable overlay (`ShiftSpellOverlayPanel`) with a "SHIFT"
+label, a horizontal cooldown bar (ice-blue, matching MiniBar style),
+and a remaining-cooldown countdown ("Ready" / "1.4s" / "2s"). When
+the equipped shift spell has multiple charges (e.g. some class
+shifts), the label shows the count: "SHIFT  2/3".
+
+The overlay reads game state directly via a new
+`ShiftCooldownService` — local character's `AbilityBar_Shared` →
+shift slot's `AbilityGroupState` (slot 3) → `AbilityCooldownState`
++ `AbilityChargesState`. Polled at 10 Hz inside the service; the
+overlay just renders the latest values. All IL2CPP access is
+wrapped in a single try/catch so the overlay degrades gracefully
+to "(unavailable)" if anything goes sideways rather than killing
+the per-frame ticker.
+
+Note (vs. Eclipse): clicking the BCH overlay does nothing. V Rising's
+input bus doesn't accept "fire shift" from a UI click — pressing
+your bound Shift key remains the cast trigger. The overlay is a
+visual cooldown readout, not a chat-bound shortcut. If you've also
+installed Eclipse, both overlays will work side-by-side (they read
+the same game state, so the numbers agree); BCH's lives wherever
+you drag it, Eclipse's stays anchored to the ability bar.
+
+Toggle it on via the main panel's Display Settings (Show overlays
+row), or persist it via `Settings.ShowShiftSpellOverlay`. Per-
+overlay transparency setting available alongside the others.
+
+### Implementation notes
+
+- `VBloodRegistry.TryResolvePrimalStem(suffix, out canonical)` is
+  the new lookup helper; the scanner calls it from
+  `VBloodScannerService.TryClassifyName`.
+- `MainPanel.AllFamiliars.cs` is a new partial-class file so the
+  6000+ line `MainPanel.cs` doesn't grow further.
+- `BoxNameDropdownField.OnBoxListChanged` mutates `Dropdown.options`
+  directly instead of using `AddOptions(IL2CppList)`; the latter
+  has bridge quirks on this Unity build, the former matches the
+  upstream UIFactory.CreateDropdown pattern.
+- `Theme.ScaledHeight()` clamps the multiplier at ≥ 1.0 so the
+  scaling is additive — Small / Standard layouts are unchanged.
+- `ShiftCooldownService.GetServerTimeOnServer()` resolves
+  `ClientScriptMapper._ClientGameManager.ServerTime.TimeOnServer`
+  at call time rather than caching, so a session reset doesn't
+  leave us holding a stale reference.
+
 ## 0.10.14 — Drag/resize regression fix, Lock-overlays toggle
 
 ### Drag/resize regression fixed
