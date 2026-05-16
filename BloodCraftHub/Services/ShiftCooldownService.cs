@@ -5,54 +5,67 @@ namespace BloodCraftHub.Services;
 
 // 0.11.0: poll the local character's shift-slot ability cooldown.
 //
-// Eclipse exposes this via a draggable HUD tile that clones the game's
-// AbilityBarEntry prefab and reads AbilityCooldownState / AbilityChargesState
-// off the active ability entity (LearningMods/Eclipse-main/Services/
-// CanvasService.cs:1130). BCH is intentionally lighter — we read the same
-// game-state components but render into BCH's own ResizeablePanelBase
-// (ShiftSpellOverlayPanel) instead of cloning a game prefab.
+// 0.11.4 — friend-test: "Square tile renders with '—' and no countdown after
+// casting; diag line stays empty." Two more bugs from the 0.11.3 rewrite:
 //
-// All IL2CPP access is wrapped in a single try/catch so a type-bridge hiccup
-// (or the player not being in-world yet) downgrades the overlay to
-// "—" without nuking the per-frame ticker. Update cadence is 0.1s
-// (10 Hz) — same as Eclipse's ShiftUpdateLoop — fast enough that the cooldown
-// ring/bar updates smoothly, cheap enough that the cost is negligible.
+//  (1) HasShiftSpell was gated on `BaseAbilityGroupOnSlot.GuidHash != 0`.
+//      That's the *base* prefab in the slot — but Bloodcraft uses
+//      `ReplaceAbilityOnSlotBuff` to swap class spells onto the shift slot,
+//      so the base entry can be empty even though the slot is fully usable.
+//      Detection has to be "slot-entity exists" instead.
+//
+//  (2) The diagnostic-line writer in the panel sat AFTER the early return
+//      for !HasShiftSpell — so when detection failed we returned without
+//      ever painting the diag values, and the empty space the user saw
+//      told them nothing. Diag now updates unconditionally each poll.
+//
+// Detection strategy mirrors Eclipse:
+//   - Each poll, read `AbilityBar_Shared.CastGroup.GetEntityOnServer()` and
+//     its `AbilityGroupState.SlotIndex`. When SlotIndex==3 we know the
+//     player just cast (or is currently casting) shift — latch the prefab.
+//   - Buffer probe (`AbilityGroupSlotBuffer[3]`) is the secondary path —
+//     for vanilla shift it works at session start, but for Bloodcraft
+//     overrides we rely on the CastGroup observation.
+//   - Once the prefab is latched, future polls compare CastGroup's prefab
+//     against the latch to know "this poll's cast is shift's" and only
+//     then refresh the cooldown latches from the cast-ability entity.
+//
+// Diagnostic fields surface enough internal state that the next failure
+// mode is debuggable from in-game without re-shipping a build.
 public static class ShiftCooldownService
 {
-    /// <summary>True if a shift ability is currently equipped on slot 3 and
-    /// we have valid state to render. When false, callers should display a
-    /// "no shift spell equipped" placeholder.</summary>
     public static bool HasShiftSpell { get; private set; }
-
-    /// <summary>Seconds remaining on the current cooldown. 0 when ready.</summary>
     public static float CooldownRemaining { get; private set; }
-
-    /// <summary>Total seconds for the current cooldown (used to compute the
-    /// 0..1 fill fraction). 0 when no cooldown is in flight.</summary>
     public static float CooldownTotal { get; private set; }
-
-    /// <summary>0..1 fill fraction (1 = full cooldown remaining, 0 = ready).</summary>
     public static float CooldownFraction
         => CooldownTotal > 0.001f
             ? UnityEngine.Mathf.Clamp01(CooldownRemaining / CooldownTotal)
             : 0f;
-
-    /// <summary>Current charges available (0..MaxCharges). Some class shifts
-    /// have multiple charges; for single-cast shifts this stays 1 (ready) or
-    /// 0 (recharging).</summary>
     public static int CurrentCharges { get; private set; }
     public static int MaxCharges     { get; private set; }
-
-    /// <summary>Last error captured from the polling loop. Surfaced in the
-    /// overlay so the user can see why a value is "—". Cleared on success.</summary>
     public static string LastError { get; private set; } = "";
+
+    // ── Diagnostics ──
+    public static int    DiagShiftPrefabHash;
+    public static int    DiagCastGroupPrefabHash;
+    public static int    DiagCastGroupSlotIndex = -1;
+    public static double DiagServerNow;
+    public static double DiagLatchedEnd;
+    public static double DiagLastRefreshAt;
+    public static int    DiagPollCount;
+    public static string DiagLastReadSource = "init";
 
     private const double POLL_INTERVAL_SECONDS = 0.1;
     private static double _lastPollAt;
 
-    /// <summary>Per-frame tick. Cheap when called every frame because it
-    /// short-circuits on the poll interval. Wire from
-    /// CoreUpdateBehavior.Actions in Plugin.Load.</summary>
+    // ── Latches ──
+    private static Unity.Entities.Entity _latchedCharacter = Unity.Entities.Entity.Null;
+    private static Stunlock.Core.PrefabGUID _latchedShiftPrefab;
+    private static double _latchedCooldownEnd;
+    private static float  _latchedCooldownTotal;
+    private static int    _latchedCurrentCharges = 1;
+    private static int    _latchedMaxCharges     = 1;
+
     public static void Tick()
     {
         var now = UnityEngine.Time.realtimeSinceStartupAsDouble;
@@ -66,128 +79,184 @@ public static class ShiftCooldownService
         }
         catch (Exception ex)
         {
-            // Don't spam the log every poll if the same exception recurs.
             if (LastError != ex.Message)
             {
                 LogUtils.LogWarning($"ShiftCooldownService poll failed: {ex.Message}");
                 LastError = ex.Message;
             }
-            HasShiftSpell = false;
-            CooldownRemaining = 0f;
-            CooldownTotal = 0f;
-            CurrentCharges = 0;
-            MaxCharges = 0;
+            DiagLastReadSource = $"err:{ex.GetType().Name}";
         }
     }
 
     private static void PollOnce()
     {
-        var character = Core.LocalCharacter;
-        if (!Core.HasInitialized || character == Unity.Entities.Entity.Null)
+        DiagPollCount++;
+
+        // 0.11.5 fix: Core.LocalCharacter / Core.HasInitialized are stub-state
+        // that was never wired up (GameManagerPatch.cs:12 has the
+        // `Core.Initialize(world)` call commented out). The live values are
+        // populated on Plugin by InitializationPatch.cs:67. Same for the
+        // entity manager.
+        var character = Plugin.LocalCharacter;
+        if (Plugin.IsClientNull() || character == Unity.Entities.Entity.Null)
         {
             HasShiftSpell = false;
+            DiagLastReadSource = "no-char";
             return;
         }
-        var em = Core.EntityManager;
+        var em = Plugin.EntityManager;
 
-        // Step 1: read the character's AbilityBar_Shared component. It
-        // references the current cast group + cast ability entities.
-        if (!em.HasComponent<ProjectM.AbilityBar_Shared>(character))
+        if (character != _latchedCharacter)
         {
-            HasShiftSpell = false;
-            return;
-        }
-        var abilityBar = em.GetComponentData<ProjectM.AbilityBar_Shared>(character);
-
-        // Step 2: resolve the ability group entity. The CastGroup field is a
-        // NetworkedEntity pointer; in the client world we need the local
-        // entity via GetEntityOnServer (the name is historical — same call
-        // works client-side to resolve the local entity).
-        Unity.Entities.Entity groupEntity = abilityBar.CastGroup.GetEntityOnServer();
-        if (groupEntity == Unity.Entities.Entity.Null)
-        {
-            HasShiftSpell = false;
-            return;
+            _latchedCharacter      = character;
+            _latchedShiftPrefab    = default;
+            _latchedCooldownEnd    = 0;
+            _latchedCooldownTotal  = 0;
+            _latchedCurrentCharges = 1;
+            _latchedMaxCharges     = 1;
         }
 
-        // Step 3: confirm this is the shift slot (index 3). If the local
-        // character has no shift spell currently bound, the cast group might
-        // be a different slot — bail out so we don't paint stale data.
-        if (!em.HasComponent<ProjectM.AbilityGroupState>(groupEntity))
-        {
-            HasShiftSpell = false;
-            return;
-        }
-        var groupState = em.GetComponentData<ProjectM.AbilityGroupState>(groupEntity);
-        if (groupState.SlotIndex != 3)
-        {
-            HasShiftSpell = false;
-            return;
-        }
-        HasShiftSpell = true;
+        // ── Step 1: probe AbilityBar_Shared for cast state ──
+        Unity.Entities.Entity castGroupEntity = Unity.Entities.Entity.Null;
+        Unity.Entities.Entity castAbilityEntity = Unity.Entities.Entity.Null;
+        Stunlock.Core.PrefabGUID castGroupPrefab = default;
+        int castGroupSlotIndex = -1;
 
-        // Step 4: read cooldown total from AbilityCooldownData on the group
-        // (the static spec) and cooldown end time from AbilityCooldownState on
-        // the cast entity (the live state).
-        float cdTotal = 0f;
-        if (em.HasComponent<ProjectM.AbilityCooldownData>(groupEntity))
+        if (em.HasComponent<ProjectM.AbilityBar_Shared>(character))
         {
-            var cdData = em.GetComponentData<ProjectM.AbilityCooldownData>(groupEntity);
-            cdTotal = cdData.Cooldown._Value;
-        }
+            var bar = em.GetComponentData<ProjectM.AbilityBar_Shared>(character);
+            castGroupEntity   = bar.CastGroup.GetEntityOnServer();
+            castAbilityEntity = bar.CastAbility.GetEntityOnServer();
 
-        // Cast entity holds the live cooldown end-time.
-        double cdEnd = 0;
-        Unity.Entities.Entity castEntity = abilityBar.CastAbility.GetEntityOnServer();
-        if (castEntity != Unity.Entities.Entity.Null
-            && em.HasComponent<ProjectM.AbilityCooldownState>(castEntity))
+            if (castGroupEntity != Unity.Entities.Entity.Null)
+            {
+                if (em.HasComponent<ProjectM.AbilityGroupState>(castGroupEntity))
+                    castGroupSlotIndex = em.GetComponentData<ProjectM.AbilityGroupState>(castGroupEntity).SlotIndex;
+                if (em.HasComponent<Stunlock.Core.PrefabGUID>(castGroupEntity))
+                    castGroupPrefab = em.GetComponentData<Stunlock.Core.PrefabGUID>(castGroupEntity);
+            }
+        }
+        DiagCastGroupPrefabHash = castGroupPrefab.GuidHash;
+        DiagCastGroupSlotIndex  = castGroupSlotIndex;
+
+        // ── Step 2: latch the shift's prefab when we observe a slot-3 cast ──
+        if (castGroupSlotIndex == 3 && castGroupPrefab.GuidHash != 0
+            && !castGroupPrefab.Equals(_latchedShiftPrefab))
         {
-            var cdState = em.GetComponentData<ProjectM.AbilityCooldownState>(castEntity);
-            cdEnd = cdState.CooldownEndTime;
+            _latchedShiftPrefab   = castGroupPrefab;
+            _latchedCooldownEnd   = 0;
+            _latchedCooldownTotal = 0;
         }
 
+        // Secondary latch path via slot buffer (vanilla case where the base
+        // prefab IS the equipped one — for Bloodcraft overrides this is
+        // expected to be empty and the slot-3 observation above will fill
+        // _latchedShiftPrefab the moment the user casts shift).
+        if (_latchedShiftPrefab.GuidHash == 0)
+        {
+            try
+            {
+                if (em.HasBuffer<ProjectM.AbilityGroupSlotBuffer>(character))
+                {
+                    var slots = em.GetBuffer<ProjectM.AbilityGroupSlotBuffer>(character);
+                    if (slots.Length > 3)
+                    {
+                        var pf = slots[3].BaseAbilityGroupOnSlot;
+                        if (pf.GuidHash != 0) _latchedShiftPrefab = pf;
+                    }
+                }
+            }
+            catch { /* fall through */ }
+        }
+        DiagShiftPrefabHash = _latchedShiftPrefab.GuidHash;
+
+        // ── Step 3: detect "shift slot is equipped" via slot-entity presence ──
+        // NOT via prefab non-zero, because Bloodcraft's ReplaceAbilityOnSlotBuff
+        // leaves the base prefab empty even when the slot is fully usable.
+        bool shiftSlotExists = false;
+        try
+        {
+            if (em.HasBuffer<ProjectM.AbilityGroupSlotBuffer>(character))
+            {
+                var slots = em.GetBuffer<ProjectM.AbilityGroupSlotBuffer>(character);
+                if (slots.Length > 3)
+                {
+                    var slotEntity = slots[3].GroupSlotEntity.GetEntityOnServer();
+                    shiftSlotExists = (slotEntity != Unity.Entities.Entity.Null);
+                }
+            }
+        }
+        catch { /* fall through */ }
+
+        HasShiftSpell = shiftSlotExists || _latchedShiftPrefab.GuidHash != 0;
+
+        // ── Step 4: refresh cooldown latches when the current cast IS shift ──
+        if (HasShiftSpell
+            && _latchedShiftPrefab.GuidHash != 0
+            && castGroupPrefab.GuidHash != 0
+            && castGroupPrefab.Equals(_latchedShiftPrefab)
+            && castAbilityEntity != Unity.Entities.Entity.Null)
+        {
+            bool readOk = false;
+            if (em.HasComponent<ProjectM.AbilityCooldownData>(castAbilityEntity))
+            {
+                float t = em.GetComponentData<ProjectM.AbilityCooldownData>(castAbilityEntity).Cooldown._Value;
+                if (t > 0f) { _latchedCooldownTotal = t; readOk = true; }
+            }
+            if (em.HasComponent<ProjectM.AbilityCooldownState>(castAbilityEntity))
+            {
+                double end = em.GetComponentData<ProjectM.AbilityCooldownState>(castAbilityEntity).CooldownEndTime;
+                if (end > _latchedCooldownEnd) { _latchedCooldownEnd = end; readOk = true; }
+            }
+            if (em.HasComponent<ProjectM.AbilityChargesState>(castGroupEntity))
+            {
+                _latchedCurrentCharges = em.GetComponentData<ProjectM.AbilityChargesState>(castGroupEntity).CurrentCharges;
+            }
+            if (em.HasComponent<ProjectM.AbilityChargesData>(castGroupEntity))
+            {
+                int max = em.GetComponentData<ProjectM.AbilityChargesData>(castGroupEntity).MaxCharges;
+                if (max > 0) _latchedMaxCharges = max;
+            }
+            if (readOk)
+            {
+                DiagLastReadSource = "cast";
+                DiagLastRefreshAt = UnityEngine.Time.realtimeSinceStartupAsDouble;
+            }
+            else
+            {
+                DiagLastReadSource = "match-noread";
+            }
+        }
+        else
+        {
+            DiagLastReadSource = HasShiftSpell
+                ? (_latchedShiftPrefab.GuidHash == 0 ? "no-prefab-yet" : "idle")
+                : "no-slot";
+        }
+
+        // ── Step 5: compute display values from latched data + running clock ──
         double serverNow = GetServerTimeOnServer();
-        float remaining = (float)(cdEnd - serverNow);
+        DiagServerNow = serverNow;
+        DiagLatchedEnd = _latchedCooldownEnd;
+
+        float remaining = (float)(_latchedCooldownEnd - serverNow);
         if (remaining < 0f) remaining = 0f;
         CooldownRemaining = remaining;
-        CooldownTotal     = UnityEngine.Mathf.Max(0f, cdTotal);
-
-        // Step 5: charges (multi-charge shifts like Reaper class). If the
-        // component isn't present we treat the ability as single-shot.
-        if (em.HasComponent<ProjectM.AbilityChargesState>(groupEntity))
-        {
-            var chargesState = em.GetComponentData<ProjectM.AbilityChargesState>(groupEntity);
-            CurrentCharges = chargesState.CurrentCharges;
-        }
-        else
-        {
-            CurrentCharges = remaining > 0f ? 0 : 1;
-        }
-        if (em.HasComponent<ProjectM.AbilityChargesData>(groupEntity))
-        {
-            var chargesData = em.GetComponentData<ProjectM.AbilityChargesData>(groupEntity);
-            MaxCharges = chargesData.MaxCharges;
-        }
-        else
-        {
-            MaxCharges = 1;
-        }
+        CooldownTotal     = _latchedCooldownTotal;
+        CurrentCharges    = _latchedCurrentCharges;
+        MaxCharges        = _latchedMaxCharges;
     }
 
-    /// <summary>Read the shared "server time" — the float64 seconds counter
-    /// the server's ability system uses to compare against CooldownEndTime.
-    /// Eclipse reads this via Core.ServerTime.TimeOnServer; we resolve the
-    /// same path through ClientScriptMapper at call time so a session reset
-    /// doesn't leave us holding a stale reference.</summary>
     private static double GetServerTimeOnServer()
     {
-        var world = Core.ClientWorld;
+        // 0.11.5 fix: Core.ClientWorld was always null (Core.Initialize never
+        // ran). Use Plugin's EntityManager.World instead — that's the one
+        // populated by GameManagerPatch.
+        if (Plugin.IsClientNull()) return UnityEngine.Time.timeAsDouble;
+        var world = Plugin.EntityManager.World;
         if (world == null) return UnityEngine.Time.timeAsDouble;
         var mapper = world.GetExistingSystemManaged<ProjectM.Scripting.ClientScriptMapper>();
         if (mapper == null) return UnityEngine.Time.timeAsDouble;
-        // _ClientGameManager is an IL2CPP struct/wrapper — can't compare to
-        // null. If it's uninitialized the property access throws and the
-        // outer try/catch keeps the overlay alive.
         return mapper._ClientGameManager.ServerTime.TimeOnServer;
     }
 }

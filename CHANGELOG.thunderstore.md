@@ -7,6 +7,43 @@
 > bundled copy summarizes earlier versions and reproduces the most
 > recent release in full.
 
+## 0.11.1 — Shift overlay fixes + V-Blood row cleanup
+
+Iterative friend-test fixes on top of 0.11.0 (which never made it past
+local — both versions land on Thunderstore via this release).
+
+- **Shift overlay now actually tracks the cooldown.** Three stacked bugs
+  fixed: (1) service was reading `Core.LocalCharacter`, a stub never
+  wired up — `Core.Initialize(world)` is commented out in
+  `Patches/GameManagerPatch.cs:12`. The live character lives at
+  `Plugin.LocalCharacter`; service updated. (2) Detection gated on a
+  buffer field that's empty when Bloodcraft's `ReplaceAbilityOnSlotBuff`
+  overlays a class spell on the shift slot — switched to "slot entity
+  exists" + latch the actual prefab GUID from the first observed
+  `CastGroup` event with `SlotIndex == 3`. (3) `_latchedCooldownEnd`
+  got overwritten with 0 every poll between casts (the cooldown state
+  lives on the cast-ability entity, which moves to whatever you cast
+  most recently). Latch is now monotonic — only ever advances; missed
+  reads leave it alone.
+- **Shift overlay redesigned as a square button.** Friend-test ask:
+  "look more like a button with a radial countdown, rather than a bar."
+  80×80 outlined tile, radial dark-overlay sweep clockwise from
+  12 o'clock, centered countdown text with a TMP glyph outline for
+  contrast against both the bright ready-state tile and the dark
+  radial sweep mid-cooldown. Tile brightens to cool-blue when ready,
+  mutes to a darker tone while cooling down.
+- **V-Blood overlay rows drop the `[box]` suffix.** Friend-test ask:
+  "should only show name, shiny, attribute, and level — same as the
+  normal familiar rows in box mode." Row format now exactly matches
+  the BoxView per-familiar layout.
+- **Lock overlays now covers the shift overlay too** (was already
+  wired through `RespectsLockOverlays` — worth confirming).
+- **Diagnostic line is opt-in.** New `ShiftSpellOverlayShowDiagnostics`
+  config setting (default off) controls the small italic
+  `pf / cg / si / end / srv` debug line under the SHIFT label. Flip
+  on in `kdpen.BloodCraftHub.cfg` if you ever need to debug
+  shift-state issues.
+
 ## 0.11.0 — Friend-test feedback bundle
 
 Six items from the 0.10.x friend-testing round:

@@ -1,5 +1,108 @@
 # Changelog
 
+## 0.11.1 — Shift overlay fixes + V-Blood overlay row cleanup
+
+Iterative friend-test fixes on top of 0.11.0. Five small commits worth of
+work, bundled into one bump because 0.11.0 never made it past the local
+machine — the v0.11.0 commit (35c0e6f) is tagged alongside 0.11.1 so the
+history captures both, but only 0.11.1 ships to Thunderstore.
+
+### Shift overlay finally tracks the cooldown
+
+The 0.11.0 shipped overlay structurally rendered (square tile, SHIFT label,
+radial-fill sprite) but failed to ever populate a cooldown. Three bugs
+stacked on top of one another:
+
+1. **Reading the wrong `LocalCharacter`.** `Services/ShiftCooldownService`
+   pulled the local character from `Core.LocalCharacter` — a stub that
+   was never wired up. `Core.Initialize(world)` lives commented-out at
+   `Patches/GameManagerPatch.cs:12`, so `Core.HasInitialized` stays
+   false forever and `Core.LocalCharacter` stays `Entity.Null`. The
+   live character is at `Plugin.LocalCharacter`, set by
+   `Patches/InitializationPatch.cs:67`. Same applies to
+   `Core.EntityManager` / `Core.ClientWorld` — the working accessors
+   are on `Plugin`. Service now reads `Plugin.LocalCharacter`,
+   `Plugin.EntityManager`, and `Plugin.EntityManager.World`.
+
+2. **Detection criterion was wrong for Bloodcraft overrides.** Earlier
+   passes gated `HasShiftSpell` on
+   `AbilityGroupSlotBuffer[3].BaseAbilityGroupOnSlot.GuidHash != 0`.
+   That's the *base* prefab in the slot — but Bloodcraft uses
+   `ReplaceAbilityOnSlotBuff` to overlay class spells onto the shift
+   slot, leaving the base prefab empty even when the slot is fully
+   usable. New detection: the slot's `GroupSlotEntity` being non-null
+   is sufficient. The shift's actual prefab GUID is latched
+   separately by watching `AbilityBar_Shared.CastGroup` for any cast
+   with `SlotIndex == 3` — that fires the first time the user presses
+   shift and persists for the session.
+
+3. **Cooldown end-time was overwritten with 0 every poll.**
+   `AbilityCooldownState` only lives on the cast-ability entity (the
+   per-cast wrapper), and between casts `AbilityBar_Shared.CastAbility`
+   points at a different ability's wrapper (typically the primary
+   attack). The old code re-read fresh every poll and assigned
+   directly — so any poll where the read missed wiped `_cooldownEnd`
+   back to 0 and blanked the visible countdown. Fix: monotonic latch.
+   `_latchedCooldownEnd` only ever advances; reads that fail leave
+   the latch alone, reads that observe a later end-time refresh it.
+   Local server-time then ticks the visible remaining seconds down
+   without needing fresh game reads.
+
+### Shift overlay redesigned as a square button
+
+Friend-test: "look more like a button with a radial countdown, rather than
+a bar." Previously a wide horizontal MiniBar; now an 80×80 outlined tile
+with the cooldown text centered, a radial dark-overlay sweep clockwise
+from 12 o'clock, and a SHIFT label below. Tile background brightens to a
+cool-blue when ready, mutes to a darker tone while cooling down. Tile-
+center cooldown text bumped to size 26 with a TMP outline so digits stay
+readable against both the bright ready-state tile and the dark radial
+sweep mid-cooldown.
+
+Radial sprite uses `Texture2D.whiteTexture` as a 1×1 source stretched to
+the tile's rect via `Image.type = Filled`, `fillMethod = Radial360`. The
+white sprite was the simplest path that avoided procedural-texture
+generation gotchas in IL2CPP.
+
+### V-Blood overlay rows: drop the [box] suffix
+
+Friend-test: "the rows in the V-Blood view should only show name, shiny,
+attribute, and level — same as the normal familiar rows in box mode."
+Stripped the trailing `[boxName]` segment from
+`FamiliarBrowserOverlayPanel.RenderVBloodView` row labels. Format is now
+exactly `<idx> — <name>  Lv X  Pn  ★ school` — identical to the BoxView
+per-familiar format.
+
+### Lock-overlays now covers the shift overlay
+
+Wasn't actually broken — `ShiftSpellOverlayPanel` already inherited
+`RespectsLockOverlays => true` from `ResizeablePanelBase` — but worth
+calling out: flipping the global "Lock overlays" toggle now pins the
+shift overlay alongside every other overlay, so accidental drags during
+combat are no longer possible.
+
+### Diagnostic line is opt-in
+
+A small `pf / cg / si / end / srv` debug line under the SHIFT label
+helped pinpoint the cooldown-read bugs (it surfaced the `no-char` state
+that pointed straight at the dead Core stub). New config setting
+`ShiftSpellOverlayShowDiagnostics` (default off) gates whether the line
+renders. If we ever need to debug shift-state issues again, flip it on
+in `kdpen.BloodCraftHub.cfg` under `[Overlays]` and re-open the overlay.
+
+### Implementation notes
+
+- `ShiftCooldownService` now exposes a `Diag*` block of public static
+  fields used solely by the debug line. They stay zero-cost when the
+  diagnostic toggle is off (the panel doesn't read them).
+- The shift-prefab latch resets when `Plugin.LocalCharacter` changes
+  identity (character swap) so a fresh-character session doesn't
+  carry stale data.
+- `ShiftSpellOverlayPanel.MinWidth/MinHeight` shrunk back to 140×120
+  now that the default panel doesn't reserve diag-line space. Players
+  who already dragged their overlay larger keep their saved size —
+  these are floors, not the rendered size.
+
 ## 0.11.0 — Friend-test feedback bundle: Primals fix, All-Familiars tab, shift overlay, X-Large text, box dropdowns
 
 This release bundles six items the friend-test group surfaced in 0.10.x.

@@ -745,7 +745,11 @@ public class FamiliarBrowserOverlayPanel : ResizeablePanelBase
 
         foreach (var r in rows)
         {
-            // Row format mirrors BoxView: "<idx>  —  <name>  Lv X  Pn  ★ school   [box]"
+            // 0.11.1 friend-test: match BoxView exactly — no [box] suffix.
+            // The overlay's job here is to surface the captured variant
+            // (name + level + prestige + shiny school). Which box it lives
+            // in is interesting context for the V-Bloods tab but clutters
+            // the overlay's compact row.
             string label = $"{r.Index:00}  —  {r.DisplayName}";
             if (r.Level > 0)    label += $"  Lv {r.Level}";
             if (r.Prestige > 0) label += $"  P{r.Prestige}";
@@ -754,7 +758,6 @@ public class FamiliarBrowserOverlayPanel : ResizeablePanelBase
                 label += "  ★";
                 if (!string.IsNullOrEmpty(r.ShinySchool)) label += $" {r.ShinySchool}";
             }
-            if (!string.IsNullOrEmpty(r.Box)) label += $"   [{r.Box}]";
 
             var btn = UIFactory.CreateButton(_famListContainer, $"VBRow_{r.BaseName}_{r.Box}_{r.Index}_{(r.IsPrimal?'P':'B')}{(r.IsShiny?'S':'N')}", label);
             UIFactory.SetLayoutElement(btn.GameObject,
