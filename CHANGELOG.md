@@ -1,5 +1,50 @@
 # Changelog
 
+## 0.13.1 — Hotfix: AwaitingBloodInfo timeout spam on Frailed / no-blood states
+
+User-reported bug confirmed reproducible: when a player's blood type
+drains to Frailed (or otherwise transitions to a non-bondable type like
+VBlood / GateBoss), opening or leaving the BCH UI active starts spamming
+the BepInEx log with paired `Intercept armed: AwaitingBloodInfo` /
+`Intercept 'AwaitingBloodInfo' timed out with no server reply; resetting`
+warnings every few seconds.
+
+### Root cause
+
+Two auto-refresh tickers — `MainPanel.FireBlInfoFetch` (Blood Legacy
+tab's per-tab refresh) and `ExperienceOverlayPanel.TickBonusStatsRefresh`
+(XP overlay's bonus-stats refresh) — fire `.bl get <Type>` against the
+player's current `PlayerStateService.Legacy.Type`. Bloodcraft accepts
+the 10 player-bondable blood types (Worker / Warrior / Scholar / Rogue /
+Mutant / Draculin / Immortal / Creature / Brute / Corruption) but
+rejects unit-category markers (Frailed / VBlood / GateBoss). Sending
+`.bl get Frailed` against a Frailed-blood player produces no server
+reply; the armed `AwaitingBloodInfo` intercept times out, gets
+re-armed on the next tick, times out again — a cycle the user can't
+exit short of closing the panel.
+
+The existing guard was `if ((int)leg.Type != 0) ...` which was wrong
+in both directions: it falsely SKIPPED `Worker` (enum value 0 — a valid
+bondable blood) and let `Frailed` (value 6) through.
+
+### Fix
+
+- New `PlayerStateService.IsBondableBloodType(BloodType)` helper —
+  single source of truth for "will Bloodcraft reply to `.bl get` for
+  this type?" Returns true for the same 10 types listed in the
+  `BloodTypeChoice` enum (the .bl cst / .bl get form picker subset).
+- `MainPanel.FireBlInfoFetch` early-returns when the predicate is
+  false. `Worker` blood now refreshes correctly; `Frailed` /
+  `VBlood` / `GateBoss` are silent no-ops.
+- `ExperienceOverlayPanel.TickBonusStatsRefresh` (the alternate-tick
+  branch that handles `.bl get`) does the same.
+
+No data-flow change otherwise — when the player drinks a normal blood
+again, the next tick's auto-fetch resumes silently and the Blood Info
+display + XP overlay bonus-stats update as before.
+
+
+
 ## 0.13.0 — Mod Help reference + per-profession toggles + class context cards
 
 Information-architecture release. v0.12.x added quality-of-life UI

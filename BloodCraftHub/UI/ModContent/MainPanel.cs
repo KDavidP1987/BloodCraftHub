@@ -7362,10 +7362,12 @@ public partial class MainPanel : ResizeablePanelBase
     {
         _lastBlAutoFetchAt = UnityEngine.Time.realtimeSinceStartupAsDouble;
         var leg = PlayerStateService.Legacy;
-        // .bl get with no arg doesn't arm AwaitingBloodInfo (see
-        // MessageService_Processing.NoteOutboundForIntercept) — only the typed
-        // form does. If the player has no current blood yet, skip the fetch.
-        if ((int)leg.Type == 0) return;
+        // 0.13.1: only fire `.bl get <Type>` when Type is a bondable blood
+        // Bloodcraft will reply to. Skips Frailed / VBlood / GateBoss —
+        // those produce no reply, and arming AwaitingBloodInfo for them
+        // produces the timeout-spam logs the user reported when their blood
+        // drained mid-session.
+        if (!PlayerStateService.IsBondableBloodType(leg.Type)) return;
         if (MessageService.IsInitialized)
             MessageService.EnqueueMessageSilent(string.Format(MessageService.BCCOM_BL_GET_FORMAT, leg.Type));
         else

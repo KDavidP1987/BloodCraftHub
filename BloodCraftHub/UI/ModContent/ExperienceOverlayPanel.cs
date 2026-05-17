@@ -739,9 +739,15 @@ public class ExperienceOverlayPanel : ResizeablePanelBase
                 // the live Eclipse stream already keeps PlayerStateService.Legacy
                 // fresh; intercepting it would double-update the structured display).
                 var leg = PlayerStateService.Legacy;
-                // Bloodcraft accepts the enum NAME as the argument. Skip when no
-                // blood is selected (Type==0) to avoid sending ".bl get None".
-                if ((int)leg.Type != 0)
+                // 0.13.1: gate on bondable-blood-type. Skips Frailed / VBlood /
+                // GateBoss which Bloodcraft rejects as legacy choices — sending
+                // `.bl get Frailed` produces no reply and the AwaitingBloodInfo
+                // intercept times out, spamming the BepInEx log. The earlier
+                // `Type != 0` guard mistakenly skipped Worker (a valid bondable
+                // blood) and missed Frailed entirely. Now sourced from
+                // PlayerStateService.IsBondableBloodType so the same check
+                // drives the per-tab refresh too.
+                if (PlayerStateService.IsBondableBloodType(leg.Type))
                     MessageService.EnqueueMessageSilent(string.Format(MessageService.BCCOM_BL_GET_FORMAT, leg.Type));
             }
             _bonusStatsFetchToggle = !_bonusStatsFetchToggle;

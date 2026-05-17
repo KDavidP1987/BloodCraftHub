@@ -81,6 +81,37 @@ public static class PlayerStateService
         Corruption,
     }
 
+    /// <summary>0.13.1: true when this blood type is one Bloodcraft accepts
+    /// as a player legacy choice — i.e. one that responds to `.bl get &lt;Type&gt;`
+    /// without rejection. Mirrors the BloodTypeChoice enum (the form-picker
+    /// subset) by name. Used by the per-tab and per-overlay auto-refresh
+    /// tickers to suppress `.bl get` calls when the player is on Frailed /
+    /// VBlood / GateBoss blood — those produce no server reply, which armed
+    /// `AwaitingBloodInfo` would then time out, spamming the BepInEx log.
+    /// Bug originally surfaced by a player whose blood drained to Frailed
+    /// mid-session while the UI was open.</summary>
+    public static bool IsBondableBloodType(BloodType t)
+    {
+        switch (t)
+        {
+            case BloodType.Worker:
+            case BloodType.Warrior:
+            case BloodType.Scholar:
+            case BloodType.Rogue:
+            case BloodType.Mutant:
+            case BloodType.Draculin:
+            case BloodType.Immortal:
+            case BloodType.Creature:
+            case BloodType.Brute:
+            case BloodType.Corruption:
+                return true;
+            // Frailed, VBlood, GateBoss are unit-category markers Bloodcraft
+            // rejects as legacy choices — `.bl get` against them gets no reply.
+            default:
+                return false;
+        }
+    }
+
     public enum TargetType
     {
         Kill,

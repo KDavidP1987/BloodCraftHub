@@ -7,6 +7,31 @@
 > bundled copy summarizes earlier versions and reproduces the most
 > recent release in full.
 
+## 0.13.1 — Hotfix: AwaitingBloodInfo timeout spam on Frailed / no-blood states
+
+User-reported bug: when a player's blood drains to Frailed (or
+transitions to a non-bondable type like VBlood / GateBoss), the BCH UI
+starts spamming the BepInEx log with paired
+`Intercept armed: AwaitingBloodInfo` /
+`Intercept 'AwaitingBloodInfo' timed out` warnings every few seconds.
+
+**Root cause:** two auto-refresh tickers — the Blood Legacy tab's
+per-tab refresh and the XP overlay's bonus-stats refresh — fire
+`.bl get <CurrentBlood>` against the player's current blood type.
+Bloodcraft accepts 10 player-bondable types (Worker / Warrior /
+Scholar / Rogue / Mutant / Draculin / Immortal / Creature / Brute /
+Corruption) but rejects unit-category markers (Frailed / VBlood /
+GateBoss). Sending `.bl get Frailed` produces no reply; the armed
+intercept times out and re-arms on the next tick. The existing guard
+`(int)leg.Type != 0` was wrong in both directions — it falsely
+skipped `Worker` (enum value 0, a valid bondable blood) and let
+`Frailed` through.
+
+**Fix:** new `PlayerStateService.IsBondableBloodType(BloodType)`
+predicate gates both auto-fire sites. Worker blood now refreshes
+correctly; Frailed / VBlood / GateBoss are silent no-ops until the
+player drinks a normal blood again.
+
 ## 0.13.0 — Mod Help reference + per-profession toggles + class context cards
 
 Information-architecture release. Bloodcraft is a deep mod and BCH used
