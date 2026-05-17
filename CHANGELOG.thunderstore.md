@@ -7,6 +7,123 @@
 > bundled copy summarizes earlier versions and reproduces the most
 > recent release in full.
 
+## 0.13.0 — Mod Help reference + per-profession toggles + class context cards
+
+Information-architecture release. Bloodcraft is a deep mod and BCH used
+to make you swap to the Quick Start tab (or chat) to remember what each
+class / stat / prestige tier does. v0.13 puts that information where you
+need it.
+
+**Mod Help tab (new under Settings & Help).** Section-by-section
+reference for every Bloodcraft system — XP leveling, weapon expertise,
+blood legacies, the six classes (with full per-class weapon + blood
+synergies and on-hit debuff school), prestige, Exo prestige + Exoforms,
+familiars, professions, daily/weekly quests. Each section has a one-
+paragraph overview always visible plus two collapsible blocks: a
+**Details** block with numeric specifics and non-obvious rules, and a
+**Default settings** block listing the Bloodcraft.cfg defaults the server
+admin can override. Sourced from Bloodcraft v1.13.21 — README, source,
+and ConfigService.
+
+**Inline class context cards on action tabs.** No more swapping to Mod
+Help while making picks:
+- **Class tab** — Active Class card now shows your live class's
+  archetype + tagline + weapon synergies + blood synergies + on-hit
+  debuff. A "Compare all classes" collapsible inside Change Class shows
+  all six classes side-by-side for picking.
+- **Weapon Expertise tab** — new Class synergies card listing which
+  weapon stats your CURRENT class amplifies (1.5× cap). Plus a
+  collapsible reference for every weapon stat's baseline cap.
+- **Blood Legacy tab** — mirror addition: which blood stats your class
+  amplifies + full baseline-cap reference.
+- **Prestige tab** — new "What each prestige tier gives you" card with
+  three collapsibles: leveling-prestige per tier (XP slowed, expertise
+  rate boosted, class spells unlocked), weapon/blood prestige per tier
+  (rate −10%, cap +10%), and Exo-prestige math (form duration formula,
+  shard rewards, .fam echoes cost scaling).
+
+All four context cards carry a disclaimer that the defaults shown can be
+server-overridden in Bloodcraft.cfg. The class data feeding them is a
+single source of truth, so the Mod Help tab and the inline cards never
+drift apart.
+
+**Per-profession overlay toggles.** Settings → Display → Professions
+tracked. Eight checkboxes (Enchanting / Alchemy / Harvesting /
+Blacksmithing / Tailoring / Woodcutting / Mining / Fishing) hide
+individual rows + bars on the Professions overlay live, without
+rebuilding. Default-on preserves the v0.12.x render.
+
+**Visual refresh — gold section markers + 14pt help text.**
+- Every section heading across the panel now gets a thin 2-pixel warm-
+  gold divider band immediately above it plus the heading text itself
+  in gold + bold-italic at 16pt (was plain white-italic at 14pt). Makes
+  long Mod Help / Quick Start scrolling actually navigable — section
+  starts are unmistakable. Side benefit: data-display tabs (Familiars,
+  Prestige, Levels) get cleaner section breaks too.
+- Body fontSize bumped 12 → 14 in AddGuideSection + AddCollapsibleHelpDetail
+  so the help-group tabs (Quick Start / Mod Help / Game Guide / Settings
+  descriptions) are noticeably more readable.
+
+## 0.12.1 — Bloodcraft handshake retry + Game Guide tab + bright interior presets
+
+Three focused additions on top of the v0.12.0 color-theme work.
+
+**Bloodcraft availability — handshake retry + live UI refresh.**
+Pre-0.12.1, the Bloodcraft tab group could render as "(unavailable)"
+on servers that DO run Bloodcraft, simply because the user opened the
+panel faster than the Eclipse-protocol handshake could ACK. Two
+compounding bugs: `SendRegistration` had a single-attempt gate (once
+`Pending` flipped true, no further sends ever fired), and
+`IsTabGroupAvailable` returned plain `UserRegistered` at construct time
+and never refreshed. Fixed by retrying up to 3 times with 5-second
+backoff (~15s total) before latching a new `RegistrationGaveUp` flag,
+plus a `AvailabilityChanged` event that lets `MainPanel` refresh the
+tab strip in place when the handshake ACKs late — no panel rebuild,
+no scroll-position loss.
+
+**New Game Guide tab** under Settings & Help, between Quick Start and
+Settings. Surfaces V Rising resources (the game itself, not BCH) —
+official Stunlock homepage, V Rising Fandom wiki, CaDrift guides, and
+the official V Rising Discord. Each row has an "Open" button that
+launches the URL in your default browser.
+
+**Bright interior color preset row + readability fix.**
+The interior background-color picker (added in 0.12.0) now offers TWO
+preset rows: Dark variants (the original v0.12.0 palette) and Bright
+variants (saturated twins, max channel ~0.40–0.65). Crimson Bright =
+`#A30000` matches `Theme.Level1` exactly — the pre-0.12.0 framework
+default red — so one click restores the old look. The section's help
+paragraphs switched from muted grey to italic white so they read
+cleanly on every preset, dark and bright.
+
+## 0.12.0 — Split Toggle/Unbind buttons + two-zone panel color theme
+
+First feedback-bundle release since the 0.11.2 hotfix. Two
+user-requested quality-of-life improvements, both opt-in via the
+existing Settings UI.
+
+**Familiar Browser footer: Toggle / Unbind active split.** The single
+"Unbind active" button on the overlay's footer is now two side-by-side
+buttons. **Toggle** (left, `.fam t`) calls / dismisses the active
+familiar without changing the binding — the use case that drove the
+split: dominating an NPC auto-disables the familiar but doesn't auto-re-
+enable on release (flying / teleporting do). **Unbind active** (right,
+`.fam ub`) removes the binding so the familiar returns to your box;
+it's NOT destructive — the box record is preserved, and you can re-bind
+any time. Permanent box deletion is `.fam r N`, which is intentionally
+NOT exposed on the overlay footer.
+
+**Two-zone color theme.** Settings → Display has two color-preset
+sections. The outer picker applies to every panel BCH builds (main +
+all six overlays). The interior picker targets the scroll-view
+wrappers + viewports inside the main panel + Familiar Browser — those
+surfaces were bright red by framework default (`UIFactory.CreateScrollView`
+painted the wrapper `Theme.Level1`). Default `#121212` masks the red
+on construct so even users who never touch the picker get a near-black
+look from session start. Per-panel transparency sliders are unchanged
+— they continue to own each panel's alpha independently of either
+color picker.
+
 ## 0.11.2 — CRITICAL: panel can no longer grow larger than the screen
 
 Friend-test (severity: stuck-can't-play): a player resized the main panel

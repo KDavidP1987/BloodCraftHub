@@ -2,8 +2,37 @@
 
 Unified client-side V Rising UI mod that surfaces every chat command of the [Bloodcraft](https://thunderstore.io/c/v-rising/p/zfolmt/Bloodcraft/) server mod — with first-class support for [KindredCommands](https://thunderstore.io/c/v-rising/p/odjit/KindredCommands/) and [KindredLogistics](https://thunderstore.io/c/v-rising/p/odjit/KindredLogistics/) on the same server.
 
+---
+
+## ⚠ Heads-up before you install
+
+**1 — Eclipse mod incompatibility (known issue, working on it).**
+BloodCraftHub is built around the same MAC-signed protocol Eclipse uses, and having BOTH BloodCraftHub and [Eclipse](https://thunderstore.io/c/v-rising/p/zfolmt/Eclipse/) installed simultaneously currently hard-crashes the V Rising client before world entry. The crash originates inside Eclipse's `CanvasService` UI bring-up and is harmless in Eclipse-only setups — it only manifests when BCH is loaded alongside. **Workaround: disable Eclipse in your mod manager while you use BloodCraftHub.** A fix has been forwarded to Eclipse's author; this notice will go away once that lands.
+
+**2 — Pre-1.0 testing.**
+v0.x is still public-beta. The major feature set is in place and the mod has been daily-driven on a live PvE server for months, but APIs and UI may still shift before 1.0. If you spot a bug, please reach out on the **[The Shadow Realm Discord](https://discord.gg/usC9QgBrXK)** — that's the fastest way to get a fix in the next release. GitHub issues also work for written-up reports.
+
+---
+
 **Repo:** https://github.com/KDavidP1987/BloodCraftHub
-**Status:** v0.9.1 — public on Thunderstore. 16 tabs across BLOODCRAFT / KINDRED / HELP, 5 secondary overlays (including the Professions overlay), every chat command from the 3 backing server mods surfaced as forms + buttons (~250+ commands). v0.9.x adds dual text-size toggles, per-overlay transparency, a master overlay show/hide button, an opt-in chat suppression for familiar-action confirmations, and pulls ~25 read-data chat replies into the UI.
+**Status:** v0.13.0 — public on Thunderstore. 17 tabs across BLOODCRAFT / KINDRED / SETTINGS-AND-HELP, 6 secondary overlays, every chat command from the 3 backing server mods surfaced as forms + buttons (~250+ commands). v0.12.x added a two-zone panel color theme + Game Guide tab + Bloodcraft handshake retry; v0.13.0 adds per-profession overlay toggles, a comprehensive Mod Help reference with collapsible Details / Default Settings blocks, and inline class-synergy hint cards on the Class / Weapon Expertise / Blood Legacy / Prestige tabs so users have decision-relevant context exactly where they make their picks.
+
+## Screenshots
+
+![Class tab with active-class details and a Familiar overlay visible in-world (v0.11.2)](https://raw.githubusercontent.com/KDavidP1987/BloodCraftHub/main/docs/screenshots/BloodCraftHub_Screenshot_v0.11.2-IMG1.png)
+*Class tab — Active Class card + Change Class form, with the Familiar overlay docked at the right of the screen. (v0.11.2 capture; v0.13 adds a class-synergies block to the same card.)*
+
+![Logistics tab full UI (v0.11.2)](https://raw.githubusercontent.com/KDavidP1987/BloodCraftHub/main/docs/screenshots/BloodCraftHub_Screenshot_v0.11.2-IMG2.png)
+*KINDRED → Logistics — Personal Toggles (Sort Stash, Craft Pull, Don't Pull Last, etc.) plus the Utility quick-actions for `Stash All` and `.pull` / `.fi` / `.fc` forms. The tab strip on the left shows the collapsible BLOODCRAFT / KINDRED / SETTINGS-AND-HELP groups.*
+
+![Weapon Expertise tab with bonus-stat picker (v0.11.2)](https://raw.githubusercontent.com/KDavidP1987/BloodCraftHub/main/docs/screenshots/BloodCraftHub_Screenshot_v0.11.2-IMG3.png)
+*Weapon Expertise — Current Weapon Expertise card (level + chosen bonus stats + their live numeric values), action buttons, and the `Set bonus stat for a weapon` form expanded. v0.13 adds a class-synergy hint card right above the Actions row so you can see which stats your current class amplifies before picking.*
+
+![V-Bloods collection tracker (v0.11.2)](https://raw.githubusercontent.com/KDavidP1987/BloodCraftHub/main/docs/screenshots/BloodCraftHub_Screenshot_v0.11.2-IMG4.png)
+*V-Bloods tab — collection tracker showing captured-vs-missing counts, filter pills (All / Captured / Missing / Shiny), and per-V-Blood rows with their variant chips and direct Summon buttons. The Scan-all button at the top runs a silent box-sweep to populate the entire list.*
+
+![Familiars tab with active familiar info (v0.11.2)](https://raw.githubusercontent.com/KDavidP1987/BloodCraftHub/main/docs/screenshots/BloodCraftHub_Screenshot_v0.11.2-IMG5.png)
+*Familiars tab in-game — Active Familiar card (name, level, prestige, HP / PP / SP), per-familiar action row (Recall, Toggle Combat, Toggle Emote, List Emotes), and the More Familiar Actions collapsible group below. The shift overlay and active-familiar block are visible at the bottom and right edges of the screen.*
 
 ## What it does
 

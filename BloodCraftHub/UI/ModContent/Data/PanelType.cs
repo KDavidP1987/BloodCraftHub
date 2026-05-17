@@ -36,6 +36,7 @@ public enum PanelType
 
     // Help / Reference tabs:
     QuickStartTab,
+    ModHelpTab,             // 0.13.0: deeper Bloodcraft mechanics reference
     GameGuideTab,           // 0.12.1: V Rising game guide / external links
     VanillaAdminTab,
     AboutTab,

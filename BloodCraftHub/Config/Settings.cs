@@ -357,6 +357,32 @@ public class Settings
             i.Value = (int)v;
     }
 
+    // 0.13.0: per-profession visibility toggles for the Professions overlay.
+    // Friend-test feedback: many players only level 2–3 of the 8 professions
+    // (typically the gathering ones) and want the overlay to hide the rest.
+    // Default true preserves the v0.12.x render. Settings → Display has the
+    // checkboxes; ProfessionOverlayPanel.Render gates each row + bar.
+    //
+    // The same flags will gate component visibility inside the planned v0.14.0
+    // combined overlay (one section per profession driven by these toggles),
+    // so naming + defaults are forward-compatible.
+    public static bool ShowProfessionEnchanting    => (ConfigEntries.TryGetValue(nameof(ShowProfessionEnchanting),    out var e1) && e1 is ConfigEntry<bool> b1) ? b1.Value : true;
+    public static bool ShowProfessionAlchemy       => (ConfigEntries.TryGetValue(nameof(ShowProfessionAlchemy),       out var e2) && e2 is ConfigEntry<bool> b2) ? b2.Value : true;
+    public static bool ShowProfessionHarvesting    => (ConfigEntries.TryGetValue(nameof(ShowProfessionHarvesting),    out var e3) && e3 is ConfigEntry<bool> b3) ? b3.Value : true;
+    public static bool ShowProfessionBlacksmithing => (ConfigEntries.TryGetValue(nameof(ShowProfessionBlacksmithing), out var e4) && e4 is ConfigEntry<bool> b4) ? b4.Value : true;
+    public static bool ShowProfessionTailoring     => (ConfigEntries.TryGetValue(nameof(ShowProfessionTailoring),     out var e5) && e5 is ConfigEntry<bool> b5) ? b5.Value : true;
+    public static bool ShowProfessionWoodcutting   => (ConfigEntries.TryGetValue(nameof(ShowProfessionWoodcutting),   out var e6) && e6 is ConfigEntry<bool> b6) ? b6.Value : true;
+    public static bool ShowProfessionMining        => (ConfigEntries.TryGetValue(nameof(ShowProfessionMining),        out var e7) && e7 is ConfigEntry<bool> b7) ? b7.Value : true;
+    public static bool ShowProfessionFishing       => (ConfigEntries.TryGetValue(nameof(ShowProfessionFishing),       out var e8) && e8 is ConfigEntry<bool> b8) ? b8.Value : true;
+    public static void SetShowProfessionEnchanting(bool v)    => SetBool(nameof(ShowProfessionEnchanting),    v);
+    public static void SetShowProfessionAlchemy(bool v)       => SetBool(nameof(ShowProfessionAlchemy),       v);
+    public static void SetShowProfessionHarvesting(bool v)    => SetBool(nameof(ShowProfessionHarvesting),    v);
+    public static void SetShowProfessionBlacksmithing(bool v) => SetBool(nameof(ShowProfessionBlacksmithing), v);
+    public static void SetShowProfessionTailoring(bool v)     => SetBool(nameof(ShowProfessionTailoring),     v);
+    public static void SetShowProfessionWoodcutting(bool v)   => SetBool(nameof(ShowProfessionWoodcutting),   v);
+    public static void SetShowProfessionMining(bool v)        => SetBool(nameof(ShowProfessionMining),        v);
+    public static void SetShowProfessionFishing(bool v)       => SetBool(nameof(ShowProfessionFishing),       v);
+
     // 0.9.1: when on, the chat copy of action-confirmation messages
     // (.fam b / .fam ub / .fam t / .fam cb / .fam mb / .fam sb / .fam r)
     // is suppressed. Friend-testing feedback: switching boxes and bouncing
@@ -490,6 +516,14 @@ public class Settings
         InitConfigEntry(UI_SETTINGS_GROUP,      nameof(OverlayEdgePadding),          6,     "Left/right inner padding (pixels) applied to every overlay's content. Prevents text from sitting flush with the panel border. Clamped 0..32. Default 6. Applied at overlay construction; toggle an overlay off and back on (or change the overlay text scale) to pick up a new value live.");
         InitConfigEntry(UI_SETTINGS_GROUP,      nameof(PanelBackgroundColorHex),     DEFAULT_PANEL_BG_HEX, "Background color for every BCH panel — main panel + Familiar Browser + all five info overlays. Hex string (e.g. #121212 = default near-black, #1A0A0A = warm dark, #0A0F1A = cool dark). Light colors may reduce text legibility — the white labels in BCH assume a dark background. Pick from presets in Settings → Display, or edit manually for any color. Transparency is configured separately by the per-panel transparency sliders.");
         InitConfigEntry(UI_SETTINGS_GROUP,      nameof(InnerPanelBackgroundColorHex), DEFAULT_INNER_BG_HEX, "Interior background color for the main panel and Familiar Browser — specifically the scroll-view wrapper + viewport surfaces where tab content or familiar rows render. Pre-0.12.0 this was bright red by framework default (UIFactory.CreateScrollView painted the wrapper Theme.Level1). Independent of the outer panel color so users can build a two-tone theme.");
+        InitConfigEntry(UI_SETTINGS_GROUP,      nameof(ShowProfessionEnchanting),    true,  "Profession overlay: show Enchanting row.");
+        InitConfigEntry(UI_SETTINGS_GROUP,      nameof(ShowProfessionAlchemy),       true,  "Profession overlay: show Alchemy row.");
+        InitConfigEntry(UI_SETTINGS_GROUP,      nameof(ShowProfessionHarvesting),    true,  "Profession overlay: show Harvesting row.");
+        InitConfigEntry(UI_SETTINGS_GROUP,      nameof(ShowProfessionBlacksmithing), true,  "Profession overlay: show Blacksmithing row.");
+        InitConfigEntry(UI_SETTINGS_GROUP,      nameof(ShowProfessionTailoring),     true,  "Profession overlay: show Tailoring row.");
+        InitConfigEntry(UI_SETTINGS_GROUP,      nameof(ShowProfessionWoodcutting),   true,  "Profession overlay: show Woodcutting row.");
+        InitConfigEntry(UI_SETTINGS_GROUP,      nameof(ShowProfessionMining),        true,  "Profession overlay: show Mining row.");
+        InitConfigEntry(UI_SETTINGS_GROUP,      nameof(ShowProfessionFishing),       true,  "Profession overlay: show Fishing row.");
         InitConfigEntry(UI_SETTINGS_GROUP,      nameof(AutoScanVBloodsOnTabOpen),    false, "Automatically run a V-Blood scan the first time you open the V-Bloods tab in a session. Off by default — the scanner switches your active box ~10-15 times to walk all boxes; the user-controlled 'Scan all' button is the default trigger. Turn on if you want the scan to fire without a click.");
         InitConfigEntry(UI_SETTINGS_GROUP,      nameof(LockOverlays),                false, "Lock the position and size of every overlay so they can't be moved or resized by accident during play. Programmatic resize when settings change (e.g. enabling progress bars on the XP overlay) still works. Toggle via the 'Lock overlays' switch beside Auto-resize on the main panel.");
         InitConfigEntry(UI_SETTINGS_GROUP,      nameof(ShowPrestigeSubLine),         false, "Show a thin secondary fill inside the main XP/expertise/legacy bars reflecting prestige progress, like Eclipse's overlay. Off by default.");

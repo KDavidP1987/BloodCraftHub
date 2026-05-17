@@ -409,6 +409,12 @@ public class BCHubUIManager : UIManagerBase
         _familiarBrowserOverlay?.RefreshInnerBackgroundColor();
     }
 
+    /// <summary>0.13.0: live re-render of the Professions overlay after the
+    /// user flips any of the per-profession Settings.ShowProfession* flags
+    /// in Settings → Display. Cheaper than rebuilding the overlay — just
+    /// walks the label rows + bars and re-reads PlayerStateService.</summary>
+    public void RefreshProfessionOverlay() => _professionOverlay?.Refresh();
+
     public void RequestRebuildMainPanel()
     {
         if (_mainPanel == null) return;

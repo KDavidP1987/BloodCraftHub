@@ -81,6 +81,14 @@ public partial class MainPanel : ResizeablePanelBase
     // Class-tab live labels
     private TextMeshProUGUI _classNameLabel;
     private TextMeshProUGUI _classLevelLabel;
+    // 0.13.0: class-details body in the Active Class card. Re-rendered on
+    // class change via RenderClass → FormatClassDetailsBlock.
+    private TextMeshProUGUI _classDetailsLabel;
+    // 0.13.0: class-synergy hints surfaced on the Expertise + Blood Legacy
+    // tabs. Same RenderClass call updates all three so the user's context
+    // changes everywhere when they swap class.
+    private TextMeshProUGUI _wepClassSynergyLabel;
+    private TextMeshProUGUI _blClassSynergyLabel;
     private bool _classSubscribed;
 
     // Expertise-tab live labels
@@ -264,10 +272,13 @@ public partial class MainPanel : ResizeablePanelBase
             Tabs = new[]
             {
                 (PanelType.QuickStartTab,    "Quick Start"),
+                // 0.13.0: Bloodcraft mechanics deep-dive (classes /
+                // prestige / EXO / professions / quests). Sits between
+                // Quick Start and Game Guide so reading top-to-bottom
+                // goes BCH intro → Bloodcraft mechanics → game-wide
+                // resources → settings → admin → about.
+                (PanelType.ModHelpTab,       "Mod Help"),
                 // 0.12.1: V Rising game guide + community-resource links.
-                // Placed right after Quick Start so a new player reads
-                // "what this mod does" → "what this game is" in natural
-                // order before settings/admin tabs.
                 (PanelType.GameGuideTab,     "Game Guide"),
                 (PanelType.SettingsTab,      "Settings"),
                 (PanelType.VanillaAdminTab,  "Vanilla Admin"),
@@ -978,6 +989,9 @@ public partial class MainPanel : ResizeablePanelBase
                     break;
                 case PanelType.QuickStartTab:
                     BuildQuickStartTab(page);
+                    break;
+                case PanelType.ModHelpTab:
+                    BuildModHelpTab(page);
                     break;
                 case PanelType.GameGuideTab:
                     BuildGameGuideTab(page);
@@ -1907,6 +1921,17 @@ public partial class MainPanel : ResizeablePanelBase
         _classNameLabel  = AddInfoLabel(currentCard, "ClassName",  "—",       FontStyles.Bold,   fontSize: Theme.ScaledUI(18));
         _classLevelLabel = AddInfoLabel(currentCard, "ClassLevel", "Level —", FontStyles.Normal, fontSize: Theme.ScaledUI(14));
 
+        // 0.13.0: live class-details block — archetype + tagline + weapon
+        // synergies + blood synergies + on-hit debuff. Replaces nothing —
+        // augments the existing class name + level by showing WHAT picking
+        // this class actually gets you. RenderClass updates this on
+        // class-change so the user always sees their current loadout's
+        // capabilities without leaving the tab.
+        AddDivider(currentCard);
+        _classDetailsLabel = AddContextBodyLabel(currentCard, "ClassDetails",
+            FormatClassDetailsBlock(PlayerStateService.PlayerClass.None), fontSize: 13);
+        AddServerDisclaimer(currentCard);
+
         AddSpacer(page, 6);
 
         var actionsCard = AddCard(page, "ClassActionsCard");
@@ -1956,6 +1981,30 @@ public partial class MainPanel : ResizeablePanelBase
         AddBodyText(changeCard,
             $"Tip: {Mono("List Spells")} / {Mono("List Stats")} above describe what each class grants before you commit.");
 
+        // 0.13.0: comparison collapsible — all six classes side-by-side
+        // inline so the user picking a new class doesn't have to switch
+        // to Mod Help to compare options. Each block reuses the same
+        // FormatClassDetailsBlock the Active Class card displays, so the
+        // information stays consistent across surfaces.
+        CollapsibleSection.Build(changeCard,
+            title: "Compare all classes",
+            startExpanded: false,
+            tooltip: "Expand to see each of the six Bloodcraft classes side-by-side — their weapon and blood synergies, archetype, and on-hit debuff school. Helpful before committing to a class change.",
+            buildContent: c =>
+            {
+                AddContextBodyLabel(c, "ClassCompareIntro",
+                    "<i>Each class grants a 1.5× cap multiplier on its synergized weapon + blood stats, an on-hit debuff at 7.5% proc chance (default), and a class-specific spell school. Class change costs 750× Shattered Bone by default.</i>",
+                    fontSize: 12);
+                AddDivider(c);
+                AddClassComparisonBlock(c, PlayerStateService.PlayerClass.BloodKnight);
+                AddClassComparisonBlock(c, PlayerStateService.PlayerClass.VampireLord);
+                AddClassComparisonBlock(c, PlayerStateService.PlayerClass.DemonHunter);
+                AddClassComparisonBlock(c, PlayerStateService.PlayerClass.ShadowBlade);
+                AddClassComparisonBlock(c, PlayerStateService.PlayerClass.ArcaneSorcerer);
+                AddClassComparisonBlock(c, PlayerStateService.PlayerClass.DeathMage);
+                AddServerDisclaimer(c);
+            });
+
         RenderClass(PlayerStateService.Experience);
         if (!_classSubscribed)
         {
@@ -1975,6 +2024,181 @@ public partial class MainPanel : ResizeablePanelBase
         _classLevelLabel.text = s.Class == PlayerStateService.PlayerClass.None
             ? "Use .class s <Class> in chat to choose one."
             : $"Player Level {s.Level}   Prestige {s.Prestige}";
+
+        // 0.13.0: refresh the per-tab class-synergy hint cards on the Class /
+        // Expertise / Blood Legacy tabs so the live PlayerClass.Class drives
+        // which weapon + blood synergies are shown. Each label is built once
+        // at tab construct time; this just updates its text.
+        if (_classDetailsLabel != null)
+            _classDetailsLabel.text = FormatClassDetailsBlock(s.Class);
+        if (_wepClassSynergyLabel != null)
+            _wepClassSynergyLabel.text = FormatClassWeaponSynergyHint(s.Class);
+        if (_blClassSynergyLabel != null)
+            _blClassSynergyLabel.text = FormatClassBloodSynergyHint(s.Class);
+    }
+
+    // 0.13.0: shared Bloodcraft class data — single source of truth used by
+    // the Class / Expertise / Blood Legacy context cards AND the Mod Help
+    // tab's class section (Mod Help still hard-codes the same data inline for
+    // readability — if you change a synergy here, update BuildModHelpTab too).
+    private struct ClassInfo
+    {
+        public string DisplayName;
+        public string Archetype;          // Warrior / Rogue / Caster
+        public string Tagline;
+        public string[] WeaponSynergies;  // stat names
+        public string[] BloodSynergies;
+        public string OnHitDebuff;
+        public string OnHitSecondary;
+    }
+
+    private static readonly System.Collections.Generic.Dictionary<PlayerStateService.PlayerClass, ClassInfo> ClassInfoByClass = new()
+    {
+        [PlayerStateService.PlayerClass.BloodKnight] = new ClassInfo
+        {
+            DisplayName = "Blood Knight",
+            Archetype = "Warrior",
+            Tagline = "Tank-leaning vampire warrior; sword + life-leech identity.",
+            WeaponSynergies = new[] { "Max Health", "Primary Attack Speed", "Primary Life Leech", "Physical Power" },
+            BloodSynergies  = new[] { "Damage Reduction", "Reduced Blood Drain", "Weapon Cooldown Recovery", "Ability Attack Speed" },
+            OnHitDebuff     = "Leech",
+            OnHitSecondary  = "Lesser Bloodrage self-buff",
+        },
+        [PlayerStateService.PlayerClass.VampireLord] = new ClassInfo
+        {
+            DisplayName = "Vampire Lord",
+            Archetype = "Warrior",
+            Tagline = "AOE / sustain warrior; mace + scholar blood scales spell power.",
+            WeaponSynergies = new[] { "Max Health", "Spell Life Leech", "Physical Power", "Spell Power" },
+            BloodSynergies  = new[] { "Damage Reduction", "Spell Resistance", "Ultimate Cooldown Recovery", "Corruption Damage Reduction" },
+            OnHitDebuff     = "Chill",
+            OnHitSecondary  = "Lesser Frozen Weapon self-buff",
+        },
+        [PlayerStateService.PlayerClass.DemonHunter] = new ClassInfo
+        {
+            DisplayName = "Demon Hunter",
+            Archetype = "Rogue",
+            Tagline = "Ranged / holy crit-driven physical damage.",
+            WeaponSynergies = new[] { "Movement Speed", "Primary Attack Speed", "Physical Crit Chance", "Physical Crit Damage" },
+            BloodSynergies  = new[] { "Physical Resistance", "Reduced Blood Drain", "Weapon Cooldown Recovery", "Minion Damage" },
+            OnHitDebuff     = "Static",
+            OnHitSecondary  = "Lesser Stormshield self-buff",
+        },
+        [PlayerStateService.PlayerClass.ShadowBlade] = new ClassInfo
+        {
+            DisplayName = "Shadow Blade",
+            Archetype = "Rogue",
+            Tagline = "Dagger / shadow rogue; movement + crit-chance leaning.",
+            WeaponSynergies = new[] { "Movement Speed", "Primary Attack Speed", "Physical Power", "Physical Crit Damage" },
+            BloodSynergies  = new[] { "Spell Resistance", "Reduced Blood Drain", "Weapon Cooldown Recovery", "Ability Attack Speed" },
+            OnHitDebuff     = "Ignite",
+            OnHitSecondary  = "Lesser Powersurge self-buff",
+        },
+        [PlayerStateService.PlayerClass.ArcaneSorcerer] = new ClassInfo
+        {
+            DisplayName = "Arcane Sorcerer",
+            Archetype = "Caster",
+            Tagline = "Pure spell-power caster; scholar blood is the natural pair.",
+            WeaponSynergies = new[] { "Spell Life Leech", "Spell Power", "Spell Crit Chance", "Spell Crit Damage" },
+            BloodSynergies  = new[] { "Healing Received", "Spell Cooldown Recovery", "Ultimate Cooldown Recovery", "Ability Attack Speed" },
+            OnHitDebuff     = "Weaken",
+            OnHitSecondary  = "Lesser Aegis self-buff",
+        },
+        [PlayerStateService.PlayerClass.DeathMage] = new ClassInfo
+        {
+            DisplayName = "Death Mage",
+            Archetype = "Caster",
+            Tagline = "Necromancy-themed caster; shadow / corruption synergies.",
+            WeaponSynergies = new[] { "Max Health", "Spell Life Leech", "Spell Power", "Spell Crit Damage" },
+            BloodSynergies  = new[] { "Physical Resistance", "Spell Resistance", "Spell Cooldown Recovery", "Minion Damage" },
+            OnHitDebuff     = "Condemn",
+            OnHitSecondary  = "Guardian Block self-buff",
+        },
+    };
+
+    private static string FormatSynergyList(string[] stats)
+        => stats == null || stats.Length == 0 ? "—" : string.Join("  •  ", stats);
+
+    /// <summary>0.13.0: multi-line block describing one class. Used in the
+    /// Class tab's per-class comparison + the "Active class details" card.</summary>
+    private static string FormatClassDetailsBlock(PlayerStateService.PlayerClass cls)
+    {
+        if (cls == PlayerStateService.PlayerClass.None || !ClassInfoByClass.TryGetValue(cls, out var info))
+            return "<i>No class selected — pick one in the Change Class section below to see its synergies and on-hit effect.</i>";
+        return
+            $"<b>{info.DisplayName}</b>  ({info.Archetype})\n" +
+            $"<i>{info.Tagline}</i>\n" +
+            $"  Weapon synergies (1.5× cap):  {FormatSynergyList(info.WeaponSynergies)}\n" +
+            $"  Blood synergies (1.5× cap):   {FormatSynergyList(info.BloodSynergies)}\n" +
+            $"  On-hit debuff:  {info.OnHitDebuff}  (secondary: {info.OnHitSecondary})";
+    }
+
+    /// <summary>0.13.0: short hint shown on the Weapon Expertise tab — tells
+    /// the player which stats their class amplifies so the bonus-stat picker
+    /// is informed by class context, no tab-switch required.</summary>
+    private static string FormatClassWeaponSynergyHint(PlayerStateService.PlayerClass cls)
+    {
+        if (cls == PlayerStateService.PlayerClass.None || !ClassInfoByClass.TryGetValue(cls, out var info))
+            return "<i>No class selected — every weapon stat scales at its baseline cap until you pick a class (Class tab).</i>";
+        return
+            $"Your class (<b>{info.DisplayName}</b>) amplifies these weapon stats with a <b>1.5× cap</b>:\n" +
+            $"   {FormatSynergyList(info.WeaponSynergies)}\n" +
+            $"<i>Picking one of these for the weapon you fight with gets you the most out of every expertise level.</i>";
+    }
+
+    /// <summary>0.13.0: companion hint for the Blood Legacy tab.</summary>
+    private static string FormatClassBloodSynergyHint(PlayerStateService.PlayerClass cls)
+    {
+        if (cls == PlayerStateService.PlayerClass.None || !ClassInfoByClass.TryGetValue(cls, out var info))
+            return "<i>No class selected — every blood stat scales at its baseline cap until you pick a class (Class tab).</i>";
+        return
+            $"Your class (<b>{info.DisplayName}</b>) amplifies these blood stats with a <b>1.5× cap</b>:\n" +
+            $"   {FormatSynergyList(info.BloodSynergies)}\n" +
+            $"<i>Stacking blood + weapon picks toward the same role compounds the bonuses.</i>";
+    }
+
+    /// <summary>0.13.0: word-wrapped body label for use inside context cards
+    /// on the action tabs. Returns the TMP_Text so callers that need live
+    /// updates (Class / Expertise / Legacy synergy hints) can stash a
+    /// reference and rewrite .text on class changes.</summary>
+    private static TextMeshProUGUI AddContextBodyLabel(GameObject parent, string name, string initialText, int fontSize = 13)
+    {
+        var lbl = UIFactory.CreateLabel(parent, name, initialText,
+            TextAlignmentOptions.TopLeft, color: null, fontSize: Theme.ScaledUI(fontSize));
+        UIFactory.SetLayoutElement(lbl.GameObject,
+            minWidth: 340, preferredWidth: 380, flexibleWidth: 1,
+            minHeight: 22, flexibleHeight: 0);
+        lbl.TextMesh.enableWordWrapping = true;
+        lbl.TextMesh.overflowMode = TextOverflowModes.Overflow;
+        lbl.TextMesh.fontStyle = FontStyles.Normal;
+        var fitter = lbl.GameObject.AddComponent<UnityEngine.UI.ContentSizeFitter>();
+        fitter.horizontalFit = UnityEngine.UI.ContentSizeFitter.FitMode.Unconstrained;
+        fitter.verticalFit   = UnityEngine.UI.ContentSizeFitter.FitMode.PreferredSize;
+        return lbl.TextMesh;
+    }
+
+    /// <summary>0.13.0: italic muted-grey disclaimer line shared by every
+    /// context card. Reinforces that the numbers come from Bloodcraft's
+    /// shipped defaults and that the server admin can override them.</summary>
+    private static void AddServerDisclaimer(GameObject parent, string name = "ServerDisclaimer")
+    {
+        var lbl = UIFactory.CreateLabel(parent, name,
+            "<i>Defaults shown — your server's admin may have overridden any of these values in Bloodcraft.cfg.</i>",
+            TextAlignmentOptions.TopLeft, color: null, fontSize: Theme.ScaledUI(11));
+        UIFactory.SetLayoutElement(lbl.GameObject,
+            minWidth: 340, preferredWidth: 380, flexibleWidth: 1,
+            minHeight: 18, preferredHeight: 22, flexibleHeight: 0);
+        lbl.TextMesh.enableWordWrapping = true;
+        lbl.TextMesh.overflowMode = TextOverflowModes.Overflow;
+    }
+
+    /// <summary>0.13.0: build a per-class block inside the Compare-All-Classes
+    /// collapsible on the Class tab. Re-uses FormatClassDetailsBlock so the
+    /// visual data exactly matches what the Active Class card shows.</summary>
+    private static void AddClassComparisonBlock(GameObject parent, PlayerStateService.PlayerClass cls)
+    {
+        AddContextBodyLabel(parent, $"ClassCompare_{cls}", FormatClassDetailsBlock(cls), fontSize: 13);
+        AddDivider(parent);
     }
 
     // -----------------------------------------------------------------------
@@ -2642,6 +2866,39 @@ public partial class MainPanel : ResizeablePanelBase
 
         AddSpacer(page, 6);
 
+        // 0.13.0: class-synergy hint card. Tells the user which weapon stats
+        // their CURRENT class amplifies (1.5× cap) so the bonus-stat picker
+        // below is informed by class context — no tab swap needed. Live-
+        // updated by RenderClass when the player changes class.
+        var classHintCard = AddCard(page, "WepClassHintCard");
+        AddSectionHeading(classHintCard, "Class synergies");
+        _wepClassSynergyLabel = AddContextBodyLabel(classHintCard, "WepClassSynergy",
+            FormatClassWeaponSynergyHint(PlayerStateService.Experience.Class), fontSize: 13);
+        CollapsibleSection.Build(classHintCard,
+            title: "All stat caps + per-stat details",
+            startExpanded: false,
+            tooltip: "Reference list of every weapon expertise stat and its baseline cap at L100. Class synergy multiplies the cap by 1.5× for the four stats listed above.",
+            buildContent: c =>
+            {
+                AddContextBodyLabel(c, "WepStatCapsBody",
+                    "<b>Bonus stat caps</b> (baseline at expertise L100, before any prestige boost):\n" +
+                    "  • Physical Power: <b>+20</b>\n" +
+                    "  • Spell Power: <b>+10</b>\n" +
+                    "  • Max Health: <b>+250</b>\n" +
+                    "  • Movement Speed: <b>+25%</b>\n" +
+                    "  • Primary Attack Speed: <b>+10%</b>\n" +
+                    "  • Physical / Spell Crit Chance: <b>+10%</b>\n" +
+                    "  • Physical / Spell Crit Damage: <b>+50%</b>\n" +
+                    "  • Physical / Spell Life Leech: <b>+10%</b>\n" +
+                    "  • Primary Life Leech: <b>+15%</b>\n\n" +
+                    "Each weapon expertise prestige tier (max 10): <b>−10%</b> XP rate, <b>+10%</b> stat-cap boost. " +
+                    "Reset a weapon's chosen stats with <b>.wep rst</b> (default cost: 500× Shattered Bone).",
+                    fontSize: 12);
+            });
+        AddServerDisclaimer(classHintCard);
+
+        AddSpacer(page, 6);
+
         var actionsCard = AddCard(page, "WepActionsCard");
         AddSectionHeading(actionsCard, "Actions");
         var actions = UIFactory.CreateHorizontalGroup(actionsCard, "WepActions",
@@ -2778,6 +3035,40 @@ public partial class MainPanel : ResizeablePanelBase
         ApplyStrongAccentOutline(_blStatsValuesLabel);
         _blStatsValuesLabel.enableWordWrapping = true;
         _blStatsValuesLabel.overflowMode = TextOverflowModes.Overflow;
+
+        AddSpacer(page, 6);
+
+        // 0.13.0: class-synergy hint card — companion to the Weapon Expertise
+        // hint. Shows which BLOOD stats the current class amplifies (1.5×
+        // cap). Same RenderClass call updates this and the Expertise version
+        // when the user changes class.
+        var classHintCard = AddCard(page, "BlClassHintCard");
+        AddSectionHeading(classHintCard, "Class synergies");
+        _blClassSynergyLabel = AddContextBodyLabel(classHintCard, "BlClassSynergy",
+            FormatClassBloodSynergyHint(PlayerStateService.Experience.Class), fontSize: 13);
+        CollapsibleSection.Build(classHintCard,
+            title: "All stat caps + per-stat details",
+            startExpanded: false,
+            tooltip: "Reference list of every blood legacy stat and its baseline cap at L100. Class synergy multiplies the cap by 1.5× for the four stats listed above.",
+            buildContent: c =>
+            {
+                AddContextBodyLabel(c, "BlStatCapsBody",
+                    "<b>Bonus stat caps</b> (baseline at legacy L100, before any prestige boost):\n" +
+                    "  • Healing Received: <b>+15%</b>\n" +
+                    "  • Damage Reduction: <b>+5%</b>\n" +
+                    "  • Physical / Spell Resistance: <b>+10%</b>\n" +
+                    "  • Resource Yield: <b>+25%</b>\n" +
+                    "  • Reduced Blood Drain: <b>+50%</b>\n" +
+                    "  • Weapon / Spell Cooldown Recovery: <b>+10%</b>\n" +
+                    "  • Ultimate Cooldown Recovery: <b>+20%</b>\n" +
+                    "  • Minion Damage: <b>+25%</b>\n" +
+                    "  • Ability Attack Speed: <b>+10%</b>\n" +
+                    "  • Corruption Damage Reduction: <b>+10%</b>\n\n" +
+                    "Each blood legacy prestige tier (max 10): <b>−10%</b> gain rate, <b>+10%</b> stat-cap boost. " +
+                    "Reset a blood's chosen stats with <b>.bl rst</b> (default cost: 500× Shattered Bone — same item as expertise reset).",
+                    fontSize: 12);
+            });
+        AddServerDisclaimer(classHintCard);
 
         AddSpacer(page, 6);
 
@@ -3162,6 +3453,68 @@ public partial class MainPanel : ResizeablePanelBase
                 new EnumField<PlayerStateService.ExoformVariant>("form", "Exoform",
                     defaultValue: PlayerStateService.ExoformVariant.EvolvedVampire,
                     tooltip: "EvolvedVampire or CorruptedSerpent.")));
+
+        // 0.13.0: prestige progression reference card. Surfaces what each
+        // prestige tier gives the player AND what to look forward to as
+        // they continue prestiging. Always present beneath the prestige
+        // forms so the user doesn't need to swap to Mod Help to remember
+        // the per-tier math while filling in a .prestige me form.
+        AddSpacer(page, 6);
+        var progressionCard = AddCard(page, "PrestigeProgressionCard");
+        AddSectionHeading(progressionCard, "What each prestige tier gives you");
+        AddContextBodyLabel(progressionCard, "PrestigeProgressionIntro",
+            "Bloodcraft has up to <b>10 tiers</b> per system (Experience / each weapon / each blood) — plus <b>100 Exo tiers</b> on top of leveling-prestige.",
+            fontSize: 13);
+        CollapsibleSection.Build(progressionCard,
+            title: "Leveling (Experience) prestige — per tier",
+            startExpanded: false,
+            tooltip: "What you get every time you complete .prestige me Experience.",
+            buildContent: c =>
+            {
+                AddContextBodyLabel(c, "LevelingPrestigeBody",
+                    "Per tier (max 10):\n" +
+                    "  • Resets character level back to <b>10</b>.\n" +
+                    "  • Permanent leveling buff (server-tunable; varies by Bloodcraft version).\n" +
+                    "  • <b>−5%</b> XP gain from kills (LevelingPrestigeReducer = 0.05).\n" +
+                    "  • <b>+10%</b> rate boost to weapon expertise + blood legacy XP (PrestigeRateMultiplier = 0.10).\n" +
+                    "  • Unlocks one additional class-spell slot (PrestigeLevelsToUnlockClassSpells = 0..5, one per tier).\n\n" +
+                    "Net: each tier slows your raw level XP slightly but accelerates expertise / legacy gain. " +
+                    "By tier 10 you've traded <b>−50%</b> XP for <b>+100%</b> expertise + legacy gain rate.",
+                    fontSize: 12);
+            });
+        CollapsibleSection.Build(progressionCard,
+            title: "Weapon Expertise / Blood Legacy prestige — per tier",
+            startExpanded: false,
+            tooltip: "Per-system prestige using .prestige me <Weapon> or .prestige me <Blood>.",
+            buildContent: c =>
+            {
+                AddContextBodyLabel(c, "ExpLegPrestigeBody",
+                    "Per tier (max 10 per weapon, 10 per blood):\n" +
+                    "  • Resets that specific system's level back to <b>1</b>.\n" +
+                    "  • <b>−10%</b> XP rate for THAT weapon / blood (PrestigeRatesReducer = 0.10).\n" +
+                    "  • <b>+10%</b> stat-bonus cap boost for THAT weapon's / blood's chosen stats (PrestigeStatMultiplier = 0.10).\n\n" +
+                    "By tier 10: stat caps are <b>×2.0</b> their baseline for that weapon / blood, but levelling that weapon / blood takes about twice as long.",
+                    fontSize: 12);
+            });
+        CollapsibleSection.Build(progressionCard,
+            title: "Exo Prestige — endgame tier (after max Experience prestige)",
+            startExpanded: false,
+            tooltip: "Unlocks at maxed Experience prestige + level 90. The highest tier of Bloodcraft progression.",
+            buildContent: c =>
+            {
+                AddContextBodyLabel(c, "ExoPrestigeBody",
+                    "Up to <b>100 Exo tiers</b> available once you've maxed leveling-prestige.\n" +
+                    "  • Each Exo prestige resets your XP to 0 (level stays at max).\n" +
+                    "  • Awards <b>500× Primal Stygian Shards</b> per tier (ExoPrestigeReward = 28358550, ExoPrestigeRewardQuantity = 500).\n" +
+                    "  • Unlocks <b>Exoforms</b> — shapeshift between Evolved Vampire and Corrupted Serpent.\n" +
+                    "    Form duration grows from <b>15s</b> at Exo 1 to roughly <b>180s</b> at Exo 100 " +
+                    "    (formula: 15 + (165 ÷ 100) × exoLevel).\n" +
+                    "  • Shard rewards can buy specific V-Blood familiars via <b>.fam echoes &lt;Name&gt;</b> " +
+                    "    (cost scales with V-Blood level + tier; shard bearers cost ~25× baseline).\n\n" +
+                    "Use the <b>.prestige sf</b> form (above) to pick which exoform is active; <b>.prestige exoform</b> triggers the transformation (taunt emote by default).",
+                    fontSize: 12);
+            });
+        AddServerDisclaimer(progressionCard);
 
         RenderPrestige();
         if (!_prestigeSubscribed)
@@ -4430,6 +4783,10 @@ public partial class MainPanel : ResizeablePanelBase
         AddShowPrestigeSubLineToggle(page);
         AddOverlayAlignmentToggle(page);
         AddAutoScanVBloodsToggle(page);
+
+        AddSpacer(page, 6);
+        BuildProfessionTrackedSection(page);
+
         AddSpacer(page, 8);
         AddSectionHeading(page, "Chat noise");
         AddSuppressActionChatterToggle(page);
@@ -5069,6 +5426,79 @@ public partial class MainPanel : ResizeablePanelBase
         t.OnValueChanged += v => Config.Settings.SetAutoScanVBloodsOnTabOpen(v);
     }
 
+    // 0.13.0: per-profession visibility section for the Professions overlay.
+    // Eight toggles in two compact rows of four. Each flip writes its
+    // Settings.ShowProfession* flag and calls RefreshProfessionOverlay so
+    // the overlay re-renders immediately. Forward-compatible with the
+    // v0.14.0 combined overlay (same flags will gate the per-profession
+    // sub-rows inside the combined component).
+    private void BuildProfessionTrackedSection(GameObject page)
+    {
+        AddSectionHeading(page, "Professions tracked");
+
+        var help = UIFactory.CreateLabel(page, "ProfTrackedHelp",
+            "Choose which of the eight Bloodcraft professions appear on the Professions overlay. " +
+            "Defaults show all eight (preserves pre-0.13.0 behavior). Each row hides immediately when its checkbox is cleared.",
+            TextAlignmentOptions.TopLeft, color: null, fontSize: Theme.ScaledUI(12));
+        UIFactory.SetLayoutElement(help.GameObject,
+            minWidth: 360, preferredWidth: 400, flexibleWidth: 1,
+            minHeight: 24, preferredHeight: 32, flexibleHeight: 0);
+        help.TextMesh.enableWordWrapping = true;
+        help.TextMesh.overflowMode = TextOverflowModes.Overflow;
+        help.TextMesh.fontStyle = FontStyles.Italic;
+
+        var row1 = UIFactory.CreateHorizontalGroup(page, "ProfTogglesRow1",
+            forceExpandWidth: true, forceExpandHeight: false,
+            childControlWidth: true, childControlHeight: true,
+            spacing: 4, padding: new Vector4(2, 2, 2, 2));
+        UIFactory.SetLayoutElement(row1,
+            minWidth: 360, preferredWidth: 400, flexibleWidth: 1,
+            minHeight: 28, preferredHeight: 30, flexibleHeight: 0);
+
+        AddProfessionTrackedToggle(row1, "Enchanting",    () => Config.Settings.ShowProfessionEnchanting,    Config.Settings.SetShowProfessionEnchanting);
+        AddProfessionTrackedToggle(row1, "Alchemy",       () => Config.Settings.ShowProfessionAlchemy,       Config.Settings.SetShowProfessionAlchemy);
+        AddProfessionTrackedToggle(row1, "Harvesting",    () => Config.Settings.ShowProfessionHarvesting,    Config.Settings.SetShowProfessionHarvesting);
+        AddProfessionTrackedToggle(row1, "Blacksmithing", () => Config.Settings.ShowProfessionBlacksmithing, Config.Settings.SetShowProfessionBlacksmithing);
+
+        var row2 = UIFactory.CreateHorizontalGroup(page, "ProfTogglesRow2",
+            forceExpandWidth: true, forceExpandHeight: false,
+            childControlWidth: true, childControlHeight: true,
+            spacing: 4, padding: new Vector4(2, 2, 2, 2));
+        UIFactory.SetLayoutElement(row2,
+            minWidth: 360, preferredWidth: 400, flexibleWidth: 1,
+            minHeight: 28, preferredHeight: 30, flexibleHeight: 0);
+
+        AddProfessionTrackedToggle(row2, "Tailoring",   () => Config.Settings.ShowProfessionTailoring,   Config.Settings.SetShowProfessionTailoring);
+        AddProfessionTrackedToggle(row2, "Woodcutting", () => Config.Settings.ShowProfessionWoodcutting, Config.Settings.SetShowProfessionWoodcutting);
+        AddProfessionTrackedToggle(row2, "Mining",      () => Config.Settings.ShowProfessionMining,      Config.Settings.SetShowProfessionMining);
+        AddProfessionTrackedToggle(row2, "Fishing",     () => Config.Settings.ShowProfessionFishing,     Config.Settings.SetShowProfessionFishing);
+    }
+
+    private static void AddProfessionTrackedToggle(GameObject row, string label,
+        System.Func<bool> get, System.Action<bool> set)
+    {
+        var t = UIFactory.CreateToggle(row, $"ProfTog_{label}");
+        UIFactory.SetLayoutElement(t.GameObject,
+            minWidth: 80, preferredWidth: 95, flexibleWidth: 1,
+            minHeight: 24, preferredHeight: 26, flexibleHeight: 0);
+        t.Text.text = label;
+        t.Text.fontSize = Theme.ScaledUI(11);
+        t.Text.alignment = TextAlignmentOptions.MidlineLeft;
+        t.Text.enableWordWrapping = false;
+        t.Text.overflowMode = TextOverflowModes.Overflow;
+        UIFactory.SetLayoutElement(t.Text.gameObject,
+            minWidth: 60, preferredWidth: 75, flexibleWidth: 1,
+            minHeight: 22, preferredHeight: 24, flexibleHeight: 0);
+        t.Toggle.isOn = get();
+        TooltipHover.Attach(t.GameObject,
+            $"Show the {label} row on the Professions overlay. Default: on.");
+        t.OnValueChanged += value =>
+        {
+            set(value);
+            Plugin.UIManager?.RefreshProfessionOverlay();
+        };
+    }
+
     private void AddShowPrestigeSubLineToggle(GameObject parent)
     {
         var row = UIFactory.CreateHorizontalGroup(parent, "ShowPrestigeSubLineRow",
@@ -5585,6 +6015,428 @@ public partial class MainPanel : ResizeablePanelBase
             "their content / availability may change.");
     }
 
+    // 0.13.0: Mod Help tab — deeper Bloodcraft mechanics reference for
+    // players new to the mod. Quick Start gives a fast tour of BCH's UI;
+    // this tab explains what Bloodcraft itself adds vs vanilla V Rising
+    // and how the major systems interlock.
+    //
+    // Structure per mechanic (post-0.13.0 expansion):
+    //   1. Bold section heading
+    //   2. Overview paragraph (always visible)
+    //   3. Collapsed "Details" — numeric specifics, non-obvious rules
+    //   4. Collapsed "Default settings" — ConfigService defaults the
+    //      server admin can override in Bloodcraft.cfg
+    //
+    // Content sourced from LearningMods/Bloodcraft-main/ v1.13.21:
+    //   README.md (overview), Services/ConfigService.cs (defaults),
+    //   Utilities/Classes.cs + Utilities/Shapeshifts.cs (mechanics).
+    // If a future Bloodcraft version changes a default or a class
+    // synergy, update both here AND the relevant tab content (Prestige,
+    // Classes) so the UI doesn't drift from reality.
+    private void BuildModHelpTab(GameObject page)
+    {
+        AddGuideSection(page,
+            "Bloodcraft mechanics — overview",
+            "Vanilla V Rising has no character-level progression — your power " +
+            "comes from the gear you craft. Bloodcraft is a server-side mod that " +
+            "layers a full RPG progression system over the base game: experience " +
+            "leveling, weapon expertise, blood legacies, classes, prestige, " +
+            "familiars, professions, and daily/weekly quests. BloodCraftHub is " +
+            "the client-side UI for those systems — every command this mod " +
+            "exposes via chat is reachable from this panel. This tab explains " +
+            "each system; the other tabs let you USE them.\n\n" +
+            "Numbers below are the Bloodcraft v1.13.x DEFAULTS. Your server's " +
+            "admin can override any of them in BepInEx/config/Bloodcraft.cfg, " +
+            "so treat the values as a baseline — your actual rates may differ.");
+
+        // ── XP Leveling ─────────────────────────────────────────────────
+        AddGuideSection(page,
+            "Experience leveling",
+            "Killing enemies grants XP based on enemy level. Rested XP accumulates " +
+            "while you're logged out inside a coffin — stone coffins give the full " +
+            "rested rate, wooden coffins half. Toggle gain notifications in chat " +
+            "with .lvl log; check current progress with .lvl get. The XP overlay " +
+            "(toggle in the footer) shows level + progress live. At the level cap " +
+            "you can prestige to reset level for permanent bonuses (see below).");
+        AddCollapsibleHelpDetail(page, "Details — XP",
+            "• Level cap: <b>90</b>. New players start at level <b>10</b>.\n" +
+            "• XP multipliers per kill: regular units <b>×7.5</b>, V-Bloods <b>×15</b>, " +
+            "docile units <b>×0.15</b>, war events <b>×0.2</b>. Unit spawners give no XP " +
+            "by default.\n" +
+            "• Group XP sharing: party / clan members within <b>25</b> units of the " +
+            "killer share full XP, as long as their level is within <b>10</b> of yours " +
+            "(prestiged players are exempt from the level-difference cap).\n" +
+            "• Rested XP: max stored = <b>5</b> levels' worth, accrues at <b>5%</b> of " +
+            "max per <b>120-minute</b> tick. Stone coffin = 100% rate; wooden = 50%. " +
+            "Fully recharged after roughly <b>20 hours</b> of offline coffin time.\n" +
+            "• Per-prestige XP penalty: <b>−5%</b> XP earned per leveling-prestige " +
+            "tier you've completed (server can set this to 0).");
+        AddCollapsibleHelpDetail(page, "Default settings — XP",
+            "Server-config defaults (BepInEx/config/Bloodcraft.cfg):\n" +
+            "• MaxLevel = 90      • StartingLevel = 10\n" +
+            "• UnitLevelingMultiplier = 7.5\n" +
+            "• VBloodLevelingMultiplier = 15\n" +
+            "• DocileUnitMultiplier = 0.15\n" +
+            "• WarEventMultiplier = 0.2\n" +
+            "• UnitSpawnerMultiplier = 0\n" +
+            "• GroupLevelingMultiplier = 1.0\n" +
+            "• LevelScalingMultiplier = 0.05\n" +
+            "• RestedXPRate = 0.05    RestedXPMax = 5\n" +
+            "• RestedXPTickRate = 120 min\n" +
+            "• ExpShareDistance = 25  ExpShareLevelRange = 10");
+
+        // ── Weapon Expertise ────────────────────────────────────────────
+        AddGuideSection(page,
+            "Weapon Expertise",
+            "Each weapon type tracks its own expertise level — swing it to level " +
+            "it up. Higher expertise = larger bonuses from the stat you've chosen " +
+            "for that weapon. Pick a stat with .wep cst <Weapon> <Stat> after " +
+            ".wep lst lists what's available; .wep get shows your current " +
+            "weapon's progress and chosen stat. Classes have weapon-stat " +
+            "SYNERGIES that boost specific stat effectiveness — picking stats " +
+            "your class synergizes with is usually the optimal play.");
+        AddCollapsibleHelpDetail(page, "Details — Weapon Expertise",
+            "• Cap per weapon: <b>level 100</b>, up to <b>10 prestige tiers</b> on " +
+            "top.\n" +
+            "• XP rates: regular units <b>×2</b>, V-Bloods <b>×5</b>.\n" +
+            "• You pick <b>3 stats</b> per weapon. Each scales linearly from 0 at " +
+            "L1 to its full cap at L100; class synergy multiplies the effective " +
+            "cap by <b>1.5×</b>.\n" +
+            "• Stat caps (baseline, before class synergy): Physical Power <b>+20</b>, " +
+            "Spell Power <b>+10</b>, Max Health <b>+250</b>, Movement Speed <b>+25%</b>, " +
+            "Primary Attack Speed <b>+10%</b>, Physical / Spell Crit Chance " +
+            "<b>+10%</b>, Crit Damage <b>+50%</b>, Life Leech variants <b>+10–15%</b>.\n" +
+            "• Each prestige tier (max 10): <b>−10%</b> XP rate, <b>+10%</b> stat-cap " +
+            "boost. Net: harder to level, bigger payoff at the top.\n" +
+            "• To reset a weapon's stat pick: .wep rst (costs <b>500× Shattered " +
+            "Bone</b> by default).");
+        AddCollapsibleHelpDetail(page, "Default settings — Weapon Expertise",
+            "• MaxExpertiseLevel = 100   MaxExpertisePrestiges = 10\n" +
+            "• UnitExpertiseMultiplier = 2\n" +
+            "• VBloodExpertiseMultiplier = 5\n" +
+            "• ExpertiseStatChoices = 3\n" +
+            "• ResetExpertiseItem = 576389135 (Shattered Bone), qty 500\n\n" +
+            "Per-stat caps (Settings → Bloodcraft.cfg):\n" +
+            "• PhysicalPower 20  SpellPower 10  MaxHealth 250\n" +
+            "• MovementSpeed 0.25  PrimaryAttackSpeed 0.10\n" +
+            "• PhysicalCritChance 0.10  PhysicalCritDamage 0.50\n" +
+            "• SpellCritChance 0.10  SpellCritDamage 0.50\n" +
+            "• PhysicalLifeLeech 0.10  SpellLifeLeech 0.10  PrimaryLifeLeech 0.15");
+
+        // ── Blood Legacies ──────────────────────────────────────────────
+        AddGuideSection(page,
+            "Blood Legacies",
+            "Drinking from enemies grants legacy XP for that blood type. Higher " +
+            "legacy = larger bonuses from the stat you've picked for that blood. " +
+            ".bl lst lists available stats per blood; .bl cst <Blood> <Stat> picks " +
+            "one; .bl get shows your current blood's progress + chosen stat. Like " +
+            "expertise, classes have blood-stat synergies that amplify specific " +
+            "picks. Worth coordinating blood + weapon + class picks to stack the " +
+            "same stat (e.g. all SpellPower-leaning).");
+        AddCollapsibleHelpDetail(page, "Details — Blood Legacies",
+            "• Cap per blood type: <b>level 100</b>, up to <b>10 prestige tiers</b>.\n" +
+            "• XP rates: regular units <b>×1</b>, V-Bloods <b>×5</b>.\n" +
+            "• <b>3 stat picks</b> per blood. Same prestige mechanic as expertise: " +
+            "<b>−10%</b> rate per tier, <b>+10%</b> stat-cap boost per tier.\n" +
+            "• Stat-cap baselines: Healing Received <b>+15%</b>, Damage Reduction " +
+            "<b>+5%</b>, Physical / Spell Resistance <b>+10%</b>, Resource Yield " +
+            "<b>+25%</b>, Reduced Blood Drain <b>+50%</b>, Weapon / Spell Cooldown " +
+            "Recovery <b>+10%</b>, Ultimate Cooldown Recovery <b>+20%</b>, Minion " +
+            "Damage <b>+25%</b>, Ability Attack Speed <b>+10%</b>, Corruption " +
+            "Damage Reduction <b>+10%</b>.\n" +
+            "• Reset a blood's stat pick with .bl rst (<b>500× Shattered Bone</b> " +
+            "by default — same item as expertise reset).");
+        AddCollapsibleHelpDetail(page, "Default settings — Blood Legacies",
+            "• MaxBloodLevel = 100   MaxLegacyPrestiges = 10\n" +
+            "• UnitLegacyMultiplier = 1\n" +
+            "• VBloodLegacyMultiplier = 5\n" +
+            "• LegacyStatChoices = 3\n" +
+            "• ResetLegacyItem = 576389135 (Shattered Bone), qty 500\n\n" +
+            "Per-stat caps (baseline):\n" +
+            "• HealingReceived 0.15  DamageReduction 0.05\n" +
+            "• PhysicalResistance 0.10  SpellResistance 0.10\n" +
+            "• ResourceYield 0.25  ReducedBloodDrain 0.50\n" +
+            "• WeaponCooldownRecoveryRate 0.10  SpellCooldownRecoveryRate 0.10\n" +
+            "• UltimateCooldownRecoveryRate 0.20  MinionDamage 0.25\n" +
+            "• AbilityAttackSpeed 0.10  CorruptionDamageReduction 0.10");
+
+        // ── Classes ─────────────────────────────────────────────────────
+        AddGuideSection(page,
+            "Classes — the six options",
+            "A class is a free pick at character start and a paid change after " +
+            "(via .class change). It grants three things:\n\n" +
+            "• Weapon + Blood synergies — specific stats become more effective " +
+            "(synergized stats get a <b>1.5×</b> cap multiplier).\n" +
+            "• On-hit debuff effects — chance to apply ignite / weaken / chill / " +
+            "etc. when you damage an enemy. The default proc chance is <b>7.5%</b>. " +
+            "If the primary debuff is already on the target, the secondary tier-2 " +
+            "self-buff applies instead.\n" +
+            "• Extra spells from the class's spell school — one slot unlocks per " +
+            "leveling-prestige tier, usable on Shift.\n\n" +
+            "Class change cost: <b>750× Shattered Bone</b> by default.");
+        AddCollapsibleHelpDetail(page, "Details — per-class synergies + debuffs",
+            "Each class's weapon + blood synergies (stats that get <b>1.5×</b> " +
+            "effective cap) and on-hit debuff school:\n\n" +
+            "<b>Blood Knight</b>  (warrior)\n" +
+            "  weapon: MaxHealth, PrimaryAttackSpeed, PrimaryLifeLeech, PhysicalPower\n" +
+            "  blood: DamageReduction, ReducedBloodDrain, WeaponCooldownRecovery, AbilityAttackSpeed\n" +
+            "  on-hit: Leech debuff (secondary: lesser bloodrage self-buff)\n\n" +
+            "<b>Vampire Lord</b>  (warrior)\n" +
+            "  weapon: MaxHealth, SpellLifeLeech, PhysicalPower, SpellPower\n" +
+            "  blood: DamageReduction, SpellResistance, UltimateCooldownRecovery, CorruptionDamageReduction\n" +
+            "  on-hit: Chill debuff (secondary: lesser frozen weapon)\n\n" +
+            "<b>Demon Hunter</b>  (rogue)\n" +
+            "  weapon: MovementSpeed, PrimaryAttackSpeed, PhysicalCritChance, PhysicalCritDamage\n" +
+            "  blood: PhysicalResistance, ReducedBloodDrain, WeaponCooldownRecovery, MinionDamage\n" +
+            "  on-hit: Static debuff (secondary: lesser stormshield)\n\n" +
+            "<b>Shadow Blade</b>  (rogue)\n" +
+            "  weapon: MovementSpeed, PrimaryAttackSpeed, PhysicalPower, PhysicalCritDamage\n" +
+            "  blood: SpellResistance, ReducedBloodDrain, WeaponCooldownRecovery, AbilityAttackSpeed\n" +
+            "  on-hit: Ignite debuff (secondary: lesser powersurge)\n\n" +
+            "<b>Arcane Sorcerer</b>  (caster)\n" +
+            "  weapon: SpellLifeLeech, SpellPower, SpellCritChance, SpellCritDamage\n" +
+            "  blood: HealingReceived, SpellCooldownRecovery, UltimateCooldownRecovery, AbilityAttackSpeed\n" +
+            "  on-hit: Weaken debuff (secondary: lesser aegis)\n\n" +
+            "<b>Death Mage</b>  (caster)\n" +
+            "  weapon: MaxHealth, SpellLifeLeech, SpellPower, SpellCritDamage\n" +
+            "  blood: PhysicalResistance, SpellResistance, SpellCooldownRecovery, MinionDamage\n" +
+            "  on-hit: Condemn debuff (secondary: guardian block self-buff)\n\n" +
+            "Tip: stack your weapon expertise + blood legacy + class so all three " +
+            "pull toward the same role (e.g. Arcane Sorcerer with SpellPower " +
+            "expertise stat + SpellCooldownRecovery legacy stat).");
+        AddCollapsibleHelpDetail(page, "Default settings — Classes",
+            "• ClassSystem = false   (server must enable)\n" +
+            "• ClassOnHitEffects = true\n" +
+            "• OnHitProcChance = 0.075   (7.5%)\n" +
+            "• SynergyMultiplier = 1.5\n" +
+            "• ChangeClassItem = 576389135 (Shattered Bone), qty 750\n" +
+            "• DefaultClassSpell = −433204738 (Veil of Shadow)\n" +
+            "• PrestigeLevelsToUnlockClassSpells = 0,1,2,3,4,5 (one per tier)");
+
+        // ── Prestige ────────────────────────────────────────────────────
+        AddGuideSection(page,
+            "Prestige",
+            "At max level in any progression system (Experience, a specific " +
+            "weapon, a specific blood) you can prestige that system. Prestiging " +
+            "resets the system's level and grants permanent buffs / scaling " +
+            "bonuses — XP-prestige slows future XP gain but boosts your " +
+            "expertise + legacy gain rate, raising your long-term ceiling.\n\n" +
+            "Commands you'll use:\n" +
+            "• <b>.prestige l</b> — list available prestige types.\n" +
+            "• <b>.prestige me <Type></b> — prestige yourself.\n" +
+            "• <b>.prestige get <Type></b> — view current prestige + buffs.\n" +
+            "• <b>.prestige sb</b> — re-sync prestige buffs if they got removed.\n\n" +
+            "The Prestige tab in BCH dispatches all of these from forms.");
+        AddCollapsibleHelpDetail(page, "Details — Prestige",
+            "• Up to <b>10 prestige tiers</b> per system (Experience, each weapon " +
+            "type, each blood type).\n" +
+            "• Each XP prestige tier: resets level to <b>10</b>, applies a permanent " +
+            "buff, reduces XP from kills by <b>5%</b> per tier, AND boosts your " +
+            "expertise + legacy gain rates by <b>10%</b> per tier.\n" +
+            "• Each weapon / blood prestige tier: resets that system's level to 1, " +
+            "<b>−10%</b> gain rate, <b>+10%</b> stat-bonus cap per tier.\n" +
+            "• A leaderboard tracks prestige ranks (enabled by default; opt out " +
+            "via admin command).\n" +
+            "• .prestige sb (sync buffs) is the one to remember — if you die or " +
+            "get debuffed and your prestige buffs drop, this reapplies them.");
+        AddCollapsibleHelpDetail(page, "Default settings — Prestige",
+            "• PrestigeSystem = false   (server must enable)\n" +
+            "• MaxLevelingPrestiges = 10\n" +
+            "• MaxExpertisePrestiges = 10\n" +
+            "• MaxLegacyPrestiges = 10\n" +
+            "• LevelingPrestigeReducer = 0.05   (5% XP reduction per tier)\n" +
+            "• PrestigeRatesReducer = 0.10      (10% rate reduction per tier for weapons/blood)\n" +
+            "• PrestigeStatMultiplier = 0.10    (10% stat-cap boost per tier)\n" +
+            "• PrestigeRateMultiplier = 0.10    (10% rate bonus to expertise/legacy from leveling prestige)\n" +
+            "• Leaderboard = true");
+
+        // ── Exo Prestige ────────────────────────────────────────────────
+        AddGuideSection(page,
+            "Exo Prestige & Exoforms (endgame)",
+            "Past the regular experience-prestige cap, Bloodcraft has an Exo " +
+            "prestige tier that grants the most powerful endgame buffs and unlocks " +
+            "shapeshift forms (Exoforms).\n\n" +
+            "Two Exoforms are available — Evolved Vampire and Corrupted Serpent. " +
+            "Pick which one is active with .prestige sf <EvolvedVampire|" +
+            "CorruptedSerpent>; trigger the transformation with .prestige " +
+            "exoform (defaults to a taunt emote trigger). Form duration scales " +
+            "with your Exo tier.\n\n" +
+            "Exo prestige also yields reward shards usable for advanced familiar " +
+            "unlocks — .fam echoes <VBloodName> spends shards to unlock V-Blood " +
+            "familiars whose costs scale by tier.");
+        AddCollapsibleHelpDetail(page, "Details — Exo & Exoforms",
+            "• Requires <b>maxed Experience prestige</b> + level 90 to start Exo " +
+            "tiering. Up to <b>100 Exo tiers</b> available.\n" +
+            "• Each Exo prestige resets your XP to 0 again but awards <b>500× " +
+            "Primal Stygian Shards</b> (PrefabGUID 28358550) per tier.\n" +
+            "• Exoform duration: <b>15s</b> at Exo 1, growing to roughly <b>180s</b> " +
+            "at Exo 100 (formula: 15 + (165 ÷ 100) × exoLevel).\n" +
+            "• Forms recharge passively; base full-recharge time scales down as " +
+            "your Exo tier rises. A 5-second countdown warning fires just before " +
+            "the form ends.\n" +
+            "• Optional <b>TrueImmortal</b> server toggle: while in exoform your " +
+            "blood swaps to Immortal, restoring to your original on exit.\n" +
+            "• .fam echoes cost formula: base × scaledFactor × EchoesFactor. " +
+            "Higher-level + higher-tier V-Bloods cost more — shard bearers " +
+            "(top tier) cost <b>25×</b> the base.");
+        AddCollapsibleHelpDetail(page, "Default settings — Exo",
+            "• ExoPrestiging = false   (server must enable)\n" +
+            "• ExoPrestigeReward = 28358550 (Primal Stygian Shard)\n" +
+            "• ExoPrestigeRewardQuantity = 500\n" +
+            "• PrimalEchoes = false    (enables .fam echoes V-Blood unlocks)\n" +
+            "• EchoesFactor = 1        (cost multiplier, clamped 1–4)\n" +
+            "• TrueImmortal = false");
+
+        // ── Familiars ───────────────────────────────────────────────────
+        AddGuideSection(page,
+            "Familiars",
+            "Enemies you defeat have a configured chance to drop as familiars — " +
+            "summonable combat companions. Stored in named boxes (you can " +
+            "create + organize multiple). The Boxes tab lists boxes; the " +
+            "Familiars tab handles your active familiar (bind / unbind / " +
+            "toggle / prestige); the Familiar Browser overlay (footer toggle) " +
+            "is a compact draggable subset for in-combat swaps.\n\n" +
+            "Variants you'll see:\n" +
+            "• <b>Basic</b> — standard capture.\n" +
+            "• <b>Shiny</b> — rare visual + stat variant with a glowing effect " +
+            "and an extra debuff proc when dealing damage.\n" +
+            "• <b>Primal</b> — primal echoes-unlocked V-Blood variant.\n\n" +
+            "Familiars level via combat; .fam pr <Stat> prestiges at max level " +
+            "for permanent stat bonuses.");
+        AddCollapsibleHelpDetail(page, "Details — Familiars",
+            "• Unlock chance: <b>5%</b> on regular units, <b>1%</b> on V-Bloods, " +
+            "only on the final-blow kill.\n" +
+            "• Cap: <b>level 90</b>, scaling 7.5× units / 15× V-Bloods. Up to " +
+            "<b>10 prestige tiers</b>, each adding <b>+10%</b> stat bonus (no rate " +
+            "penalty for familiars).\n" +
+            "• <b>Shinies</b>: 20% chance on first unlock of a species, 100% on " +
+            "any repeat unlock. Shiny familiars proc their assigned spell-school " +
+            "debuff on attacks at the same proc rate as class on-hit (7.5%).\n" +
+            "• Shiny cost: <b>100× Vampiric Dust</b> to apply; <b>25%</b> of that " +
+            "to change school later.\n" +
+            "• Prestige cost: <b>1000× Schematics</b>, grants levels equal to the " +
+            "familiar's max-level cap.\n" +
+            "• Share unlocks (off by default): clan / party within experience " +
+            "share distance can co-receive captures.\n" +
+            "• .fam echoes uses Exo shards to unlock specific V-Bloods directly — " +
+            "see the Exo section.\n" +
+            "• Server controls: AllowVBloods, AllowMinions, BannedUnits, BannedTypes " +
+            "filter what's eligible to capture.");
+        AddCollapsibleHelpDetail(page, "Default settings — Familiars",
+            "• FamiliarSystem = false   (server must enable)\n" +
+            "• MaxFamiliarLevel = 90    MaxFamiliarPrestiges = 10\n" +
+            "• FamiliarPrestigeStatMultiplier = 0.10\n" +
+            "• FamiliarCombat = true    FamiliarPvP = true\n" +
+            "• UnitFamiliarMultiplier = 7.5   VBloodFamiliarMultiplier = 15\n" +
+            "• UnitUnlockChance = 0.05  VBloodUnlockChance = 0.01\n" +
+            "• AllowVBloods = false   AllowMinions = false\n" +
+            "• EquipmentOnly = false\n" +
+            "• ShinyChance = 0.20\n" +
+            "• ShinyCostItemQuantity = 100   (range 50–200)\n" +
+            "• PrestigeCostItemQuantity = 1000 (range 500–2000)\n" +
+            "• ShareUnlocks = false\n" +
+            "• FamiliarBattles = false   (noted as non-functional after BC 1.1)");
+
+        // ── Professions ─────────────────────────────────────────────────
+        AddGuideSection(page,
+            "Professions",
+            "Eight gathering / crafting skills level independently. Bonuses " +
+            "differ by profession:\n\n" +
+            "• <b>Mining / Woodcutting / Harvesting</b> — bonus resources per " +
+            "broken node, scaling with profession level. Profession-specific " +
+            "bonus drops (gold ore from mining, saplings from woodcutting, " +
+            "seeds from harvesting).\n" +
+            "• <b>Fishing</b> — extra catch every 20 levels.\n" +
+            "• <b>Alchemy</b> — potions you craft become more effective + last " +
+            "longer (up to ×2 duration at max; holy potions get duration only).\n" +
+            "• <b>Blacksmithing / Tailoring / Enchanting</b> — gear you craft " +
+            "gets <b>+10% base stats</b> and <b>×2 durability</b> at max " +
+            "profession level.\n\n" +
+            ".prof get <Profession> shows current level. The Professions overlay " +
+            "(footer toggle) tracks them live; Settings → Display has per-" +
+            "profession checkboxes if you only care about a few.");
+        AddCollapsibleHelpDetail(page, "Details — Professions",
+            "• Profession multiplier (server-tunable): <b>1.0×</b> by default — " +
+            "all professions level at the same base rate.\n" +
+            "• Stat / durability bonuses scale linearly from L1 to max.\n" +
+            "• Server admins can disable individual professions by listing them " +
+            "in the DisabledProfessions config (comma-separated).\n" +
+            "• Gathering bonus drops: gold ore from mining nodes contributes " +
+            "salvageable jewelry; random saplings + seeds give planters something " +
+            "to work with.");
+        AddCollapsibleHelpDetail(page, "Default settings — Professions",
+            "• ProfessionSystem = false   (server must enable)\n" +
+            "• ProfessionFactor = 1.0\n" +
+            "• DisabledProfessions = \"\"   (comma-separated profession names)");
+
+        // ── Quests ──────────────────────────────────────────────────────
+        AddGuideSection(page,
+            "Daily & Weekly Quests",
+            "Bloodcraft assigns a daily quest (resets daily) and a weekly quest " +
+            "(resets weekly). Each targets specific enemies — kill the target " +
+            "type the required number of times for XP + reward items. Use " +
+            ".quest d / .quest w to view them, .quest t <daily|weekly> to set " +
+            "a tracker waypoint to the nearest target, .quest r to reroll for " +
+            "a configured cost.\n\n" +
+            "The Daily Quest overlay (footer toggle) keeps both progress lines " +
+            "visible while you play.");
+        AddCollapsibleHelpDetail(page, "Details — Quests",
+            "• Daily reward multiplier is the base rate; weekly rewards are " +
+            "roughly <b>5×</b> the daily reward.\n" +
+            "• Each completed daily has a <b>10%</b> chance to also drop a " +
+            "random perfect gem (useful for Primal Jewel crafting — the gem " +
+            "school influences the resulting jewel).\n" +
+            "• Reroll cost (daily): <b>50</b> of the configured reroll item " +
+            "(default PrefabGUID −949672483 — Stygian Coin). Weekly reroll is " +
+            "the same item type, also 50 by default.\n" +
+            "• Optional <b>InfiniteDailies</b> server toggle: when on, daily " +
+            "quests can be repeated as fast as you complete them (off by " +
+            "default → one daily per server day).");
+        AddCollapsibleHelpDetail(page, "Default settings — Quests",
+            "• QuestSystem = false   (server must enable)\n" +
+            "• InfiniteDailies = false\n" +
+            "• DailyPerfectChance = 0.10\n" +
+            "• QuestRewards = 28358550, 576389135, -257494203\n" +
+            "  (Primal Stygian Shard, Shattered Bone, ...)\n" +
+            "• QuestRewardAmounts = 50, 250, 50\n" +
+            "• RerollDailyAmount = 50    RerollWeeklyAmount = 50");
+
+        AddGuideSection(page,
+            "Where to go next",
+            "Open any of the BLOODCRAFT-group tabs in the left rail to actually " +
+            "use the systems described here. Most commands have UI forms with " +
+            "tooltips on every field. The Quick Start tab covers BCH's UI " +
+            "conventions; the Game Guide tab links external V Rising resources " +
+            "(wiki, Discord, etc.) if you want broader context.\n\n" +
+            "Bloodcraft Thunderstore: https://thunderstore.io/c/v-rising/p/zfolmt/Bloodcraft/\n" +
+            "Bloodcraft GitHub: https://github.com/mfoltz/Bloodcraft");
+    }
+
+    // 0.13.0: collapsed-by-default detail/defaults block under each Mod Help
+    // section. Wraps a single multi-line wrapped TMP label inside a
+    // CollapsibleSection so the help tab opens compact and the user expands
+    // only the parts they care about. The label uses a ContentSizeFitter so
+    // its height tracks the actual wrapped text — no manual line-counting
+    // and the section's outer VLG auto-fits.
+    private static void AddCollapsibleHelpDetail(GameObject parent, string title, string body)
+    {
+        CollapsibleSection.Build(parent, title, startExpanded: false, content =>
+        {
+            // 0.13.0: bumped body fontSize 12 → 14 to match AddGuideSection.
+            var lbl = UIFactory.CreateLabel(content, $"HelpDetail_{title}", body,
+                TextAlignmentOptions.TopLeft, color: null, fontSize: Theme.ScaledUI(14));
+            UIFactory.SetLayoutElement(lbl.GameObject,
+                minWidth: 340, preferredWidth: 380, flexibleWidth: 1,
+                minHeight: 20, flexibleHeight: 0);
+            lbl.TextMesh.enableWordWrapping = true;
+            lbl.TextMesh.overflowMode = TextOverflowModes.Overflow;
+            lbl.TextMesh.fontStyle = FontStyles.Normal;
+            var fitter = lbl.GameObject.AddComponent<UnityEngine.UI.ContentSizeFitter>();
+            fitter.horizontalFit = UnityEngine.UI.ContentSizeFitter.FitMode.Unconstrained;
+            fitter.verticalFit   = UnityEngine.UI.ContentSizeFitter.FitMode.PreferredSize;
+        });
+    }
+
     private void BuildQuickStartTab(GameObject page)
     {
         AddGuideSection(page,
@@ -5685,8 +6537,13 @@ public partial class MainPanel : ResizeablePanelBase
     {
         AddSectionHeading(parent, title);
 
+        // 0.13.0: bumped body fontSize 12 → 14 for the prose-heavy help-group
+        // tabs (Quick Start / Mod Help / Game Guide / Settings descriptions).
+        // Friend-test: "these pages contain a lot of information, harder to
+        // read than other pages because the text is small." TMP wraps on
+        // preferredWidth = 400 so the wider glyphs still fit cleanly.
         var lbl = UIFactory.CreateLabel(parent, $"Guide_{title}", body,
-            TextAlignmentOptions.TopLeft, color: null, fontSize: Theme.ScaledUI(12));
+            TextAlignmentOptions.TopLeft, color: null, fontSize: Theme.ScaledUI(14));
         // Guide body sized by TMP's actual rendered preferredHeight via a
         // ContentSizeFitter. Earlier versions estimated lines × 16 which
         // consistently over-shot, producing visible empty gaps between
@@ -5882,23 +6739,48 @@ public partial class MainPanel : ResizeablePanelBase
         return lbl.TextMesh;
     }
 
+    // 0.13.0 visual refresh: section headings now get a thin 2-pixel gold
+    // divider band above them PLUS a gold + bold + larger heading text.
+    // Friend-test motivation: the help-group tabs (Quick Start, Mod Help,
+    // Game Guide, Settings) carry long prose / detail blocks; with the
+    // pre-0.13 plain-white italic heading it was hard to spot where one
+    // article section ended and the next began while scrolling. The
+    // colored band acts as a scannable section marker. Used for every
+    // section across the panel (not just article tabs); data-display
+    // tabs benefit from the clearer section break too.
+    private static readonly UnityEngine.Color ARTICLE_HEADING_ACCENT =
+        new UnityEngine.Color(0.90f, 0.72f, 0.36f, 1f); // warm gold
+
     private static void AddSectionHeading(GameObject parent, string text)
     {
+        if (string.IsNullOrWhiteSpace(text))
+        {
+            // Empty title — historical callers (Vanilla Admin) use this to
+            // emit a body paragraph without a heading. Skip the divider too
+            // so we don't render a free-floating gold stripe.
+            return;
+        }
+
+        // Gold divider band — full-width 2px Image. Visual marker for
+        // "section starts here" that survives any panel-background color
+        // pick (gold contrasts on every dark + bright preset).
+        var divider = UIFactory.CreateUIObject($"SectionDivider_{text}", parent);
+        divider.AddComponent<UnityEngine.UI.Image>().color = ARTICLE_HEADING_ACCENT;
+        UIFactory.SetLayoutElement(divider,
+            minWidth: 360, preferredWidth: 400, flexibleWidth: 1,
+            minHeight: 2, preferredHeight: 2, flexibleHeight: 0);
+
+        // Heading text — gold, bold + italic, bumped to 16pt for readability
+        // on the dense help-group tabs. The Theme.ScaledHeight helpers track
+        // UI font scale so Small / Large / X-Large users still see a heading
+        // proportional to their body text.
         var lbl = UIFactory.CreateLabel(parent, $"Section_{text}", text,
-            TextAlignmentOptions.MidlineLeft, color: null, fontSize: Theme.ScaledUI(14));
-        // 0.9.2: bumped minHeight 20→26 and preferredHeight 22→30. The old
-        // values were tight even at Standard scale and clipped into the next
-        // container at Large scale (Theme.ScaledUI(14) → 17pt with ~20px line
-        // height needs >22px reserved). Friend-testing: "the text for available
-        // boxes and the text for manage boxes is overlapping with the border of
-        // the table". The container immediately below the heading (BoxList,
-        // BoxContent etc.) typically had only 2px top padding so any
-        // overflow from the heading drew into the list's edge. Bumping the
-        // heading itself fixes the root cause.
+            TextAlignmentOptions.MidlineLeft, color: null, fontSize: Theme.ScaledUI(16));
         UIFactory.SetLayoutElement(lbl.GameObject,
             minWidth: 360, preferredWidth: 400, flexibleWidth: 1,
-            minHeight: Theme.ScaledHeight(26), preferredHeight: Theme.ScaledHeight(30), flexibleHeight: 0);
+            minHeight: Theme.ScaledHeight(30), preferredHeight: Theme.ScaledHeight(34), flexibleHeight: 0);
         lbl.TextMesh.fontStyle = FontStyles.Bold | FontStyles.Italic;
+        lbl.TextMesh.color = ARTICLE_HEADING_ACCENT;
         lbl.TextMesh.enableWordWrapping = false;
         lbl.TextMesh.overflowMode = TextOverflowModes.Overflow;
     }

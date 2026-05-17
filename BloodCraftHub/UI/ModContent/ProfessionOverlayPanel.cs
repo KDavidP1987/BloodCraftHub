@@ -135,29 +135,66 @@ public class ProfessionOverlayPanel : ResizeablePanelBase
 
     private void OnProfessionChanged() => Render(PlayerStateService.Profession);
 
+    /// <summary>0.13.0: public hook for MainPanel's per-profession toggle UI
+    /// to push a re-render after the user flips a Settings.ShowProfession*
+    /// flag. Cheap — just walks the label rows + bars and reads current
+    /// PlayerStateService data, no network round-trip.</summary>
+    public void Refresh() => Render(PlayerStateService.Profession);
+
     private void Render(PlayerStateService.ProfessionState s)
     {
         if (_enchantingLabel == null) return;
-        _enchantingLabel.TextMesh.text    = FormatRow("Enchanting",    s.EnchantingLevel,    s.EnchantingProgress);
-        _alchemyLabel.TextMesh.text       = FormatRow("Alchemy",       s.AlchemyLevel,       s.AlchemyProgress);
-        _harvestingLabel.TextMesh.text    = FormatRow("Harvesting",    s.HarvestingLevel,    s.HarvestingProgress);
-        _blacksmithingLabel.TextMesh.text = FormatRow("Blacksmithing", s.BlacksmithingLevel, s.BlacksmithingProgress);
-        _tailoringLabel.TextMesh.text     = FormatRow("Tailoring",     s.TailoringLevel,     s.TailoringProgress);
-        _woodcuttingLabel.TextMesh.text   = FormatRow("Woodcutting",   s.WoodcuttingLevel,   s.WoodcuttingProgress);
-        _miningLabel.TextMesh.text        = FormatRow("Mining",        s.MiningLevel,        s.MiningProgress);
-        _fishingLabel.TextMesh.text       = FormatRow("Fishing",       s.FishingLevel,       s.FishingProgress);
+
+        // 0.13.0: per-profession row visibility. Each row (label + bar pair)
+        // hides via SetActive when its Settings flag is off. Default true
+        // preserves the v0.12.x layout. Friend-test motivation: most players
+        // only level a handful of professions and want the overlay shorter.
+        bool sEn = Settings.ShowProfessionEnchanting;
+        bool sAl = Settings.ShowProfessionAlchemy;
+        bool sHa = Settings.ShowProfessionHarvesting;
+        bool sBl = Settings.ShowProfessionBlacksmithing;
+        bool sTa = Settings.ShowProfessionTailoring;
+        bool sWo = Settings.ShowProfessionWoodcutting;
+        bool sMi = Settings.ShowProfessionMining;
+        bool sFi = Settings.ShowProfessionFishing;
+
+        SetRowActive(_enchantingLabel,    sEn);
+        SetRowActive(_alchemyLabel,       sAl);
+        SetRowActive(_harvestingLabel,    sHa);
+        SetRowActive(_blacksmithingLabel, sBl);
+        SetRowActive(_tailoringLabel,     sTa);
+        SetRowActive(_woodcuttingLabel,   sWo);
+        SetRowActive(_miningLabel,        sMi);
+        SetRowActive(_fishingLabel,       sFi);
+
+        if (sEn) _enchantingLabel.TextMesh.text    = FormatRow("Enchanting",    s.EnchantingLevel,    s.EnchantingProgress);
+        if (sAl) _alchemyLabel.TextMesh.text       = FormatRow("Alchemy",       s.AlchemyLevel,       s.AlchemyProgress);
+        if (sHa) _harvestingLabel.TextMesh.text    = FormatRow("Harvesting",    s.HarvestingLevel,    s.HarvestingProgress);
+        if (sBl) _blacksmithingLabel.TextMesh.text = FormatRow("Blacksmithing", s.BlacksmithingLevel, s.BlacksmithingProgress);
+        if (sTa) _tailoringLabel.TextMesh.text     = FormatRow("Tailoring",     s.TailoringLevel,     s.TailoringProgress);
+        if (sWo) _woodcuttingLabel.TextMesh.text   = FormatRow("Woodcutting",   s.WoodcuttingLevel,   s.WoodcuttingProgress);
+        if (sMi) _miningLabel.TextMesh.text        = FormatRow("Mining",        s.MiningLevel,        s.MiningProgress);
+        if (sFi) _fishingLabel.TextMesh.text       = FormatRow("Fishing",       s.FishingLevel,       s.FishingProgress);
 
         // 0.9.3: progress-bar visibility per the Settings.ShowProgressBars
         // toggle. Re-read every render so the toggle takes effect live.
+        // 0.13.0: AND-gate with the per-profession flag so a hidden row's bar
+        // is hidden too.
         bool showBars = Settings.ShowProgressBars;
-        SyncBar(_enchantingBar,    _enchantingFill,    s.EnchantingProgress,    showBars);
-        SyncBar(_alchemyBar,       _alchemyFill,       s.AlchemyProgress,       showBars);
-        SyncBar(_harvestingBar,    _harvestingFill,    s.HarvestingProgress,    showBars);
-        SyncBar(_blacksmithingBar, _blacksmithingFill, s.BlacksmithingProgress, showBars);
-        SyncBar(_tailoringBar,     _tailoringFill,     s.TailoringProgress,     showBars);
-        SyncBar(_woodcuttingBar,   _woodcuttingFill,   s.WoodcuttingProgress,   showBars);
-        SyncBar(_miningBar,        _miningFill,        s.MiningProgress,        showBars);
-        SyncBar(_fishingBar,       _fishingFill,       s.FishingProgress,       showBars);
+        SyncBar(_enchantingBar,    _enchantingFill,    s.EnchantingProgress,    showBars && sEn);
+        SyncBar(_alchemyBar,       _alchemyFill,       s.AlchemyProgress,       showBars && sAl);
+        SyncBar(_harvestingBar,    _harvestingFill,    s.HarvestingProgress,    showBars && sHa);
+        SyncBar(_blacksmithingBar, _blacksmithingFill, s.BlacksmithingProgress, showBars && sBl);
+        SyncBar(_tailoringBar,     _tailoringFill,     s.TailoringProgress,     showBars && sTa);
+        SyncBar(_woodcuttingBar,   _woodcuttingFill,   s.WoodcuttingProgress,   showBars && sWo);
+        SyncBar(_miningBar,        _miningFill,        s.MiningProgress,        showBars && sMi);
+        SyncBar(_fishingBar,       _fishingFill,       s.FishingProgress,       showBars && sFi);
+    }
+
+    private static void SetRowActive(LabelRef row, bool active)
+    {
+        if (row == null || row.GameObject == null) return;
+        if (row.GameObject.activeSelf != active) row.GameObject.SetActive(active);
     }
 
     private static void SyncBar(GameObject bar, UnityEngine.RectTransform fill, float progress, bool show)

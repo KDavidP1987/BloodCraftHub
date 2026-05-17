@@ -1,5 +1,150 @@
 # Changelog
 
+## 0.13.0 — Mod Help reference + per-profession toggles + class context cards
+
+Information-architecture release. v0.12.x added quality-of-life UI
+features (color theme, handshake retry, Game Guide tab). v0.13.0 turns
+its attention to the OTHER half of usability: Bloodcraft is a deep mod
+and prior versions made you swap to Quick Start or chat to remember
+what each class / stat / prestige tier actually does. This release puts
+that reference information exactly where the user needs it — both as a
+comprehensive Mod Help tab and as inline context cards on the tabs the
+user touches when making decisions.
+
+### New "Mod Help" tab under Settings & Help
+
+Section-by-section reference for every Bloodcraft system: XP leveling,
+weapon expertise, blood legacies, the six classes (with full per-class
+weapon + blood synergies + on-hit debuff school), prestige, Exo
+prestige + Exoforms, familiars, professions, daily/weekly quests.
+
+Each section uses the same three-part shape:
+
+- **Bold gold section heading** (always visible)
+- **Overview paragraph** (always visible — one-paragraph plain-English
+  summary of the system)
+- **Details collapsible** (collapsed by default — numeric specifics
+  and non-obvious rules, e.g. rested-XP math, per-stat cap values,
+  per-class on-hit debuff names, exoform duration formula)
+- **Default settings collapsible** (collapsed by default — the
+  `Bloodcraft.cfg` defaults the server admin can override; useful for
+  understanding what your server's tuning departs from)
+
+Tab opens compact (every detail/defaults block collapsed); the user
+expands only what they care about. Content sourced from Bloodcraft
+v1.13.21's README, source, and ConfigService — including the per-class
+weapon-synergy + blood-synergy + on-hit-debuff mappings from
+`Utilities/Classes.cs` and the exoform duration formula
+`15 + (165 / 100) * exoLevel` from `Utilities/Shapeshifts.cs`.
+
+### Inline class context cards on action tabs
+
+The user explicitly asked for this after the first Mod Help pass:
+"as users are actively using the Class / Weapon Expertise / Blood
+Legacy / Prestige tabs to make their changes, they will have access to
+the information relevant to the changes they are making." So we
+duplicated the relevant Mod Help slice into each action tab.
+
+- **Class tab** — Active Class card extends with a live class-details
+  block (archetype + tagline + weapon synergies + blood synergies +
+  on-hit debuff). A new "Compare all classes" collapsible inside the
+  Change Class card shows all six classes side-by-side for picking.
+- **Weapon Expertise tab** — new "Class synergies" card between
+  Current Weapon Expertise and Actions. Top line: which weapon stats
+  your CURRENT class amplifies (1.5× cap). Inside collapsible: every
+  weapon stat's baseline cap at L100 plus the prestige math.
+- **Blood Legacy tab** — mirror: which blood stats your class
+  amplifies, plus every blood stat's baseline cap.
+- **Prestige tab** — new "What each prestige tier gives you" card with
+  three collapsibles:
+  - Leveling-prestige per tier: −5% XP, +10% expertise/legacy rate,
+    +1 class-spell unlock per tier
+  - Weapon Expertise / Blood Legacy prestige per tier: −10% rate,
+    +10% cap, max 10 tiers
+  - Exo Prestige (endgame): 100 tiers, 500× Primal Stygian Shards per
+    tier, exoform duration formula, `.fam echoes` cost scaling
+
+Each context card carries a one-line italic disclaimer that the
+defaults shown are subject to server-admin overrides in
+`Bloodcraft.cfg`.
+
+### Implementation: single source of truth
+
+`ClassInfoByClass` static dictionary holds the per-class display
+name + archetype + tagline + weapon synergies + blood synergies +
+on-hit debuff + secondary self-buff for all six classes. Three
+helpers (`FormatClassDetailsBlock`, `FormatClassWeaponSynergyHint`,
+`FormatClassBloodSynergyHint`) feed the inline cards. The Mod Help
+tab keeps its own inline text (for readability of the markdown-style
+prose) but the data values are identical — touch the dictionary if
+Bloodcraft 1.14+ changes any synergy and the four action tabs
+auto-update; Mod Help requires the same parallel edit.
+
+`RenderClass` (the existing class-change event handler) now also
+rewrites `_classDetailsLabel`, `_wepClassSynergyLabel`, and
+`_blClassSynergyLabel` in place so a class change on any tab updates
+the context cards on the other three live.
+
+### Per-profession overlay toggles
+
+Settings → Display → "Professions tracked" — eight checkboxes
+(Enchanting / Alchemy / Harvesting / Blacksmithing / Tailoring /
+Woodcutting / Mining / Fishing) gate each profession's row + bar on
+the Professions overlay. Default-on preserves the v0.12.x render
+exactly so existing users see no change unless they uncheck.
+
+Implementation: eight new `Settings.ShowProfession*` flags, gated at
+render time in `ProfessionOverlayPanel.Render` via SetActive on each
+label + bar. `BCHubUIManager.RefreshProfessionOverlay()` pushes the
+re-render on toggle without rebuilding the overlay. Flag names chosen
+to forward-feed the planned v0.14.0 combined overlay's per-section
+toggles — the same checkboxes will eventually gate the combined
+overlay's profession section.
+
+### Visual refresh — gold section markers + 14pt body text
+
+Friend-test on the v0.13.0 pre-release: "these pages contain a lot of
+information, harder to read than other pages because the text is
+small." Two coordinated changes:
+
+- **Section markers.** `AddSectionHeading` now renders a thin 2-pixel
+  warm-gold (`#E5B85C`) divider band immediately above every heading,
+  and the heading text itself in gold + bold + italic at fontSize 16
+  (was plain white-italic at 14). The gold band acts as a scannable
+  "section starts here" cue when scrolling long Mod Help / Quick Start
+  content. Gold was picked for high contrast against every panel
+  background preset (dark + bright).
+- **Body fontSize.** `AddGuideSection` body and the new
+  `AddCollapsibleHelpDetail` body both bumped 12 → 14, making the
+  prose on the Help-group tabs noticeably more readable. Layout
+  unaffected because the TMP wrap + ContentSizeFitter pipeline handles
+  the height growth.
+
+Side effect: data-display tabs (Familiars, Prestige, Levels) use the
+same `AddSectionHeading` so their section breaks get the gold-band
+treatment too — judged net-positive (clearer visual hierarchy
+everywhere).
+
+Empty-title `AddSectionHeading` calls (Vanilla Admin uses these for
+body-only paragraphs) now skip the heading + divider entirely
+instead of rendering an empty stripe.
+
+### README / Thunderstore description refresh
+
+- Updated screenshot section with five v0.11.2 captures (Class /
+  Logistics / Weapon Expertise / V-Bloods / Familiars) provided by a
+  community user.
+- Added a prominent "⚠ Heads-up before you install" section at the
+  top of the README covering:
+  - Eclipse mod incompatibility (workaround: disable Eclipse while
+    using BloodCraftHub; fix forwarded to Eclipse's author).
+  - Pre-1.0 testing status, with the The Shadow Realm Discord
+    (https://discord.gg/usC9QgBrXK) as the primary bug-report channel.
+- Status line refreshed to v0.13.0 with the v0.12 / v0.13 changes
+  summarized.
+
+
+
 ## 0.12.1 — Bloodcraft availability retry + Game Guide tab + bright interior presets
 
 Three focused additions on top of the v0.12.0 color-theme work.
