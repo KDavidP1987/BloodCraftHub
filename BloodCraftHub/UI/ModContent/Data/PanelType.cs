@@ -36,6 +36,7 @@ public enum PanelType
 
     // Help / Reference tabs:
     QuickStartTab,
+    GameGuideTab,           // 0.12.1: V Rising game guide / external links
     VanillaAdminTab,
     AboutTab,
     SettingsTab,

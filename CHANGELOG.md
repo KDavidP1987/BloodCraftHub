@@ -1,5 +1,82 @@
 # Changelog
 
+## 0.12.1 — Bloodcraft availability retry + Game Guide tab + bright interior presets
+
+Three focused additions on top of the v0.12.0 color-theme work.
+
+### Bloodcraft availability — handshake retry + live UI refresh
+
+Pre-0.12.1, the Bloodcraft tab group could render as "(unavailable)" on
+servers that DO run Bloodcraft, simply because the user opened the panel
+faster than the Eclipse-protocol handshake could ACK. Two compounding
+problems caused this:
+
+1. The handshake was sent ONCE — `SendRegistration` gated on
+   `!UserRegistered && !RegistrationPending`, so once Pending flipped
+   true no further attempts ever fired. If the server's first ACK was
+   dropped (or the server hadn't loaded Bloodcraft at our handshake
+   time), the user stayed stuck.
+2. `IsTabGroupAvailable("Bloodcraft")` returned plain `UserRegistered`
+   at panel construction time and the tab strip never refreshed —
+   even when the handshake eventually succeeded, the panel kept
+   showing "(unavailable)" until the user closed and reopened it.
+
+Fixed by:
+
+- `EclipseProtocolService.SendRegistration` now retries up to
+  `REGISTRATION_MAX_ATTEMPTS` (3) times with
+  `REGISTRATION_RETRY_AFTER_SECONDS` (5 s) between attempts. ~15 s
+  total before giving up. A new `RegistrationGaveUp` flag latches
+  true at the cap so we don't spam the server forever — and `Reset()`
+  clears all retry state for the next session.
+- New `EclipseProtocolService.AvailabilityChanged` event fires on
+  successful ACK after a late retry, AND on give-up. `MainPanel`
+  subscribes in `BuildTabStrip`, defers a frame via
+  `CoreUpdateBehavior.Actions`, then walks `_groupHeaderText` /
+  `_groupHeaderButton` to update header text, color, and
+  interactability in place — no panel rebuild, no scroll-position
+  loss, no flicker.
+- `IsTabGroupAvailable("Bloodcraft")` now returns true during the
+  retry window (`UserRegistered || !RegistrationGaveUp`). Users
+  aren't locked out of the Bloodcraft tabs while detection is in
+  flight; they only see "(unavailable)" once the retry cap has
+  actually been hit.
+
+### New "Game Guide" tab in the Settings & Help group
+
+A new tab between Quick Start and Settings that surfaces V Rising
+resources (the game itself, not BCH). Sections:
+
+- **Official** — playvrising.com (Stunlock Studios homepage)
+- **Community resources** — V Rising Wiki (Fandom), CaDrift
+- **Discord** — V Rising official Discord invite
+
+Each link uses an "Open" button that hands the URL to
+`Application.OpenURL` so it launches in the user's default browser.
+Closing note points to the BCH GitHub issues page for suggesting
+additional resources in future versions.
+
+### Bright interior color preset row + readability fix
+
+The interior background-color picker now offers TWO preset rows
+under separate sub-headings:
+
+- **Dark variants** — the original 0.12.0 palette
+  (Default / Black / Slate / Wine / Forest / Indigo / Crimson, all
+  in the ~0.07–0.23 max-channel range).
+- **Bright variants** — saturated twins of each, max channel
+  ~0.40–0.65. Crimson Bright = `#A30000` matches `Theme.Level1`
+  exactly, so one click restores the pre-0.12.0 framework red.
+
+The section's help paragraph and "Dark variants / Bright variants"
+sub-labels switched from the muted grey (`Theme.MutedBodyHex`) to
+italic white. Muted-grey on the brighter presets failed the
+readability bar; italic white stays hierarchically distinct from
+the bold section heading while reading cleanly on every preset,
+dark and bright.
+
+
+
 ## 0.12.0 — Split Toggle/Unbind buttons + two-zone panel color theme
 
 First feedback-bundle release since the 0.11.2 hotfix. Two user-requested

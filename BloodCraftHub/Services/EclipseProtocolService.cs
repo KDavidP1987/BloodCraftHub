@@ -63,6 +63,27 @@ public static class EclipseProtocolService
     public static bool   RegistrationPending { get; private set; }
     public static byte[] SharedKey { get; private set; }
 
+    // 0.12.1: retry state for the registration handshake. v0.12.0 and prior
+    // gated SendRegistration on `!Pending` — the very first call set Pending=
+    // true and the gate never reopened. If the server's first ACK got lost
+    // (or a slow server hadn't loaded Bloodcraft yet at our handshake time),
+    // we'd stay stuck in "Detecting…" forever and the Bloodcraft tab group
+    // would render as Unavailable even on a Bloodcraft server. Now we retry
+    // up to REGISTRATION_MAX_ATTEMPTS times with REGISTRATION_RETRY_AFTER_SECONDS
+    // between attempts. After the cap is hit RegistrationGaveUp flips true
+    // and the tab group renders as Unavailable for real.
+    public static bool   RegistrationGaveUp { get; private set; }
+    private static float _registrationSentAt;
+    private static int   _registrationAttemptCount;
+    private const float  REGISTRATION_RETRY_AFTER_SECONDS = 5f;
+    private const int    REGISTRATION_MAX_ATTEMPTS = 3;
+
+    /// <summary>0.12.1: fired when UserRegistered transitions to true OR when
+    /// RegistrationGaveUp flips true after the retry cap. UI subscribers
+    /// (MainPanel.BuildTabStrip) refresh tab-group availability in place so
+    /// the user sees Bloodcraft come online without re-opening the panel.</summary>
+    public static event System.Action AvailabilityChanged;
+
     // Cached Eclipse-mod-coexistence flag. Resolved lazily on first inbound
     // chat tick — Plugin.Load runs before BepInEx finishes loading the other
     // plugins (alphabetical: BCH < Eclipse), so the chainloader's Plugins
@@ -88,6 +109,9 @@ public static class EclipseProtocolService
     {
         UserRegistered = false;
         RegistrationPending = false;
+        RegistrationGaveUp = false;
+        _registrationSentAt = 0f;
+        _registrationAttemptCount = 0;
     }
 
     /// <summary>
@@ -169,9 +193,16 @@ public static class EclipseProtocolService
                     break;
                 case NetworkEventSubType.ConfigsToClient:
                     HandleConfigMessage(payload);
+                    bool wasRegistered = UserRegistered;
                     UserRegistered = true; // server has accepted us
                     RegistrationPending = false;
-                    LogUtils.LogInfo("Eclipse: server acknowledged registration; structured data flowing.");
+                    RegistrationGaveUp = false; // ACK arrived even if late; clear the give-up flag
+                    if (!wasRegistered)
+                    {
+                        LogUtils.LogInfo($"Eclipse: server acknowledged registration on attempt #{_registrationAttemptCount}; structured data flowing.");
+                        try { AvailabilityChanged?.Invoke(); }
+                        catch (Exception ex) { LogUtils.LogWarning($"Eclipse: AvailabilityChanged subscriber threw: {ex.Message}"); }
+                    }
                     break;
                 default:
                     LogUtils.LogWarning($"Eclipse: unknown event id {subTypeId}");
@@ -350,11 +381,38 @@ public static class EclipseProtocolService
 
     // ---------- Outbound (client -> server) ----------
 
-    /// <summary>Send the RegisterUser handshake. Called from the chat patch once the player is in-world.</summary>
+    /// <summary>Send the RegisterUser handshake. Called every frame from the
+    /// chat patch once the player is in-world; the early-out gates below
+    /// keep that to one attempt per REGISTRATION_RETRY_AFTER_SECONDS until
+    /// either the server ACKs (UserRegistered=true) or we give up after
+    /// REGISTRATION_MAX_ATTEMPTS (RegistrationGaveUp=true).</summary>
     public static void SendRegistration()
     {
         if (SharedKey == null) return;
-        if (UserRegistered || RegistrationPending) return;
+        if (UserRegistered) return;
+        if (RegistrationGaveUp) return;
+
+        // 0.12.1: retry on pending. v0.11.x and earlier had a single-attempt
+        // gate (`!UserRegistered && !RegistrationPending`) — once Pending flipped
+        // true, no further sends EVER. If the server's ACK was dropped or the
+        // server hadn't loaded Bloodcraft yet at our first handshake, the user
+        // would see "Bloodcraft Unavailable" for the rest of the session.
+        if (RegistrationPending)
+        {
+            float elapsed = UnityEngine.Time.realtimeSinceStartup - _registrationSentAt;
+            if (elapsed < REGISTRATION_RETRY_AFTER_SECONDS) return;
+            // Window elapsed without ACK — check cap, then retry.
+            if (_registrationAttemptCount >= REGISTRATION_MAX_ATTEMPTS)
+            {
+                RegistrationGaveUp = true;
+                RegistrationPending = false;
+                LogUtils.LogInfo($"Eclipse: gave up after {_registrationAttemptCount} registration attempts without ACK. Marking Bloodcraft as unavailable (use BloodcraftAvailability=On in .cfg to override).");
+                try { AvailabilityChanged?.Invoke(); }
+                catch (Exception ex) { LogUtils.LogWarning($"Eclipse: AvailabilityChanged subscriber threw: {ex.Message}"); }
+                return;
+            }
+            // Fall through to send another attempt.
+        }
 
         try
         {
@@ -371,9 +429,11 @@ public static class EclipseProtocolService
             string mac = GenerateMac(intermediate, SharedKey);
             string signed = $"{intermediate};mac{mac}";
 
+            _registrationSentAt = UnityEngine.Time.realtimeSinceStartup;
+            _registrationAttemptCount++;
             RegistrationPending = true;
             MessageService.SendRaw(signed);
-            LogUtils.LogInfo($"Eclipse: registration sent (platformId={platformId}).");
+            LogUtils.LogInfo($"Eclipse: registration attempt #{_registrationAttemptCount}/{REGISTRATION_MAX_ATTEMPTS} sent (platformId={platformId}).");
         }
         catch (Exception ex)
         {

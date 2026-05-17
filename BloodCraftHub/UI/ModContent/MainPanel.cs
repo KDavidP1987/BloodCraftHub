@@ -264,6 +264,11 @@ public partial class MainPanel : ResizeablePanelBase
             Tabs = new[]
             {
                 (PanelType.QuickStartTab,    "Quick Start"),
+                // 0.12.1: V Rising game guide + community-resource links.
+                // Placed right after Quick Start so a new player reads
+                // "what this mod does" → "what this game is" in natural
+                // order before settings/admin tabs.
+                (PanelType.GameGuideTab,     "Game Guide"),
                 (PanelType.SettingsTab,      "Settings"),
                 (PanelType.VanillaAdminTab,  "Vanilla Admin"),
                 (PanelType.AboutTab,         "About"),
@@ -284,6 +289,12 @@ public partial class MainPanel : ResizeablePanelBase
     private readonly System.Collections.Generic.Dictionary<string, bool>             _groupExpanded   = new();
     private readonly System.Collections.Generic.Dictionary<string, GameObject>       _groupContent    = new();
     private readonly System.Collections.Generic.Dictionary<string, TextMeshProUGUI>  _groupHeaderText = new();
+    // 0.12.1: keep header ButtonRef around so the Bloodcraft handshake retry
+    // (in EclipseProtocolService) can flip the group from tentative-available
+    // → confirmed-available (or → unavailable on give-up) in place when the
+    // AvailabilityChanged event fires.
+    private readonly System.Collections.Generic.Dictionary<string, BloodCraftHub.UI.Framework.UniverseLib.UI.Models.ButtonRef> _groupHeaderButton = new();
+    private bool _availabilitySubscribed;
     private GameObject _tabStripGo;
 
     public MainPanel(UIBase owner) : base(owner) { }
@@ -666,6 +677,17 @@ public partial class MainPanel : ResizeablePanelBase
 
     private void BuildTabStrip(GameObject parent)
     {
+        // 0.12.1: subscribe to Bloodcraft availability transitions so a late
+        // handshake ACK flips the group from tentative-available to confirmed
+        // (or to unavailable on give-up) without rebuilding the panel. Idempotent
+        // — Reset() unsubscribes, and the flag prevents double-subscribe if
+        // BuildTabStrip is called again on rebuild.
+        if (!_availabilitySubscribed)
+        {
+            Services.EclipseProtocolService.AvailabilityChanged += OnBloodcraftAvailabilityChanged;
+            _availabilitySubscribed = true;
+        }
+
         // childControlHeight: true is required - the strip stacks group headers
         // and group-content blocks of varying heights, and without it the layout
         // group leaves children at default sizeDelta (~0px) so KINDRED/HELP
@@ -719,6 +741,7 @@ public partial class MainPanel : ResizeablePanelBase
             _groupHeaderText[group.Title] = headerText;
         }
         if (!available) header.Component.interactable = false;
+        _groupHeaderButton[group.Title] = header;
         TooltipHover.Attach(header.GameObject,
             available
                 ? $"Show / hide the {group.Title} tab list."
@@ -785,7 +808,15 @@ public partial class MainPanel : ResizeablePanelBase
                 {
                     Settings.ModAvailability.On  => true,
                     Settings.ModAvailability.Off => false,
-                    _ => Services.EclipseProtocolService.UserRegistered,
+                    // 0.12.1: during the handshake retry window
+                    // (~15 s after world entry — see REGISTRATION_MAX_ATTEMPTS),
+                    // treat as tentatively available instead of greying out.
+                    // Pre-0.12.1 returned plain UserRegistered which produced
+                    // a "Bloodcraft Unavailable" race for users on actual
+                    // Bloodcraft servers. Now we only mark Unavailable once
+                    // the registration has REALLY given up.
+                    _ => Services.EclipseProtocolService.UserRegistered
+                      || !Services.EclipseProtocolService.RegistrationGaveUp,
                 };
             case "Kindred":
                 return Settings.KindredAvailability switch
@@ -816,6 +847,58 @@ public partial class MainPanel : ResizeablePanelBase
         var t = title.ToUpper();
         if (!available) return $"–  {t}  (unavailable)";
         return expanded ? $"▼  {t}" : $"▶  {t}";
+    }
+
+    // 0.12.1: AvailabilityChanged subscriber. Defers to the next CoreUpdateBehavior
+    // tick because the event fires from inside ClientChatPatch.OnUpdate_Prefix
+    // (mid-iteration of the chat entity array) — running UI mutations there is
+    // legal but the deferred-frame timing keeps it consistent with the rest of
+    // our event handlers (RequestRebuildMainPanel, etc.).
+    private System.Action _deferredAvailabilityRefresh;
+
+    private void OnBloodcraftAvailabilityChanged()
+    {
+        if (_deferredAvailabilityRefresh != null) return; // already queued for this frame
+        _deferredAvailabilityRefresh = () =>
+        {
+            BloodCraftHub.Behaviors.CoreUpdateBehavior.Actions.Remove(_deferredAvailabilityRefresh);
+            _deferredAvailabilityRefresh = null;
+            RefreshAllTabGroupAvailability();
+        };
+        BloodCraftHub.Behaviors.CoreUpdateBehavior.Actions.Add(_deferredAvailabilityRefresh);
+    }
+
+    private void RefreshAllTabGroupAvailability()
+    {
+        foreach (var title in new System.Collections.Generic.List<string>(_groupHeaderText.Keys))
+            RefreshTabGroupAvailability(title);
+        AutoResizeIfEnabled();
+    }
+
+    private void RefreshTabGroupAvailability(string title)
+    {
+        bool available = IsTabGroupAvailable(title);
+        bool expanded = _groupExpanded.TryGetValue(title, out var e) && e;
+
+        if (_groupHeaderText.TryGetValue(title, out var headerText))
+        {
+            headerText.text = FormatGroupHeader(title, expanded && available, available);
+            headerText.color = available ? Theme.DefaultText : new Color(0.55f, 0.55f, 0.55f);
+        }
+        if (_groupHeaderButton.TryGetValue(title, out var btn))
+        {
+            btn.Component.interactable = available;
+            // Re-wire the OnClick: a previously-unavailable header had its OnClick
+            // skipped during BuildTabGroup. Assign now if it's become available.
+            btn.OnClick = available ? () => ToggleGroup(title) : null;
+        }
+        if (_groupContent.TryGetValue(title, out var go))
+        {
+            // Don't auto-expand on becoming available — preserve user agency.
+            // Just ensure that if currently expanded but no longer available,
+            // we collapse it (defensive — Off via .cfg edit while panel open).
+            if (!available && go.activeSelf) go.SetActive(false);
+        }
     }
 
     // -----------------------------------------------------------------------
@@ -895,6 +978,9 @@ public partial class MainPanel : ResizeablePanelBase
                     break;
                 case PanelType.QuickStartTab:
                     BuildQuickStartTab(page);
+                    break;
+                case PanelType.GameGuideTab:
+                    BuildGameGuideTab(page);
                     break;
                 case PanelType.SettingsTab:
                     BuildSettingsTab(page);
@@ -5255,9 +5341,14 @@ public partial class MainPanel : ResizeablePanelBase
 
         AddPanelColorHelp(page, "InnerBgHelp",
             "Sets the INTERIOR background — the scroll-view area where tab content shows in the main panel and where familiar rows show in the Familiar Browser. Pre-0.12.0 this was bright red by framework default (UIFactory.CreateScrollView used Theme.Level1). " +
+            "Two palettes are offered — the dark row keeps the muted modern look, the bright row restores the saturation similar to that original red (Crimson Bright = #A30000 = the pre-0.12.0 default exactly). " +
             "Independent of the outer color above so you can build a two-tone theme. Smaller info overlays don't host scroll views so this picker doesn't affect them.");
 
-        AddPanelColorPresetRow(page, "InnerBgPresetRow", ApplyInnerPanelBgHex);
+        AddPanelColorSubHeading(page, "InnerBgDarkLabel", "Dark variants");
+        AddPanelColorPresetRow(page, "InnerBgPresetDarkRow", ApplyInnerPanelBgHex, DefaultDarkPresets);
+
+        AddPanelColorSubHeading(page, "InnerBgBrightLabel", "Bright variants");
+        AddPanelColorPresetRow(page, "InnerBgPresetBrightRow", ApplyInnerPanelBgHex, DefaultBrightPresets);
 
         _innerBgCurrentLabel = AddPanelColorInfoRow(page, "InnerBgInfoRow",
             FormatInnerBgCurrentText,
@@ -5266,22 +5357,49 @@ public partial class MainPanel : ResizeablePanelBase
             applyAction: ApplyInnerPanelBgHex);
     }
 
+    // 0.12.1: thin italic sub-label for inside a color-picker section.
+    // Smaller and quieter than AddSectionHeading so two preset rows visually
+    // group together under "Interior background color" without looking like
+    // a wall of headings. Uses DefaultText (white) rather than MutedBodyHex
+    // for the same readability reasons documented on AddPanelColorHelp —
+    // mid-luminance bright presets erase grey-on-grey contrast.
+    private static void AddPanelColorSubHeading(GameObject page, string name, string text)
+    {
+        var lbl = UIFactory.CreateLabel(page, name, text,
+            TextAlignmentOptions.MidlineLeft, color: null, fontSize: Theme.ScaledUI(11));
+        UIFactory.SetLayoutElement(lbl.GameObject,
+            minWidth: 360, preferredWidth: 400, flexibleWidth: 1,
+            minHeight: 18, preferredHeight: 20, flexibleHeight: 0);
+        lbl.TextMesh.fontStyle = FontStyles.Italic;
+    }
+
     private static void AddPanelColorHelp(GameObject page, string name, string body)
     {
-        var help = UIFactory.CreateLabel(page, name,
-            $"<color={Theme.MutedBodyHex}>{body}</color>",
+        // 0.12.1: render help paragraphs in italic + DefaultText (white).
+        // Pre-fix this used <color=Theme.MutedBodyHex> (#8E8E8E mid-grey),
+        // which lost contrast against the brighter interior presets
+        // (Default Bright #666666, Forest Bright #2A6E2E, Crimson Bright
+        // #A30000) — muted-on-mid-grey is unreadable. White italic stays
+        // hierarchically distinct from the bold section heading above
+        // while reading cleanly on every preset, dark and bright.
+        var help = UIFactory.CreateLabel(page, name, body,
             TextAlignmentOptions.TopLeft, color: null, fontSize: Theme.ScaledUI(12));
         UIFactory.SetLayoutElement(help.GameObject,
             minWidth: 360, preferredWidth: 400, flexibleWidth: 1,
             minHeight: 36, preferredHeight: 52, flexibleHeight: 0);
         help.TextMesh.enableWordWrapping = true;
         help.TextMesh.overflowMode = TextOverflowModes.Overflow;
+        help.TextMesh.fontStyle = FontStyles.Italic;
     }
 
     // Seven-button preset row, parameterized over which Apply action it
-    // calls so the same row layout drives both color zones.
-    private void AddPanelColorPresetRow(GameObject page, string name, System.Action<string> applyAction)
+    // calls AND which preset list it shows. Same row layout drives every
+    // color picker — outer (one dark row) and inner (one dark + one bright).
+    private void AddPanelColorPresetRow(GameObject page, string name, System.Action<string> applyAction,
+        (string Label, string Hex)[] presets = null)
     {
+        presets ??= DefaultDarkPresets;
+
         var row = UIFactory.CreateHorizontalGroup(page, name,
             forceExpandWidth: true, forceExpandHeight: false,
             childControlWidth: true, childControlHeight: true,
@@ -5290,14 +5408,38 @@ public partial class MainPanel : ResizeablePanelBase
             minWidth: 360, preferredWidth: 400, flexibleWidth: 1,
             minHeight: 28, preferredHeight: 30, flexibleHeight: 0);
 
-        AddPanelBgPresetButton(row, "Default", Config.Settings.DEFAULT_PANEL_BG_HEX, applyAction);
-        AddPanelBgPresetButton(row, "Black",   "#000000", applyAction);
-        AddPanelBgPresetButton(row, "Slate",   "#1A1B25", applyAction);
-        AddPanelBgPresetButton(row, "Wine",    "#1F0A10", applyAction);
-        AddPanelBgPresetButton(row, "Forest",  "#0A1A0B", applyAction);
-        AddPanelBgPresetButton(row, "Indigo",  "#0E0A1F", applyAction);
-        AddPanelBgPresetButton(row, "Crimson", "#3B0B0F", applyAction);
+        foreach (var p in presets)
+            AddPanelBgPresetButton(row, p.Label, p.Hex, applyAction);
     }
+
+    // 0.12.1: paired dark / bright preset palettes. The dark row is the
+    // default (used by every color picker); the bright row is offered
+    // additionally for the interior picker after user feedback that some
+    // players prefer the pre-0.12.0 saturated look (the framework default
+    // Theme.Level1 = (0.64, 0, 0) — actual bright red). Each bright entry
+    // shares the hue of its dark sibling but lifts the max channel to
+    // roughly 0.5–0.65 — Crimson Bright (#A30000) matches Theme.Level1
+    // RGB exactly so the original framework red is one click away.
+    private static readonly (string Label, string Hex)[] DefaultDarkPresets = new[]
+    {
+        ("Default", Config.Settings.DEFAULT_PANEL_BG_HEX),
+        ("Black",   "#000000"),
+        ("Slate",   "#1A1B25"),
+        ("Wine",    "#1F0A10"),
+        ("Forest",  "#0A1A0B"),
+        ("Indigo",  "#0E0A1F"),
+        ("Crimson", "#3B0B0F"),
+    };
+    private static readonly (string Label, string Hex)[] DefaultBrightPresets = new[]
+    {
+        ("Default", "#666666"),  // medium neutral grey
+        ("Black",   "#404040"),  // dark grey — brighter neutral twin of #000
+        ("Slate",   "#4A5070"),  // brighter blue-grey
+        ("Wine",    "#8B1A2E"),  // burgundy
+        ("Forest",  "#2A6E2E"),  // moss green
+        ("Indigo",  "#3D2D80"),  // royal indigo
+        ("Crimson", "#A30000"),  // exactly Theme.Level1 — the pre-0.12.0 framework red
+    };
 
     // "Current: #hex" label + Reset button row. Returns the TMP_Text so the
     // caller can keep a reference and refresh it on each pick.
@@ -5401,6 +5543,46 @@ public partial class MainPanel : ResizeablePanelBase
             catch (System.Exception ex) { LogUtils.LogWarning($"OpenURL('{url}') threw: {ex.Message}"); }
         };
         TooltipHover.Attach(btn.GameObject, $"Open {url} in your default browser.");
+    }
+
+    // 0.12.1: Game Guide tab — V Rising itself (separate from the BCH-focused
+    // QuickStartTab and the upcoming mod-mechanics help tab). Surface official
+    // homepage + community-maintained resources so new players can find
+    // mechanics docs, maps, and the official Discord without leaving the UI.
+    private void BuildGameGuideTab(GameObject page)
+    {
+        AddGuideSection(page,
+            "V Rising — quick reference",
+            "BloodCraftHub is a UI mod for the Bloodcraft / Kindred V Rising " +
+            "server mods. This tab links to resources for V Rising itself — " +
+            "the official homepage, the community wiki, fan-maintained guides, " +
+            "and the official Discord. Click 'Open' on any row to launch the " +
+            "URL in your default browser.");
+
+        AddSectionHeading(page, "Official");
+        AddLinkRow(page, "Game homepage (Stunlock Studios)",
+            "https://playvrising.com");
+
+        AddSpacer(page, 6);
+        AddSectionHeading(page, "Community resources");
+        AddLinkRow(page, "V Rising Wiki (Fandom)",
+            "https://vrising.fandom.com/wiki/V_Rising_Wiki");
+        AddLinkRow(page, "CaDrift — community guides + tools",
+            "https://www.cadrift.net/v-rising/");
+
+        AddSpacer(page, 6);
+        AddSectionHeading(page, "Discord");
+        AddLinkRow(page, "V Rising official Discord",
+            "https://discord.com/invite/vrising");
+
+        AddSpacer(page, 8);
+        AddGuideSection(page,
+            "Suggest a resource",
+            "Have another V Rising guide / map / Discord worth surfacing here? " +
+            "Open an issue on the BloodCraftHub GitHub (link on the About tab) " +
+            "and a future version can include it. Resources listed here are " +
+            "user-suggested — they are not maintained by the mod author and " +
+            "their content / availability may change.");
     }
 
     private void BuildQuickStartTab(GameObject page)
@@ -6310,6 +6492,16 @@ public partial class MainPanel : ResizeablePanelBase
 
     internal override void Reset()
     {
+        if (_availabilitySubscribed)
+        {
+            Services.EclipseProtocolService.AvailabilityChanged -= OnBloodcraftAvailabilityChanged;
+            _availabilitySubscribed = false;
+        }
+        if (_deferredAvailabilityRefresh != null)
+        {
+            BloodCraftHub.Behaviors.CoreUpdateBehavior.Actions.Remove(_deferredAvailabilityRefresh);
+            _deferredAvailabilityRefresh = null;
+        }
         if (_tabAutoRefreshTicker != null)
         {
             BloodCraftHub.Behaviors.CoreUpdateBehavior.Actions.Remove(_tabAutoRefreshTicker);
