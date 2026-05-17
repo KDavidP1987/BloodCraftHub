@@ -1,5 +1,165 @@
 # Changelog
 
+## 0.14.0 — Combined info overlay + main panel default-size bump + cleanup
+
+The marquee v0.14.0 feature: a single combined info overlay that
+replaces the four standalone info overlays (XP, Familiar, Daily Quest,
+Profession) with one draggable / resizable panel containing six
+configurable sections — XP, Familiar, Weapon Expertise, Blood Legacy,
+Professions, Daily/Weekly Quest. The combined overlay is mutually
+exclusive with the individual info overlays: enabling it auto-hides
+the four it replaces; disabling it restores them per their own
+Show*Overlay flags.
+
+### New: Combined info overlay
+
+Visible structure (when enabled and all sections on):
+
+- **XP** — green section. Lv / progress % / Class / optional progress
+  bar / optional `Exp: X / Y (P%)` counter.
+- **Familiar** — warm amber. Name + Lv / Pr / HP-PP-SP / optional bar.
+- **Weapon Expertise** — light grey. Weapon type + Lv / Pr / chosen
+  stat names / decoded `Stats: …` line / optional bar / optional
+  bonus-stat values (`+10.5% PhysicalPower …`) and `Exp: X / Y (P%)`
+  counter when the relevant HUD-extras toggles are on.
+- **Blood Legacy** — Bloodcraft red. Same shape as Weapon, with
+  `Ess: X / Y (P%)` counter.
+- **Professions** — gold. Two render modes:
+  - Wrap-text (compact): `Enchanting 60   Alchemy 45   …` word-wrapped
+    inside the panel width.
+  - Per-row (when `ShowProgressBarProfessions` is on): eight rows,
+    one per profession, each with label + amber bar. Hidden professions
+    (`Settings.ShowProfession*` per-profession toggles from v0.13.0)
+    drop both their label and their bar.
+- **Daily / Weekly Quest** — cyan / gold headers. Target name +
+  progress; renders "Complete!" when goal is reached.
+
+Each section has its own bold colored heading (Eclipse-style color
+vocabulary), the section background is fully transparent so the
+panel's transparency slider correctly controls the entire visible
+area, and sub-row heights scale with `Theme.ScaledOverlayHeight` so
+the panel doesn't visually overlap rows at Large / X-Large overlay
+text scale. The panel auto-fits its height to the configured sections
+on construct, on section toggle (`RefreshSections` snaps to the
+current `MinHeight`), and on text-scale rebuild — see "Dynamic sizing"
+below.
+
+### New: per-section + per-bar visibility controls
+
+Settings → Display → Combined overlay:
+
+- Master toggle: "Use combined overlay (hides individual info overlays)"
+- Six per-section checkboxes: XP / Familiar / Weapon / Blood /
+  Professions / Quests. XP / Familiar / Professions / Quests write the
+  same `Settings.Show*Overlay` flags the footer toggles use, so the
+  two surfaces stay in sync — whichever you click, the other reflects
+  reality.
+
+Settings → Display → HUD extras → "Show progress bars for":
+
+- Five per-system bar toggles: XP / Familiar / Weapon / Blood /
+  Professions. These apply to **both** the standalone overlays AND
+  the combined overlay so toggling a bar has consistent effect
+  regardless of overlay mode. The pre-v0.14 single global
+  `Settings.ShowProgressBars` flag is kept for the Prestige info bar
+  in the Prestige tab (its sole remaining consumer).
+
+### New: footer Combined toggle + sync
+
+A new "Combined" toggle leads the footer overlay-visibility row.
+When checked, the four conflict toggles (XP / Familiar / Daily quest /
+Professions) hide; Familiar Browser + Shift spell stay visible. The
+toggle has a tooltip explaining the swap.
+
+`MainPanel.RefreshAllOverlayToggleStates` pushes the current
+`Settings.Show*Overlay` values onto every footer toggle AND the
+Settings master toggle via `SetIsOnWithoutNotify` — eliminates the
+desync where the toggle UI showed stale construct-time state after
+the panel's actual visibility changed via mutual exclusion or
+programmatic flip.
+
+### New: Bonus stats + XP counter sub-rows on combined
+
+Combined's Weapon and Blood sections render the same bonus-stat
+values and numerical XP / Ess counter the standalone XP overlay
+shows when `Settings.ShowOverlayBonusStats` / `ShowOverlayXpCounter`
+are on. Data flows through:
+
+- `ExperienceOverlayPanel.BonusStatsTick` (the existing `.wep get` +
+  `.bl get` auto-fetch loop) — its gate widened to fire when EITHER
+  the standalone XP overlay OR the combined overlay is enabled.
+- `ApplyCombinedOverlayMutualExclusion` always `EnsureExperienceOverlay`
+  even when the standalone is hidden, so the ticker has a host.
+- Combined reads four new public accessors on `ExperienceOverlayPanel`
+  (`WepGetHasData`, `WepGetRawExpertise`, `WepGetProgressPct`,
+  `BuildCleanedWepGetStatsLines()`) for weapon, and reads
+  `PlayerStateService.BloodInfoLatest` for blood.
+- Combined subscribes to `LastResponseChanged` + `BloodInfoChanged`
+  so sub-rows update live as fresh data arrives.
+
+Toggling either HUD-extras checkbox pushes
+`RefreshCombinedOverlaySections()` so the sub-rows show/hide
+immediately without waiting for the next 10s data event.
+
+### New: removed dead Bloodcraft battle-group commands
+
+Per Anton Krüger (Bloodcraft server admin): the `.fam abg` /
+`.fam cbg` / `.fam sbg` / `.fam dbg` / `.fam bgs` / `.fam bg` /
+`.fam challenge` commands appear in the Bloodcraft README but were
+never implemented in v1.1+. The entire "Battle Groups" card on the
+Familiars tab is removed, the `BCCOM_FAM_BG_*` constants are
+deleted, the intercept `StartsWith(".fam bgs")` / `.fam bg ` branches
+are removed, and the Mod Help defaults block's
+`FamiliarBattles = false` reference line is dropped.
+
+### Dynamic sizing + visual scaling
+
+- Main panel default size bumped 600×380 → 760×560 → **960×700** (two
+  rounds of friend-test feedback that the default was "too small to
+  read"). Existing users' saved sizes preserved.
+- `Theme.ScaledOverlayHeight(N)` applied to all combined-overlay
+  LayoutElement heights so labels reserve enough vertical space at
+  Large / X-Large overlay text. Prevents text from overflowing into
+  the progress bar below it.
+- `CombinedOverlayPanel.RefreshSections` snaps panel height to the
+  (dynamic) MinHeight after any section / bar toggle — disabled
+  sections no longer leave empty space; enabled sections immediately
+  get room.
+- **Text-scale downshift now shrinks the panel**: `LateConstructUI`
+  overridden in `CombinedOverlayPanel` to snap height to `MinHeight`
+  after `base.LateConstructUI()` runs (which is what does
+  `ApplySaveData` → restore-saved-sizeDelta). Took three iterations
+  to land — v6 synchronous (lost to coroutine-deferred ApplySaveData),
+  v7 deferred-next-frame (raced with same), v8 LateConstructUI
+  override (runs in same call chain after ApplySaveData, no race).
+- Section sub-containers built with `bgColor: Color(0, 0, 0, 0)` so
+  the panel's transparency slider controls the entire visible area.
+  Pre-fix, setting Combined transparency to 100% left an inner
+  container visible at ~80% from `Theme.PanelBackground` default.
+
+### Implementation notes (carry forward)
+
+- `CombinedOverlayPanel.LateConstructUI` override: snaps height to
+  MinHeight on every construct/rebuild. Side effect: manual height
+  resizing of the combined panel does not persist across construct.
+  Width + anchors + position persist normally.
+- `ExperienceOverlayPanel` exposes 4 new public accessors and one
+  helper method. The combined overlay depends on these; if anyone
+  refactors that class, the combined overlay's bonus-stats and
+  counter sub-rows depend on these stays-public.
+- `BCHubUIManager.ApplyCombinedOverlayMutualExclusion` ALWAYS
+  ensures `_experienceOverlay` is constructed (even when combined
+  is the visible one) so the bonus-stats ticker has a host. The
+  ticker's gate now checks "either Enabled OR
+  Plugin.UIManager.CombinedOverlay.Enabled".
+- `RebuildAllOverlaysNow` includes combined in the rebuild list and
+  pushes `RefreshAllOverlayToggleStates` at the end so footer toggles
+  match post-rebuild reality.
+- New screenshots in `docs/screenshots/v0.13.0 Screenshots/`. README
+  image URLs updated to reference them via raw GitHub.
+
+
+
 ## 0.13.1 — Hotfix: AwaitingBloodInfo timeout spam on Frailed / no-blood states
 
 User-reported bug confirmed reproducible: when a player's blood type

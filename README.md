@@ -15,24 +15,29 @@ v0.x is still public-beta. The major feature set is in place and the mod has bee
 ---
 
 **Repo:** https://github.com/KDavidP1987/BloodCraftHub
-**Status:** v0.13.0 — public on Thunderstore. 17 tabs across BLOODCRAFT / KINDRED / SETTINGS-AND-HELP, 6 secondary overlays, every chat command from the 3 backing server mods surfaced as forms + buttons (~250+ commands). v0.12.x added a two-zone panel color theme + Game Guide tab + Bloodcraft handshake retry; v0.13.0 adds per-profession overlay toggles, a comprehensive Mod Help reference with collapsible Details / Default Settings blocks, and inline class-synergy hint cards on the Class / Weapon Expertise / Blood Legacy / Prestige tabs so users have decision-relevant context exactly where they make their picks.
+**Status:** v0.14.0 — public on Thunderstore. 17 tabs across BLOODCRAFT / KINDRED / SETTINGS-AND-HELP, 7 secondary overlays (including the new combined info overlay), every chat command from the 3 backing server mods surfaced as forms + buttons (~250+ commands). v0.12.x added a two-zone panel color theme + Game Guide tab + Bloodcraft handshake retry; v0.13.x added per-profession overlay toggles, a comprehensive Mod Help reference with collapsible Details / Default Settings blocks, and inline class-synergy hint cards on the Class / Weapon Expertise / Blood Legacy / Prestige tabs; v0.14.0 ships the combined info overlay — one draggable panel containing XP / Familiar / Weapon Expertise / Blood Legacy / Professions / Quests in a single container, with per-system progress bars and stat-value sub-rows that respect the existing HUD-extras settings.
 
 ## Screenshots
 
-![Class tab with active-class details and a Familiar overlay visible in-world (v0.11.2)](https://raw.githubusercontent.com/KDavidP1987/BloodCraftHub/main/docs/screenshots/BloodCraftHub_Screenshot_v0.11.2-IMG1.png)
-*Class tab — Active Class card + Change Class form, with the Familiar overlay docked at the right of the screen. (v0.11.2 capture; v0.13 adds a class-synergies block to the same card.)*
+*All captures below are from v0.13.0 — every UI piece shown still applies in v0.14.0.*
 
-![Logistics tab full UI (v0.11.2)](https://raw.githubusercontent.com/KDavidP1987/BloodCraftHub/main/docs/screenshots/BloodCraftHub_Screenshot_v0.11.2-IMG2.png)
-*KINDRED → Logistics — Personal Toggles (Sort Stash, Craft Pull, Don't Pull Last, etc.) plus the Utility quick-actions for `Stash All` and `.pull` / `.fi` / `.fc` forms. The tab strip on the left shows the collapsible BLOODCRAFT / KINDRED / SETTINGS-AND-HELP groups.*
+![Class tab — class-synergy card (v0.13.0)](https://raw.githubusercontent.com/KDavidP1987/BloodCraftHub/main/docs/screenshots/v0.13.0%20Screenshots/BloodCraftHub_Screenshot_v0.13.0-IMG4.png)
+*Class tab — Active Class card now includes the live class-details block (Death Mage shown here, with archetype + tagline + weapon/blood synergies + on-hit debuff). The Last server response strip at the bottom shows the same data the Bloodcraft `.class lst` reply carries, with stat synergies color-coded by Weapon / Blood. Settings → Display → Combined overlay carries the same data into the combined HUD overlay's Weapon and Blood sections.*
 
-![Weapon Expertise tab with bonus-stat picker (v0.11.2)](https://raw.githubusercontent.com/KDavidP1987/BloodCraftHub/main/docs/screenshots/BloodCraftHub_Screenshot_v0.11.2-IMG3.png)
-*Weapon Expertise — Current Weapon Expertise card (level + chosen bonus stats + their live numeric values), action buttons, and the `Set bonus stat for a weapon` form expanded. v0.13 adds a class-synergy hint card right above the Actions row so you can see which stats your current class amplifies before picking.*
+![Weapon Expertise tab — synergies + bonus-stat picker (v0.13.0)](https://raw.githubusercontent.com/KDavidP1987/BloodCraftHub/main/docs/screenshots/v0.13.0%20Screenshots/BloodCraftHub_Screenshot_v0.13.0-IMG7.png)
+*Weapon Expertise — Current Weapon Expertise card (level + chosen bonus-stat names + live numeric values), the v0.13 Class synergies card explaining which weapon stats your current class amplifies with a 1.5× cap, and the `Set bonus stat for a weapon` form. The collapsible reference below lists every baseline stat cap (Physical Power +20, Spell Power +10, etc.).*
 
-![V-Bloods collection tracker (v0.11.2)](https://raw.githubusercontent.com/KDavidP1987/BloodCraftHub/main/docs/screenshots/BloodCraftHub_Screenshot_v0.11.2-IMG4.png)
-*V-Bloods tab — collection tracker showing captured-vs-missing counts, filter pills (All / Captured / Missing / Shiny), and per-V-Blood rows with their variant chips and direct Summon buttons. The Scan-all button at the top runs a silent box-sweep to populate the entire list.*
+![Blood Legacy tab — class synergies (v0.13.0)](https://raw.githubusercontent.com/KDavidP1987/BloodCraftHub/main/docs/screenshots/v0.13.0%20Screenshots/BloodCraftHub_Screenshot_v0.13.0-IMG11.png)
+*Blood Legacy — mirror treatment for the blood side. Current legacy state, class synergies card (which blood stats your class amplifies), action row, and the `.bl cst` set-bonus-stat form. Bottom collapsible has the full baseline-cap reference for every blood stat.*
 
-![Familiars tab with active familiar info (v0.11.2)](https://raw.githubusercontent.com/KDavidP1987/BloodCraftHub/main/docs/screenshots/BloodCraftHub_Screenshot_v0.11.2-IMG5.png)
-*Familiars tab in-game — Active Familiar card (name, level, prestige, HP / PP / SP), per-familiar action row (Recall, Toggle Combat, Toggle Emote, List Emotes), and the More Familiar Actions collapsible group below. The shift overlay and active-familiar block are visible at the bottom and right edges of the screen.*
+![Prestige tab — progression reference (v0.13.0)](https://raw.githubusercontent.com/KDavidP1987/BloodCraftHub/main/docs/screenshots/v0.13.0%20Screenshots/BloodCraftHub_Screenshot_v0.13.0-IMG9.png)
+*Prestige — current prestige rows for each system (XP / Blood Legacy / Weapon Expertise / Familiar), the Prestige info display with current-tier breakdown, plus the "What each prestige tier gives you" reference card so you can see what every additional tier of leveling / weapon / blood / Exo prestige actually grants.*
+
+![Settings — dual-zone color picker + scroll-position (v0.13.0)](https://raw.githubusercontent.com/KDavidP1987/BloodCraftHub/main/docs/screenshots/v0.13.0%20Screenshots/BloodCraftHub_Screenshot_v0.13.0-IMG6.png)
+*Settings & Help → Settings — the v0.12 two-zone panel color theme (outer chrome + interior scroll surfaces, with seven dark + seven bright presets for the interior), per-overlay transparency sliders, panel-background color, and HUD extras toggles. v0.13.0's gold-band section markers make long Settings / Mod Help pages scannable.*
+
+![In-game capture — combined HUD elements (v0.13.0)](https://raw.githubusercontent.com/KDavidP1987/BloodCraftHub/main/docs/screenshots/v0.13.0%20Screenshots/BloodCraftHub_Screenshot_v0.13.0-IMG1.png)
+*Main panel open in-world to the V-Bloods collection tab, with the bound-familiar indicator at the right of the screen and the floating BCH button strip at the top-right. The footer overlay-toggle row (visible at the bottom of the main panel) is where the v0.14 Combined toggle lives, sitting alongside XP / Familiar / Familiar Browser / Daily Quest / Professions / Shift Spell.*
 
 ## What it does
 

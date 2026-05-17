@@ -105,7 +105,8 @@ public class FamiliarOverlayPanel : ResizeablePanelBase
         // 0.9.3: re-read the progress-bar setting each render so toggling it
         // takes effect without rebuild. Hide the bar if no familiar is
         // bound (otherwise we'd render a zero-fill bar that looks broken).
-        bool showBar = active && Settings.ShowProgressBars;
+        // 0.14.0 friend-test v2: per-system bar toggle controls both standalone + combined.
+        bool showBar = active && Settings.ShowProgressBarFamiliar;
         if (_xpBar != null && _xpBar.activeSelf != showBar) _xpBar.SetActive(showBar);
         if (showBar) MiniBar.SetProgress(_xpBarFill, s.Progress);
     }

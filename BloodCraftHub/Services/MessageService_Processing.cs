@@ -58,14 +58,13 @@ public static partial class MessageService
     public const string BCCOM_FAM_ECHOES_FORMAT          = ".fam echoes \"{0}\"";  // purchase exo reward via VBlood essence (quoted)
     public const string BCCOM_FAM_RESET                  = ".fam reset";       // DESTRUCTIVE: destroy all entities in followerbuffer + clear active data
 
-    // ---- 0.6.0 battle group commands ----
-    public const string BCCOM_FAM_BG_LIST                = ".fam bgs";
-    public const string BCCOM_FAM_BG_SHOW_FORMAT         = ".fam bg {0}";      // {0} = group name (optional)
-    public const string BCCOM_FAM_BG_CHOOSE_FORMAT       = ".fam cbg {0}";     // {0} = group name
-    public const string BCCOM_FAM_BG_ADD_FORMAT          = ".fam abg {0}";     // {0} = new group name
-    public const string BCCOM_FAM_BG_SLOT_FORMAT         = ".fam sbg {0} {1}"; // {0} = group OR slot, {1} = slot if first arg was group
-    public const string BCCOM_FAM_BG_DELETE_FORMAT       = ".fam dbg {0}";     // {0} = group name
-    public const string BCCOM_FAM_BG_CHALLENGE_FORMAT    = ".fam challenge {0}"; // {0} = player name (optional)
+    // 0.14.0: battle-group / challenge BCCOM_* constants removed.
+    // Bloodcraft v1.1+ never wired the underlying server features — the
+    // .fam bgs / .fam bg / .fam abg / .fam cbg / .fam sbg / .fam dbg /
+    // .fam challenge commands appear in the Bloodcraft README but are
+    // no-ops on the server. Anton Krüger confirmed in chat. Backing
+    // forms removed from the Familiars tab in the same release; the
+    // intercept startsWith branches below were also removed.
 
     // ---------- Leveling (.lvl) ----------
     public const string BCCOM_LVL_GET            = ".lvl get";
@@ -894,8 +893,9 @@ public static partial class MessageService
         // confirmation, not info the user wants to study in a panel.
         return command.StartsWith(".fam pr",         System.StringComparison.Ordinal)
             || command.StartsWith(".fam actions",    System.StringComparison.Ordinal)
-            || command.StartsWith(".fam bgs",        System.StringComparison.Ordinal)
-            || command.StartsWith(".fam bg ",        System.StringComparison.Ordinal)
+            // 0.14.0: .fam bgs / .fam bg branches removed — Bloodcraft never
+            // implemented battle groups, so these never produce server replies
+            // and the capture would only ever time out.
             // 0.10.12: .fam sb (smart-bind) reply varies — single match
             // produces a bind confirmation, multiple matches produce a
             // clarification list, no match produces "couldn't find...".

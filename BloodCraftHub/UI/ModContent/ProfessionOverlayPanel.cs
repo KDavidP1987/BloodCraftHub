@@ -180,7 +180,9 @@ public class ProfessionOverlayPanel : ResizeablePanelBase
         // toggle. Re-read every render so the toggle takes effect live.
         // 0.13.0: AND-gate with the per-profession flag so a hidden row's bar
         // is hidden too.
-        bool showBars = Settings.ShowProgressBars;
+        // 0.14.0 friend-test v2: per-system bar toggle (Professions has one
+        // master flag that gates all 8 bars together).
+        bool showBars = Settings.ShowProgressBarProfessions;
         SyncBar(_enchantingBar,    _enchantingFill,    s.EnchantingProgress,    showBars && sEn);
         SyncBar(_alchemyBar,       _alchemyFill,       s.AlchemyProgress,       showBars && sAl);
         SyncBar(_harvestingBar,    _harvestingFill,    s.HarvestingProgress,    showBars && sHa);

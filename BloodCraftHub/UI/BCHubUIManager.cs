@@ -33,6 +33,12 @@ public class BCHubUIManager : UIManagerBase
     private DailyQuestOverlayPanel _dailyQuestOverlay;
     private ProfessionOverlayPanel _professionOverlay;
     private ShiftSpellOverlayPanel _shiftSpellOverlay;
+    // 0.14.0: single combined info overlay. Mutually exclusive with the 4
+    // standalone info overlays (XP / Familiar / Daily Quest / Profession);
+    // when ShowCombinedOverlay is true, those are hidden regardless of
+    // their individual ShowXxxOverlay flags. FamiliarBrowser + ShiftSpell
+    // stay independent — they're not info-readout overlays.
+    private CombinedOverlayPanel _combinedOverlay;
 
     // 0.9.0: session-only flag flipped by the master-overlay button on the
     // floating-button strip. When true, every overlay is hidden regardless
@@ -57,6 +63,7 @@ public class BCHubUIManager : UIManagerBase
     public DailyQuestOverlayPanel       DailyQuestOverlay     => _dailyQuestOverlay;
     public ProfessionOverlayPanel       ProfessionOverlay     => _professionOverlay;
     public ShiftSpellOverlayPanel       ShiftSpellOverlay     => _shiftSpellOverlay;
+    public CombinedOverlayPanel         CombinedOverlay       => _combinedOverlay;
 
     /// <summary>0.10.14: read the global Settings.LockOverlays toggle and
     /// apply IsPinned to every currently-constructed overlay. Called when
@@ -72,6 +79,7 @@ public class BCHubUIManager : UIManagerBase
         ApplyPinnedTo(_dailyQuestOverlay, pinned);
         ApplyPinnedTo(_professionOverlay, pinned);
         ApplyPinnedTo(_shiftSpellOverlay, pinned);
+        ApplyPinnedTo(_combinedOverlay, pinned);
     }
 
     private static void ApplyPinnedTo(ResizeablePanelBase panel, bool pinned)
@@ -98,6 +106,7 @@ public class BCHubUIManager : UIManagerBase
         _familiarBrowserOverlay = null;
         _dailyQuestOverlay = null;
         _professionOverlay = null;
+        _combinedOverlay = null;
         _shiftSpellOverlay = null;
     }
 
@@ -173,10 +182,67 @@ public class BCHubUIManager : UIManagerBase
                 _shiftSpellOverlay.SetActive(!_shiftSpellOverlay.Enabled);
                 BloodCraftHub.Config.Settings.SetShowShiftSpellOverlay(_shiftSpellOverlay.Enabled);
                 break;
+            case PanelType.CombinedOverlay:
+                // 0.14.0: toggling combined-mode swaps which set of overlays
+                // is visible. ApplyCombinedOverlayMutualExclusion does the
+                // heavy lifting so the same logic drives footer toggles,
+                // Settings checkbox flips, and startup restore.
+                bool newOn = !(_combinedOverlay?.Enabled ?? false);
+                BloodCraftHub.Config.Settings.SetShowCombinedOverlay(newOn);
+                ApplyCombinedOverlayMutualExclusion();
+                break;
             default:
                 throw new ArgumentOutOfRangeException(nameof(overlay), overlay, "Not a secondary overlay.");
         }
     }
+
+    /// <summary>0.14.0: enforce the mutual exclusion between the combined
+    /// overlay and the 4 standalone info overlays it replaces. Called any
+    /// time Settings.ShowCombinedOverlay flips (footer toggle, Settings
+    /// checkbox, startup restore). The individual ShowXxxOverlay flags are
+    /// NEVER mutated here — they persist independently so toggling combined
+    /// off restores whatever the user had before.</summary>
+    public void ApplyCombinedOverlayMutualExclusion()
+    {
+        bool combined = BloodCraftHub.Config.Settings.ShowCombinedOverlay;
+        if (combined)
+        {
+            EnsureCombinedOverlay();
+            _combinedOverlay.SetActive(true);
+            // Hide the four info overlays the combined panel replaces.
+            // FamiliarBrowser + ShiftSpell are NOT info overlays and stay
+            // independent.
+            // 0.14.0 friend-test v6: always EnsureExperienceOverlay even when
+            // combined is on. ExperienceOverlay owns the auto-fetch ticker
+            // for .wep get + .bl get; combined reads its cached data to
+            // render Bonus Stats + XP Counter sub-rows. Without ensuring
+            // construction, the ticker doesn't exist and combined-mode users
+            // get no live values.
+            EnsureExperienceOverlay();
+            _experienceOverlay.SetActive(false);
+            _familiarOverlay?.SetActive(false);
+            _dailyQuestOverlay?.SetActive(false);
+            _professionOverlay?.SetActive(false);
+        }
+        else
+        {
+            _combinedOverlay?.SetActive(false);
+            // Restore the four info overlays per their individual config flags.
+            if (BloodCraftHub.Config.Settings.ShowExperienceOverlay)
+            { EnsureExperienceOverlay(); _experienceOverlay.SetActive(true); }
+            if (BloodCraftHub.Config.Settings.ShowFamiliarOverlay)
+            { EnsureFamiliarOverlay();   _familiarOverlay.SetActive(true); }
+            if (BloodCraftHub.Config.Settings.ShowDailyQuestOverlay)
+            { EnsureDailyQuestOverlay(); _dailyQuestOverlay.SetActive(true); }
+            if (BloodCraftHub.Config.Settings.ShowProfessionOverlay)
+            { EnsureProfessionOverlay(); _professionOverlay.SetActive(true); }
+        }
+    }
+
+    /// <summary>0.14.0: push per-section visibility changes from the Settings
+    /// tab (CombinedOverlayShowXxx checkboxes) into the live combined
+    /// overlay without rebuilding. No-op when the panel isn't constructed.</summary>
+    public void RefreshCombinedOverlaySections() => _combinedOverlay?.RefreshSections();
 
     /// <summary>0.9.0: master overlay show/hide. Flips a session-only flag and
     /// applies it to every overlay. Crucially this never *enables* an overlay
@@ -206,6 +272,7 @@ public class BCHubUIManager : UIManagerBase
             _dailyQuestOverlay?.SetActive(false);
             _professionOverlay?.SetActive(false);
             _shiftSpellOverlay?.SetActive(false);
+            _combinedOverlay?.SetActive(false);
             return;
         }
         // Un-suppress: re-show only overlays whose per-overlay Settings flag
@@ -251,36 +318,52 @@ public class BCHubUIManager : UIManagerBase
     /// </summary>
     public void RestoreOverlaysFromSettings()
     {
-        if (BloodCraftHub.Config.Settings.ShowExperienceOverlay)
+        // 0.14.0: combined-mode short-circuits the standalone-info restore.
+        // ApplyCombinedOverlayMutualExclusion ensures the right set is up;
+        // we still restore FamiliarBrowser + ShiftSpell because they're
+        // independent of combined-mode.
+        if (BloodCraftHub.Config.Settings.ShowCombinedOverlay)
         {
-            EnsureExperienceOverlay();
-            _experienceOverlay.SetActive(true);
+            ApplyCombinedOverlayMutualExclusion();
         }
-        if (BloodCraftHub.Config.Settings.ShowFamiliarOverlay)
+        else
         {
-            EnsureFamiliarOverlay();
-            _familiarOverlay.SetActive(true);
+            if (BloodCraftHub.Config.Settings.ShowExperienceOverlay)
+            {
+                EnsureExperienceOverlay();
+                _experienceOverlay.SetActive(true);
+            }
+            if (BloodCraftHub.Config.Settings.ShowFamiliarOverlay)
+            {
+                EnsureFamiliarOverlay();
+                _familiarOverlay.SetActive(true);
+            }
+            if (BloodCraftHub.Config.Settings.ShowDailyQuestOverlay)
+            {
+                EnsureDailyQuestOverlay();
+                _dailyQuestOverlay.SetActive(true);
+            }
+            if (BloodCraftHub.Config.Settings.ShowProfessionOverlay)
+            {
+                EnsureProfessionOverlay();
+                _professionOverlay.SetActive(true);
+            }
         }
         if (BloodCraftHub.Config.Settings.ShowFamiliarBrowser)
         {
             EnsureFamiliarBrowserOverlay();
             _familiarBrowserOverlay.SetActive(true);
         }
-        if (BloodCraftHub.Config.Settings.ShowDailyQuestOverlay)
-        {
-            EnsureDailyQuestOverlay();
-            _dailyQuestOverlay.SetActive(true);
-        }
-        if (BloodCraftHub.Config.Settings.ShowProfessionOverlay)
-        {
-            EnsureProfessionOverlay();
-            _professionOverlay.SetActive(true);
-        }
         if (BloodCraftHub.Config.Settings.ShowShiftSpellOverlay)
         {
             EnsureShiftSpellOverlay();
             _shiftSpellOverlay.SetActive(true);
         }
+        // 0.14.0: re-show combined overlay last, after the un-suppress walk
+        // through individual overlays — ApplyCombinedOverlayMutualExclusion
+        // will hide whichever individuals it conflicts with.
+        if (BloodCraftHub.Config.Settings.ShowCombinedOverlay)
+            ApplyCombinedOverlayMutualExclusion();
     }
 
     public bool IsOverlayOpen(PanelType overlay) => overlay switch
@@ -291,6 +374,7 @@ public class BCHubUIManager : UIManagerBase
         PanelType.DailyQuestOverlay      => _dailyQuestOverlay?.Enabled ?? false,
         PanelType.ProfessionOverlay      => _professionOverlay?.Enabled ?? false,
         PanelType.ShiftSpellOverlay      => _shiftSpellOverlay?.Enabled ?? false,
+        PanelType.CombinedOverlay        => _combinedOverlay?.Enabled ?? false,
         _ => false,
     };
 
@@ -350,6 +434,14 @@ public class BCHubUIManager : UIManagerBase
         _shiftSpellOverlay.SetActive(false);
     }
 
+    private void EnsureCombinedOverlay()
+    {
+        if (_combinedOverlay != null) return;
+        _combinedOverlay = new CombinedOverlayPanel(UiBase);
+        _panels.Add(_combinedOverlay);
+        _combinedOverlay.SetActive(false);
+    }
+
     // -----------------------------------------------------------------------
     // 0.9.2: live refresh helpers for the Settings tab.
     //
@@ -376,6 +468,7 @@ public class BCHubUIManager : UIManagerBase
         _dailyQuestOverlay?.RefreshOpacity();
         _professionOverlay?.RefreshOpacity();
         _shiftSpellOverlay?.RefreshOpacity();
+        _combinedOverlay?.RefreshOpacity();
         _mainPanel?.RefreshOpacity();
         _floatingButton?.RefreshOpacity();
     }
@@ -394,6 +487,7 @@ public class BCHubUIManager : UIManagerBase
         _dailyQuestOverlay?.RefreshBackgroundColor();
         _professionOverlay?.RefreshBackgroundColor();
         _shiftSpellOverlay?.RefreshBackgroundColor();
+        _combinedOverlay?.RefreshBackgroundColor();
         // Floating button intentionally excluded — it's a single-button
         // strip without a chrome backdrop the user would want themed.
     }
@@ -460,12 +554,37 @@ public class BCHubUIManager : UIManagerBase
 
     private void RebuildAllOverlaysNow()
     {
-        RebuildOverlay(ref _experienceOverlay,      BloodCraftHub.Config.Settings.ShowExperienceOverlay, b => new ExperienceOverlayPanel(b));
-        RebuildOverlay(ref _familiarOverlay,        BloodCraftHub.Config.Settings.ShowFamiliarOverlay,   b => new FamiliarOverlayPanel(b));
-        RebuildOverlay(ref _familiarBrowserOverlay, BloodCraftHub.Config.Settings.ShowFamiliarBrowser,   b => new FamiliarBrowserOverlayPanel(b));
-        RebuildOverlay(ref _dailyQuestOverlay,      BloodCraftHub.Config.Settings.ShowDailyQuestOverlay, b => new DailyQuestOverlayPanel(b));
-        RebuildOverlay(ref _professionOverlay,      BloodCraftHub.Config.Settings.ShowProfessionOverlay, b => new ProfessionOverlayPanel(b));
-        RebuildOverlay(ref _shiftSpellOverlay,      BloodCraftHub.Config.Settings.ShowShiftSpellOverlay, b => new ShiftSpellOverlayPanel(b));
+        // 0.14.0 friend-test v3: gate the 4 info overlays on combined-mode
+        // mutual exclusion. Pre-fix, changing overlay text scale triggered
+        // a full rebuild — RebuildOverlay's wasVisibleByConfig was each
+        // Show*Overlay flag, so individuals reappeared even when combined
+        // mode was on. Effective visibility = !combined && Show*Overlay.
+        // FamiliarBrowser + ShiftSpell are independent overlays so they
+        // skip the gate.
+        bool combined = BloodCraftHub.Config.Settings.ShowCombinedOverlay;
+        RebuildOverlay(ref _experienceOverlay,      !combined && BloodCraftHub.Config.Settings.ShowExperienceOverlay, b => new ExperienceOverlayPanel(b));
+        RebuildOverlay(ref _familiarOverlay,        !combined && BloodCraftHub.Config.Settings.ShowFamiliarOverlay,   b => new FamiliarOverlayPanel(b));
+        RebuildOverlay(ref _familiarBrowserOverlay, BloodCraftHub.Config.Settings.ShowFamiliarBrowser,                b => new FamiliarBrowserOverlayPanel(b));
+        RebuildOverlay(ref _dailyQuestOverlay,      !combined && BloodCraftHub.Config.Settings.ShowDailyQuestOverlay, b => new DailyQuestOverlayPanel(b));
+        RebuildOverlay(ref _professionOverlay,      !combined && BloodCraftHub.Config.Settings.ShowProfessionOverlay, b => new ProfessionOverlayPanel(b));
+        RebuildOverlay(ref _shiftSpellOverlay,      BloodCraftHub.Config.Settings.ShowShiftSpellOverlay,              b => new ShiftSpellOverlayPanel(b));
+        // 0.14.0: combined overlay is now part of the rebuild so its text
+        // scale changes when the user toggles overlay text size. Pre-fix
+        // the panel's labels stayed at construct-time font size because
+        // it wasn't in the rebuild list.
+        RebuildOverlay(ref _combinedOverlay,        combined,                                                          b => new CombinedOverlayPanel(b));
+        // 0.14.0 friend-test v8: snap-to-MinHeight on rebuild moved into
+        // CombinedOverlayPanel.LateConstructUI itself. v6 ran synchronously
+        // (was overridden by deferred ApplySaveData); v7 deferred to next
+        // frame via CoreUpdateBehavior.Actions (raced with ApplySaveData,
+        // sometimes lost the race). The override in LateConstructUI runs
+        // SAME FRAME AS ApplySaveData and AFTER it (base.LateConstructUI
+        // does ApplySaveData first, then our override executes), so there's
+        // no race and no Coroutine/Update ordering dependency.
+        // After all rebuilds settle, push the post-rebuild reality back
+        // into the footer/Settings toggles so they don't show stale
+        // construct-time isOn values.
+        _mainPanel?.RefreshAllOverlayToggleStates();
     }
 
     private void RebuildOverlay<T>(ref T slot, bool wasVisibleByConfig, System.Func<BloodCraftHub.UI.Framework.UniverseLib.UI.UIBase, T> factory)

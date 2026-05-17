@@ -93,10 +93,18 @@ public class Settings
     public static bool ClearServerMessages =>
         (ConfigEntries[nameof(ClearServerMessages)] as ConfigEntry<bool>)?.Value ?? false;
 
-    // 0.9.2: when on, the XP overlay + Prestige info display render a
-    // horizontal progress bar alongside the % text. Friend-testing feedback:
-    // "some people have requested if it could be a visual progress bar".
-    // Off by default so existing users see no change.
+    // 0.9.2 (introduced): when on, the XP overlay + Prestige info display
+    // rendered a horizontal progress bar alongside the % text.
+    //
+    // 0.14.0 friend-test v2 (deprecated for overlays): per-system bar flags
+    // were introduced — Settings.ShowProgressBarXP / *Familiar / *Expertise /
+    // *Legacy / *Professions. The standalone overlays + combined overlay all
+    // moved to those. This legacy ShowProgressBars setting is now only read
+    // by the Prestige info display in the Prestige tab (MainPanel.RenderPrestigeInfo).
+    // Left intact rather than renamed to avoid migrating existing users'
+    // saved .cfg values; a rename would silently flip the Prestige info bar
+    // on/off for upgraders. If a future version removes the Prestige info
+    // bar, this setting can be deleted entirely.
     public static bool ShowProgressBars =>
         (ConfigEntries[nameof(ShowProgressBars)] as ConfigEntry<bool>)?.Value ?? false;
     public static void SetShowProgressBars(bool v) => SetBool(nameof(ShowProgressBars), v);
@@ -426,6 +434,47 @@ public class Settings
     // state across sessions. BCHubUIManager.ToggleOverlay writes the new value
     // here so a flip persists. (Pre-0.6.0 these settings existed but were never
     // wired into the toggle path, so the overlays always defaulted to off.)
+    // 0.14.0: combined overlay — single panel containing all info-overlay
+    // sections (XP / Familiar / Weapon Expertise / Blood Legacy / Professions /
+    // Daily Quest). Mutually exclusive with the individual overlays — when
+    // ShowCombinedOverlay is true, the standalone info overlays are hidden
+    // regardless of their own ShowXxxOverlay flag (the flags persist so
+    // toggling combined off restores the previous individual state).
+    public static bool ShowCombinedOverlay         => (ConfigEntries.TryGetValue(nameof(ShowCombinedOverlay),         out var ec) && ec is ConfigEntry<bool> bc) ? bc.Value : false;
+    public static bool CombinedOverlayShowXP       => (ConfigEntries.TryGetValue(nameof(CombinedOverlayShowXP),       out var e1) && e1 is ConfigEntry<bool> b1) ? b1.Value : true;
+    public static bool CombinedOverlayShowFamiliar => (ConfigEntries.TryGetValue(nameof(CombinedOverlayShowFamiliar), out var e2) && e2 is ConfigEntry<bool> b2) ? b2.Value : true;
+    public static bool CombinedOverlayShowExpertise=> (ConfigEntries.TryGetValue(nameof(CombinedOverlayShowExpertise),out var e3) && e3 is ConfigEntry<bool> b3) ? b3.Value : true;
+    public static bool CombinedOverlayShowLegacy   => (ConfigEntries.TryGetValue(nameof(CombinedOverlayShowLegacy),   out var e4) && e4 is ConfigEntry<bool> b4) ? b4.Value : true;
+    public static bool CombinedOverlayShowProfessions => (ConfigEntries.TryGetValue(nameof(CombinedOverlayShowProfessions), out var e5) && e5 is ConfigEntry<bool> b5) ? b5.Value : true;
+    public static bool CombinedOverlayShowQuests   => (ConfigEntries.TryGetValue(nameof(CombinedOverlayShowQuests),   out var e6) && e6 is ConfigEntry<bool> b6) ? b6.Value : true;
+    // 0.14.0 friend-test v2: UNIFIED per-system progress-bar flags. These
+    // apply to BOTH the standalone overlays AND the combined overlay so
+    // toggling "show XP bar" controls visibility consistently regardless
+    // of which overlay mode the user is in. Defaults true preserve the
+    // existing bars-on look most users have. The earlier global
+    // `ShowProgressBars` setting is kept solely for the Prestige Info
+    // display in the Prestige tab — every other call site moved to these
+    // per-system flags.
+    public static bool ShowProgressBarXP          => (ConfigEntries.TryGetValue(nameof(ShowProgressBarXP),          out var pb1) && pb1 is ConfigEntry<bool> sb1) ? sb1.Value : true;
+    public static bool ShowProgressBarFamiliar    => (ConfigEntries.TryGetValue(nameof(ShowProgressBarFamiliar),    out var pb2) && pb2 is ConfigEntry<bool> sb2) ? sb2.Value : true;
+    public static bool ShowProgressBarExpertise   => (ConfigEntries.TryGetValue(nameof(ShowProgressBarExpertise),   out var pb3) && pb3 is ConfigEntry<bool> sb3) ? sb3.Value : true;
+    public static bool ShowProgressBarLegacy      => (ConfigEntries.TryGetValue(nameof(ShowProgressBarLegacy),      out var pb4) && pb4 is ConfigEntry<bool> sb4) ? sb4.Value : true;
+    public static bool ShowProgressBarProfessions => (ConfigEntries.TryGetValue(nameof(ShowProgressBarProfessions), out var pb5) && pb5 is ConfigEntry<bool> sb5) ? sb5.Value : true;
+    public static void SetShowProgressBarXP(bool v)          => SetBool(nameof(ShowProgressBarXP), v);
+    public static void SetShowProgressBarFamiliar(bool v)    => SetBool(nameof(ShowProgressBarFamiliar), v);
+    public static void SetShowProgressBarExpertise(bool v)   => SetBool(nameof(ShowProgressBarExpertise), v);
+    public static void SetShowProgressBarLegacy(bool v)      => SetBool(nameof(ShowProgressBarLegacy), v);
+    public static void SetShowProgressBarProfessions(bool v) => SetBool(nameof(ShowProgressBarProfessions), v);
+    public static float CombinedOverlayTransparency => GetFloat(nameof(CombinedOverlayTransparency), UITransparency);
+    public static void SetShowCombinedOverlay(bool v)          => SetBool(nameof(ShowCombinedOverlay), v);
+    public static void SetCombinedOverlayShowXP(bool v)        => SetBool(nameof(CombinedOverlayShowXP), v);
+    public static void SetCombinedOverlayShowFamiliar(bool v)  => SetBool(nameof(CombinedOverlayShowFamiliar), v);
+    public static void SetCombinedOverlayShowExpertise(bool v) => SetBool(nameof(CombinedOverlayShowExpertise), v);
+    public static void SetCombinedOverlayShowLegacy(bool v)    => SetBool(nameof(CombinedOverlayShowLegacy), v);
+    public static void SetCombinedOverlayShowProfessions(bool v) => SetBool(nameof(CombinedOverlayShowProfessions), v);
+    public static void SetCombinedOverlayShowQuests(bool v)    => SetBool(nameof(CombinedOverlayShowQuests), v);
+    public static void SetCombinedOverlayTransparency(float v) => SetFloat(nameof(CombinedOverlayTransparency), v);
+
     public static bool ShowExperienceOverlay   => (ConfigEntries[nameof(ShowExperienceOverlay)]   as ConfigEntry<bool>)?.Value ?? false;
     public static bool ShowFamiliarOverlay     => (ConfigEntries[nameof(ShowFamiliarOverlay)]     as ConfigEntry<bool>)?.Value ?? false;
     public static bool ShowFamiliarBrowser     => (ConfigEntries[nameof(ShowFamiliarBrowser)]     as ConfigEntry<bool>)?.Value ?? false;
@@ -571,6 +620,25 @@ public class Settings
         InitConfigEntry(OVERLAY_SETTINGS_GROUP, nameof(DailyQuestTransparency),      0.4f,  "Daily quest overlay background transparency.");
         InitConfigEntry(OVERLAY_SETTINGS_GROUP, nameof(ProfessionOverlayTransparency), 0.4f, "Profession overlay background transparency.");
         InitConfigEntry(OVERLAY_SETTINGS_GROUP, nameof(ShiftSpellOverlayTransparency), 0.4f, "Shift-spell cooldown overlay background transparency (0.0=solid, 1.0=invisible).");
+        // 0.14.0: combined overlay registration.
+        InitConfigEntry(OVERLAY_SETTINGS_GROUP, nameof(ShowCombinedOverlay),         false, "Show the combined overlay — one panel with XP / Familiar / Weapon / Blood / Professions / Quests sections. When on, the individual info overlays auto-hide. Toggle in Settings → Display.");
+        InitConfigEntry(OVERLAY_SETTINGS_GROUP, nameof(CombinedOverlayShowXP),        true,  "Combined overlay: include the XP / Experience section.");
+        InitConfigEntry(OVERLAY_SETTINGS_GROUP, nameof(CombinedOverlayShowFamiliar),  true,  "Combined overlay: include the active-familiar section.");
+        InitConfigEntry(OVERLAY_SETTINGS_GROUP, nameof(CombinedOverlayShowExpertise), true,  "Combined overlay: include the weapon expertise section.");
+        InitConfigEntry(OVERLAY_SETTINGS_GROUP, nameof(CombinedOverlayShowLegacy),    true,  "Combined overlay: include the blood legacy section.");
+        InitConfigEntry(OVERLAY_SETTINGS_GROUP, nameof(CombinedOverlayShowProfessions), true,"Combined overlay: include the professions section (per-profession checkboxes in 'Professions tracked' still apply within the section).");
+        InitConfigEntry(OVERLAY_SETTINGS_GROUP, nameof(CombinedOverlayShowQuests),    true,  "Combined overlay: include the Daily + Weekly quest section.");
+        // 0.14.0 friend-test v2: per-system progress bars apply to BOTH the
+        // standalone overlays AND the combined overlay so toggling one of
+        // these flags has consistent effect regardless of which overlay
+        // mode the user is in. Replaces the old CombinedOverlayShow*Bar
+        // settings (those entries are inert — left out of the bundled cfg).
+        InitConfigEntry(UI_SETTINGS_GROUP, nameof(ShowProgressBarXP),          true, "Show XP progress bar (applies to both the standalone XP overlay and the XP section of the combined overlay).");
+        InitConfigEntry(UI_SETTINGS_GROUP, nameof(ShowProgressBarFamiliar),    true, "Show Familiar progress bar (standalone Familiar overlay + combined Familiar section).");
+        InitConfigEntry(UI_SETTINGS_GROUP, nameof(ShowProgressBarExpertise),   true, "Show Weapon Expertise progress bar (Weapon row of standalone XP overlay + Weapon section of combined overlay).");
+        InitConfigEntry(UI_SETTINGS_GROUP, nameof(ShowProgressBarLegacy),      true, "Show Blood Legacy progress bar (Blood row of standalone XP overlay + Blood section of combined overlay).");
+        InitConfigEntry(UI_SETTINGS_GROUP, nameof(ShowProgressBarProfessions), true, "Show Professions progress bars (8 per-profession bars on standalone Profession overlay + per-profession rows in combined Professions section when bars are on).");
+        InitConfigEntry(OVERLAY_SETTINGS_GROUP, nameof(CombinedOverlayTransparency),  0.4f,  "Combined overlay background transparency (0.0=solid, 1.0=invisible).");
         InitConfigEntry(GENERAL_SETTINGS_GROUP, nameof(BloodcraftAvailability),      "Auto", "Whether the server has the Bloodcraft mod. Auto = present iff the server ACK'd our Eclipse handshake. On = always assume present. Off = always disable the BLOODCRAFT tab group.");
         InitConfigEntry(GENERAL_SETTINGS_GROUP, nameof(KindredAvailability),         "Auto", "Whether the server has the Kindred suite (KindredCommands + KindredLogistics). No protocol probe is wired yet, so Auto currently means 'assume present'. Set to Off explicitly if your server doesn't have these mods to grey out the KINDRED tab group.");
 

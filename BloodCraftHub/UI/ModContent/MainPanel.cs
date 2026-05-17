@@ -27,8 +27,15 @@ public partial class MainPanel : ResizeablePanelBase
     public override string PanelId => "MainPanel";
     public override PanelType PanelType => PanelType.Base;
 
-    public override int MinWidth  => 600;
-    public override int MinHeight => 380;
+    // 0.14.0 friend-test v3: another bump — 760×560 was "a little better
+    // but still needs work" per the user. Settling at 960×700, which gives
+    // long help-tab content (Mod Help / Quick Start) ~10–12 lines without
+    // scrolling, comfortably fits the 7-toggle footer at Standard text
+    // scale, and stays inside the 1366×768 minimum supported V Rising
+    // resolution. Existing users with a saved custom size aren't affected
+    // — this only moves the "Default" baseline + new-install size.
+    public override int MinWidth  => 960;
+    public override int MinHeight => 700;
 
     public override Vector2 DefaultAnchorMin => new(0.5f, 0.5f);
     public override Vector2 DefaultAnchorMax => new(0.5f, 0.5f);
@@ -64,6 +71,16 @@ public partial class MainPanel : ResizeablePanelBase
     private Toggle _dqOverlayToggle;
     private Toggle _profOverlayToggle;
     private Toggle _shiftOverlayToggle;
+    // 0.14.0: combined overlay toggle + per-PanelType GameObject tracker so
+    // ApplyCombinedFooterVisibility can hide the 4 info toggles when combined
+    // mode is on (and restore them when it flips off).
+    private Toggle _combinedOverlayToggle;
+    private readonly System.Collections.Generic.Dictionary<PanelType, GameObject> _overlayToggleGOs = new();
+    // 0.14.0 friend-test fix: track the Settings-tab master combined toggle
+    // so the footer click handler can sync it via SetIsOnWithoutNotify
+    // (preventing the double-toggle feedback loop that surfaced as
+    // "toggles show checked but individual overlays are showing").
+    private Toggle _combinedMasterToggle;
 
     // Familiars-tab live labels
     private TextMeshProUGUI _famNameLabel;
@@ -1222,82 +1239,17 @@ public partial class MainPanel : ResizeablePanelBase
         // we just need a subscriber that surfaces the result in the UI.
         BuildFamSearchResultPanel(moreActionsCard);
 
-        AddSpacer(page, 6);
-
-        // ── Battle groups ───────────────────────────────────────────────
-        var bgCard = AddCard(page, "FamBgCard");
-        AddSectionHeading(bgCard, "Battle Groups");
-        AddBodyText(bgCard,
-            "Battle groups are pre-built lineups of familiars for PvP challenges. List shows the groups you've made; create one, slot familiars into it, then challenge another player.");
-
-        var bgRow1 = UIFactory.CreateHorizontalGroup(bgCard, "FamBgRow1",
-            forceExpandWidth: true, forceExpandHeight: false,
-            childControlWidth: true, childControlHeight: true,
-            spacing: 6, padding: new Vector4(0, 0, 0, 0));
-        UIFactory.SetLayoutElement(bgRow1,
-            minWidth: 360, preferredWidth: 400, flexibleWidth: 1,
-            minHeight: 32, preferredHeight: 32, flexibleHeight: 0);
-        AddCommandButton(bgRow1, "List Groups", MessageService.BCCOM_FAM_BG_LIST,
-            "List your battle groups (.fam bgs).");
-
-        CollapsibleSection.Build(bgCard,
-            title: "Show battle group details (.fam bg)",
-            startExpanded: false,
-            tooltip: "Show the contents of a battle group. Leave blank to inspect your active group.",
-            buildContent: c => FormBuilder.Build(c,
-                title: "Show battle group",
-                commandTemplate: ".fam bg {group}",
-                new TextField("group", "Group name (blank = active)")));
-
-        CollapsibleSection.Build(bgCard,
-            title: "Choose active battle group (.fam cbg)",
-            startExpanded: false,
-            tooltip: "Sets which battle group is your active one (used by .fam challenge).",
-            buildContent: c => FormBuilder.Build(c,
-                title: "Choose battle group",
-                commandTemplate: ".fam cbg {group}",
-                new TextField("group", "Group name", placeholder: "MyTeam")));
-
-        CollapsibleSection.Build(bgCard,
-            title: "Create battle group (.fam abg)",
-            startExpanded: false,
-            tooltip: "Create a new (empty) battle group. Use Slot Familiar below to fill it.",
-            buildContent: c => FormBuilder.Build(c,
-                title: "Create battle group",
-                commandTemplate: ".fam abg {group}",
-                new TextField("group", "New group name", placeholder: "MyTeam")));
-
-        CollapsibleSection.Build(bgCard,
-            title: "Slot active familiar into group (.fam sbg)",
-            startExpanded: false,
-            tooltip: "Assigns your CURRENTLY-bound familiar to a slot in the named group. Bind the familiar you want to slot first.",
-            buildContent: c => FormBuilder.Build(c,
-                title: "Slot familiar",
-                commandTemplate: ".fam sbg {group} {slot}",
-                new TextField("group", "Group name", placeholder: "MyTeam"),
-                new IntField("slot", "Slot (1-3)", min: 1, max: 3,
-                    tooltip: "Which slot in the group to put the familiar.")));
-
-        CollapsibleSection.Build(bgCard,
-            title: "Delete battle group (.fam dbg) — DESTRUCTIVE",
-            startExpanded: false,
-            tooltip: "Permanently removes the battle group. The slotted familiars themselves are NOT destroyed (only the grouping). Required confirm checkbox.",
-            buildContent: c => FormBuilder.Build(c,
-                title: "Delete battle group",
-                commandTemplate: ".fam dbg {group}",
-                new TextField("group", "Group name"),
-                new BoolField("confirm", "Yes, delete this group",
-                    tooltip: "Required. The slotted familiars stay in your boxes; only the group definition is removed.",
-                    requireTrue: true)));
-
-        CollapsibleSection.Build(bgCard,
-            title: "Challenge a player (.fam challenge)",
-            startExpanded: false,
-            tooltip: "Initiate (or accept/queue) a battle-group fight against another player. Leave blank to view the current queue.",
-            buildContent: c => FormBuilder.Build(c,
-                title: "Challenge",
-                commandTemplate: ".fam challenge {player}",
-                new PlayerNameField("player", "Player (blank = view queue)")));
+        // 0.14.0: Battle Groups card removed. Bloodcraft v1.1+ never
+        // implemented the feature set behind .fam bgs / .fam bg / .fam abg
+        // / .fam cbg / .fam sbg / .fam dbg / .fam challenge — the README
+        // still documents them but they are no-ops on the server. Anton
+        // Krüger (server admin on Bloodcraft) confirmed in chat: "I always
+        // tell people those commands don't work and Mitch keeps forgetting
+        // to update the commands page." Surfacing them in the UI just
+        // produced silent failures + log clutter, so the entire BG card
+        // is removed. Backing constants in MessageService_Processing.cs
+        // and the intercept startsWith branches are removed in the same
+        // commit so the dead-feature surface area shrinks to zero.
 
         RenderFamiliar(PlayerStateService.Familiar);
         if (!_famSubscribed)
@@ -4769,6 +4721,14 @@ public partial class MainPanel : ResizeablePanelBase
         AddTransparencyRow(page, "Professions",
             () => Config.Settings.ProfessionOverlayTransparency,
             v => Config.Settings.SetProfessionOverlayTransparency(v));
+        // 0.14.0: combined overlay transparency slider — same as the
+        // standalone-overlay sliders above.
+        AddTransparencyRow(page, "Combined overlay",
+            () => Config.Settings.CombinedOverlayTransparency,
+            v => Config.Settings.SetCombinedOverlayTransparency(v));
+
+        AddSpacer(page, 8);
+        BuildCombinedOverlaySection(page);
 
         AddSpacer(page, 8);
         BuildPanelBackgroundColorSection(page);
@@ -4981,6 +4941,10 @@ public partial class MainPanel : ResizeablePanelBase
         BuildOverlaySizeControls(page, "Familiar Browser", () => Plugin.UIManager?.FamiliarBrowserOverlay);
         BuildOverlaySizeControls(page, "Daily Quest",      () => Plugin.UIManager?.DailyQuestOverlay);
         BuildOverlaySizeControls(page, "Professions",      () => Plugin.UIManager?.ProfessionOverlay);
+        // 0.14.0: combined overlay size controls — same +/-/Default treatment
+        // as the standalone overlays. Particularly useful while iterating on
+        // the new panel before the auto-fit defaults settle.
+        BuildOverlaySizeControls(page, "Combined overlay", () => Plugin.UIManager?.CombinedOverlay);
     }
 
     private void BuildPrimaryUISizeControls(GameObject page)
@@ -5158,38 +5122,58 @@ public partial class MainPanel : ResizeablePanelBase
     /// <summary>0.9.2: toggle XP and prestige progress visualization as
     /// horizontal bars (alongside the existing % numeric value). Off by
     /// default. Applies immediately because each render re-reads the
-    /// setting and toggles the bar GameObject's SetActive.</summary>
+    /// setting and toggles the bar GameObject's SetActive.
+    /// 0.14.0 friend-test v2: replaced the single global toggle with 5
+    /// per-system toggles. Each controls the bar visibility in BOTH the
+    /// standalone overlay AND the combined overlay so the two views stay
+    /// consistent. Old Settings.ShowProgressBars is kept solely for the
+    /// Prestige Info display in the Prestige tab (separate concern).
+    /// </summary>
     private void AddShowProgressBarsToggle(GameObject parent)
     {
+        AddPanelColorSubHeading(parent, "ShowBarsHeader", "Show progress bars for");
+
         var row = UIFactory.CreateHorizontalGroup(parent, "ShowProgressBarsRow",
             forceExpandWidth: true, forceExpandHeight: false,
             childControlWidth: true, childControlHeight: true,
-            spacing: 6, padding: new Vector4(2, 2, 2, 2));
+            spacing: 4, padding: new Vector4(2, 2, 2, 2));
         UIFactory.SetLayoutElement(row,
             minWidth: 360, preferredWidth: 400, flexibleWidth: 1,
             minHeight: 28, preferredHeight: 30, flexibleHeight: 0);
 
-        var t = UIFactory.CreateToggle(row, "ShowProgressBarsToggle");
+        AddProgressBarSystemToggle(row, "XP",          () => Config.Settings.ShowProgressBarXP,          Config.Settings.SetShowProgressBarXP);
+        AddProgressBarSystemToggle(row, "Familiar",    () => Config.Settings.ShowProgressBarFamiliar,    Config.Settings.SetShowProgressBarFamiliar);
+        AddProgressBarSystemToggle(row, "Weapon",      () => Config.Settings.ShowProgressBarExpertise,   Config.Settings.SetShowProgressBarExpertise);
+        AddProgressBarSystemToggle(row, "Blood",       () => Config.Settings.ShowProgressBarLegacy,      Config.Settings.SetShowProgressBarLegacy);
+        AddProgressBarSystemToggle(row, "Professions", () => Config.Settings.ShowProgressBarProfessions, Config.Settings.SetShowProgressBarProfessions);
+    }
+
+    private static void AddProgressBarSystemToggle(GameObject row, string label,
+        System.Func<bool> get, System.Action<bool> set)
+    {
+        var t = UIFactory.CreateToggle(row, $"BarSys_{label}");
         UIFactory.SetLayoutElement(t.GameObject,
-            minWidth: 360, preferredWidth: 400, flexibleWidth: 1,
+            minWidth: 70, preferredWidth: 80, flexibleWidth: 1,
             minHeight: 24, preferredHeight: 26, flexibleHeight: 0);
-        t.Text.text = "Show XP / Prestige progress as horizontal bars";
-        t.Text.fontSize = Theme.ScaledUI(12);
+        t.Text.text = label;
+        t.Text.fontSize = Theme.ScaledUI(11);
         t.Text.alignment = TextAlignmentOptions.MidlineLeft;
+        t.Text.enableWordWrapping = false;
+        t.Text.overflowMode = TextOverflowModes.Overflow;
         UIFactory.SetLayoutElement(t.Text.gameObject,
-            minWidth: 320, preferredWidth: 360, flexibleWidth: 1,
+            minWidth: 50, preferredWidth: 65, flexibleWidth: 1,
             minHeight: 22, preferredHeight: 24, flexibleHeight: 0);
-        t.Toggle.isOn = Config.Settings.ShowProgressBars;
+        t.Toggle.isOn = get();
         TooltipHover.Attach(t.GameObject,
-            "When on, the XP overlay and the Prestige info box render a slim horizontal progress bar alongside the % / level value. Off by default — % numbers stay visible either way.");
-        t.OnValueChanged += value =>
+            $"Show the progress bar for {label} in BOTH the standalone overlay and the combined overlay. Applies wherever the system renders.");
+        t.OnValueChanged += v =>
         {
-            Config.Settings.SetShowProgressBars(value);
-            // 0.9.2: force a re-render on the Prestige info panel so its bar
-            // appears/disappears immediately. XP overlay re-reads the setting
-            // on its next render tick (triggered when Bloodcraft pushes new
-            // experience data, which it does multiple times per second).
-            try { RenderPrestigeInfo(); } catch { /* prestige tab not built yet */ }
+            set(v);
+            // Push to combined overlay (its render reads these flags directly).
+            Plugin.UIManager?.RefreshCombinedOverlaySections();
+            // Prestige info display has its own separate ShowProgressBars
+            // setting (legacy global, kept for that one use); no refresh
+            // needed here.
         };
     }
 
@@ -5225,8 +5209,11 @@ public partial class MainPanel : ResizeablePanelBase
         t.OnValueChanged += value =>
         {
             Config.Settings.SetShowOverlayBonusStats(value);
-            // Overlay re-renders on its next frame tick (always-on
-            // BonusStatsTick), so no explicit forced refresh needed here.
+            // XP overlay re-renders on its next frame tick (always-on
+            // BonusStatsTick). Combined overlay is event-driven; nudge it
+            // to re-render now so the sub-rows show/hide without waiting
+            // for the next data event (could be ~10s).
+            Plugin.UIManager?.RefreshCombinedOverlaySections();
         };
     }
 
@@ -5256,7 +5243,13 @@ public partial class MainPanel : ResizeablePanelBase
         t.Toggle.isOn = Config.Settings.ShowOverlayXpCounter;
         TooltipHover.Attach(t.GameObject,
             "Adds a sub-row under Weapon and Legacy showing 'Exp: 123 / 4500 (2.7%)' — current expertise / essence and the threshold to the next level. Derives the threshold from the percentage the server prints, so it's accurate to within ±1 of the true value.");
-        t.OnValueChanged += value => Config.Settings.SetShowOverlayXpCounter(value);
+        t.OnValueChanged += value =>
+        {
+            Config.Settings.SetShowOverlayXpCounter(value);
+            // Same rationale as the bonus-stats toggle above — push combined
+            // to re-render immediately so the counter sub-rows show/hide.
+            Plugin.UIManager?.RefreshCombinedOverlaySections();
+        };
     }
 
     // 0.10.7: Progress-bar height: relative-vs-absolute toggle + slider for
@@ -5432,6 +5425,174 @@ public partial class MainPanel : ResizeablePanelBase
     // the overlay re-renders immediately. Forward-compatible with the
     // v0.14.0 combined overlay (same flags will gate the per-profession
     // sub-rows inside the combined component).
+    // 0.14.0: combined overlay settings section. Master toggle + 6 per-section
+    // checkboxes. Master toggle flips Settings.ShowCombinedOverlay and calls
+    // ApplyCombinedOverlayMutualExclusion + ApplyCombinedFooterVisibility so
+    // the change cascades through the panel + footer + overlay set in one go.
+    private void BuildCombinedOverlaySection(GameObject page)
+    {
+        AddSectionHeading(page, "Combined overlay");
+
+        var help = UIFactory.CreateLabel(page, "CombinedOverlayHelp",
+            "Single draggable overlay containing XP / Familiar / Weapon / Blood / Professions / Quests sections — replaces the four standalone info overlays when on. " +
+            "Per-section checkboxes below pick which slices show inside the combined panel; the per-profession checkboxes from 'Professions tracked' still filter the profession rows.",
+            TextAlignmentOptions.TopLeft, color: null, fontSize: Theme.ScaledUI(14));
+        UIFactory.SetLayoutElement(help.GameObject,
+            minWidth: 360, preferredWidth: 400, flexibleWidth: 1,
+            minHeight: 32, preferredHeight: 56, flexibleHeight: 0);
+        help.TextMesh.enableWordWrapping = true;
+        help.TextMesh.overflowMode = TextOverflowModes.Overflow;
+        help.TextMesh.fontStyle = FontStyles.Italic;
+
+        // Master toggle.
+        var masterRow = UIFactory.CreateHorizontalGroup(page, "CombinedMasterRow",
+            forceExpandWidth: true, forceExpandHeight: false,
+            childControlWidth: true, childControlHeight: true,
+            spacing: 6, padding: new Vector4(2, 2, 2, 2));
+        UIFactory.SetLayoutElement(masterRow,
+            minWidth: 360, preferredWidth: 400, flexibleWidth: 1,
+            minHeight: 28, preferredHeight: 30, flexibleHeight: 0);
+
+        var masterT = UIFactory.CreateToggle(masterRow, "CombinedMasterToggle");
+        UIFactory.SetLayoutElement(masterT.GameObject,
+            minWidth: 360, preferredWidth: 400, flexibleWidth: 1,
+            minHeight: 24, preferredHeight: 26, flexibleHeight: 0);
+        masterT.Text.text = "Use combined overlay (hides individual info overlays)";
+        masterT.Text.fontSize = Theme.ScaledUI(13);
+        masterT.Text.alignment = TextAlignmentOptions.MidlineLeft;
+        UIFactory.SetLayoutElement(masterT.Text.gameObject,
+            minWidth: 320, preferredWidth: 360, flexibleWidth: 1,
+            minHeight: 22, preferredHeight: 24, flexibleHeight: 0);
+        masterT.Toggle.isOn = Config.Settings.ShowCombinedOverlay;
+        _combinedMasterToggle = masterT.Toggle; // track for footer-click sync
+        TooltipHover.Attach(masterT.GameObject,
+            "When on, BCH replaces the standalone XP / Familiar / Daily Quest / Professions overlays with a single combined panel. Familiar Browser and Shift Spell overlays stay independent.");
+        masterT.OnValueChanged += v =>
+        {
+            Config.Settings.SetShowCombinedOverlay(v);
+            Plugin.UIManager?.ApplyCombinedOverlayMutualExclusion();
+            ApplyCombinedFooterVisibility();
+            Plugin.UIManager?.RefreshCombinedOverlaySections();
+            // 0.14.0 friend-test v2: full toggle sync via the shared helper.
+            // The earlier SetIsOnWithoutNotify on just _combinedOverlayToggle
+            // wasn't enough — the 4 individual footer toggles (XP / Familiar /
+            // Daily quest / Professions) also need their isOn refreshed
+            // because mutual-exclusion may have just changed which overlays
+            // are actually enabled.
+            RefreshAllOverlayToggleStates();
+        };
+
+        // Per-section checkboxes — 2 rows × 3 toggles each so they fit
+        // alongside the existing per-profession toggle pattern.
+        AddSpacer(page, 4);
+        var row1 = UIFactory.CreateHorizontalGroup(page, "CombinedSectionsRow1",
+            forceExpandWidth: true, forceExpandHeight: false,
+            childControlWidth: true, childControlHeight: true,
+            spacing: 4, padding: new Vector4(2, 2, 2, 2));
+        UIFactory.SetLayoutElement(row1,
+            minWidth: 360, preferredWidth: 400, flexibleWidth: 1,
+            minHeight: 28, preferredHeight: 30, flexibleHeight: 0);
+        // 0.14.0 friend-test v2: per-component checkboxes now write the SAME
+        // Settings.Show*Overlay flags that the footer toggles use. Both UI
+        // surfaces stay in sync because both read/write the same setting —
+        // RefreshAllOverlayToggleStates pushes the value to whichever UI
+        // surface didn't initiate the change.
+        AddCombinedSectionToggleUnified(row1, "XP",       () => Config.Settings.ShowExperienceOverlay, Config.Settings.SetShowExperienceOverlay);
+        AddCombinedSectionToggleUnified(row1, "Familiar", () => Config.Settings.ShowFamiliarOverlay,   Config.Settings.SetShowFamiliarOverlay);
+        // Weapon / Blood have no standalone equivalent — they're sub-rows
+        // of the standalone XP overlay. The Combined-only flags stay.
+        AddCombinedSectionToggle(row1, "Weapon",     () => Config.Settings.CombinedOverlayShowExpertise, Config.Settings.SetCombinedOverlayShowExpertise);
+
+        var row2 = UIFactory.CreateHorizontalGroup(page, "CombinedSectionsRow2",
+            forceExpandWidth: true, forceExpandHeight: false,
+            childControlWidth: true, childControlHeight: true,
+            spacing: 4, padding: new Vector4(2, 2, 2, 2));
+        UIFactory.SetLayoutElement(row2,
+            minWidth: 360, preferredWidth: 400, flexibleWidth: 1,
+            minHeight: 28, preferredHeight: 30, flexibleHeight: 0);
+        AddCombinedSectionToggle(row2, "Blood",        () => Config.Settings.CombinedOverlayShowLegacy, Config.Settings.SetCombinedOverlayShowLegacy);
+        AddCombinedSectionToggleUnified(row2, "Professions", () => Config.Settings.ShowProfessionOverlay, Config.Settings.SetShowProfessionOverlay);
+        AddCombinedSectionToggleUnified(row2, "Quests",      () => Config.Settings.ShowDailyQuestOverlay, Config.Settings.SetShowDailyQuestOverlay);
+
+        // Per-section bar toggles moved to HUD extras → "Show progress bars
+        // for" — they apply to both standalone and combined overlays so
+        // they belong in the shared section, not nested under Combined.
+    }
+
+    /// <summary>0.14.0 friend-test v2: variant of AddCombinedSectionToggle
+    /// for the systems that share visibility between standalone overlay and
+    /// combined section (XP / Familiar / Professions / Quests). Writes the
+    /// unified Setting AND fires the manager's mutual-exclusion sync so
+    /// standalone overlays appear / disappear immediately when toggled.</summary>
+    private void AddCombinedSectionToggleUnified(GameObject row, string label,
+        System.Func<bool> get, System.Action<bool> set)
+    {
+        var t = UIFactory.CreateToggle(row, $"CombinedSec_{label}");
+        UIFactory.SetLayoutElement(t.GameObject,
+            minWidth: 110, preferredWidth: 130, flexibleWidth: 1,
+            minHeight: 24, preferredHeight: 26, flexibleHeight: 0);
+        t.Text.text = label;
+        t.Text.fontSize = Theme.ScaledUI(12);
+        t.Text.alignment = TextAlignmentOptions.MidlineLeft;
+        t.Text.enableWordWrapping = false;
+        t.Text.overflowMode = TextOverflowModes.Overflow;
+        UIFactory.SetLayoutElement(t.Text.gameObject,
+            minWidth: 80, preferredWidth: 100, flexibleWidth: 1,
+            minHeight: 22, preferredHeight: 24, flexibleHeight: 0);
+        t.Toggle.isOn = get();
+        TooltipHover.Attach(t.GameObject,
+            $"Show the {label} system — affects BOTH the standalone {label} overlay AND the corresponding section in the combined overlay. One flag controls both views.");
+        t.OnValueChanged += v =>
+        {
+            set(v);
+            Plugin.UIManager?.RefreshCombinedOverlaySections();
+            Plugin.UIManager?.ApplyCombinedOverlayMutualExclusion();
+            RefreshAllOverlayToggleStates();
+        };
+    }
+
+    /// <summary>0.14.0 friend-test v2: push the current Settings.Show*Overlay
+    /// values to every footer overlay toggle's UI via SetIsOnWithoutNotify.
+    /// Resolves the desync where toggling combined-mode (which hides /
+    /// re-shows individual overlays per their flags) left the footer
+    /// toggle checkboxes showing stale construct-time state.</summary>
+    public void RefreshAllOverlayToggleStates()
+    {
+        if (_xpOverlayToggle       != null) _xpOverlayToggle.SetIsOnWithoutNotify(Plugin.UIManager?.IsOverlayOpen(PanelType.ExperienceOverlay) ?? false);
+        if (_famOverlayToggle      != null) _famOverlayToggle.SetIsOnWithoutNotify(Plugin.UIManager?.IsOverlayOpen(PanelType.FamiliarOverlay) ?? false);
+        if (_famBrowserToggle      != null) _famBrowserToggle.SetIsOnWithoutNotify(Plugin.UIManager?.IsOverlayOpen(PanelType.FamiliarBrowserOverlay) ?? false);
+        if (_dqOverlayToggle       != null) _dqOverlayToggle.SetIsOnWithoutNotify(Plugin.UIManager?.IsOverlayOpen(PanelType.DailyQuestOverlay) ?? false);
+        if (_profOverlayToggle     != null) _profOverlayToggle.SetIsOnWithoutNotify(Plugin.UIManager?.IsOverlayOpen(PanelType.ProfessionOverlay) ?? false);
+        if (_shiftOverlayToggle    != null) _shiftOverlayToggle.SetIsOnWithoutNotify(Plugin.UIManager?.IsOverlayOpen(PanelType.ShiftSpellOverlay) ?? false);
+        if (_combinedOverlayToggle != null) _combinedOverlayToggle.SetIsOnWithoutNotify(Config.Settings.ShowCombinedOverlay);
+        if (_combinedMasterToggle  != null) _combinedMasterToggle.SetIsOnWithoutNotify(Config.Settings.ShowCombinedOverlay);
+    }
+
+    private static void AddCombinedSectionToggle(GameObject row, string label,
+        System.Func<bool> get, System.Action<bool> set)
+    {
+        var t = UIFactory.CreateToggle(row, $"CombinedSec_{label}");
+        UIFactory.SetLayoutElement(t.GameObject,
+            minWidth: 110, preferredWidth: 130, flexibleWidth: 1,
+            minHeight: 24, preferredHeight: 26, flexibleHeight: 0);
+        t.Text.text = label;
+        t.Text.fontSize = Theme.ScaledUI(12);
+        t.Text.alignment = TextAlignmentOptions.MidlineLeft;
+        t.Text.enableWordWrapping = false;
+        t.Text.overflowMode = TextOverflowModes.Overflow;
+        UIFactory.SetLayoutElement(t.Text.gameObject,
+            minWidth: 80, preferredWidth: 100, flexibleWidth: 1,
+            minHeight: 22, preferredHeight: 24, flexibleHeight: 0);
+        t.Toggle.isOn = get();
+        TooltipHover.Attach(t.GameObject,
+            $"Show the {label} section inside the combined overlay. No effect when combined-mode is off.");
+        t.OnValueChanged += v =>
+        {
+            set(v);
+            Plugin.UIManager?.RefreshCombinedOverlaySections();
+        };
+    }
+
     private void BuildProfessionTrackedSection(GameObject page)
     {
         AddSectionHeading(page, "Professions tracked");
@@ -6334,8 +6495,7 @@ public partial class MainPanel : ResizeablePanelBase
             "• ShinyChance = 0.20\n" +
             "• ShinyCostItemQuantity = 100   (range 50–200)\n" +
             "• PrestigeCostItemQuantity = 1000 (range 500–2000)\n" +
-            "• ShareUnlocks = false\n" +
-            "• FamiliarBattles = false   (noted as non-functional after BC 1.1)");
+            "• ShareUnlocks = false");
 
         // ── Professions ─────────────────────────────────────────────────
         AddGuideSection(page,
@@ -7061,12 +7221,27 @@ public partial class MainPanel : ResizeablePanelBase
         visLabel.TextMesh.enableWordWrapping = false;
         visLabel.TextMesh.overflowMode = TextOverflowModes.Overflow;
 
+        // 0.14.0: Combined toggle first — when it's checked, the 4 info
+        // overlay toggles below hide (mutual exclusion). Familiar Browser
+        // and Shift spell stay visible either way.
+        _combinedOverlayToggle = AddOverlayToggle(row1, "Combined",       PanelType.CombinedOverlay);
+        // 0.14.0 friend-test v5: tooltip on the footer Combined toggle —
+        // its label is less self-explanatory than the per-system labels.
+        if (_overlayToggleGOs.TryGetValue(PanelType.CombinedOverlay, out var combinedToggleGO))
+        {
+            TooltipHover.Attach(combinedToggleGO,
+                "Toggle the combined info overlay — one panel with XP / Familiar / Weapon / Blood / Professions / Quests sections in a single container. When on, the standalone XP / Familiar / Daily Quest / Professions overlays auto-hide; their per-section visibility is controlled in Settings → Display → Combined overlay.");
+        }
         _xpOverlayToggle    = AddOverlayToggle(row1, "XP",                PanelType.ExperienceOverlay);
         _famOverlayToggle   = AddOverlayToggle(row1, "Familiar",          PanelType.FamiliarOverlay);
         _famBrowserToggle   = AddOverlayToggle(row1, "Familiar Browser",  PanelType.FamiliarBrowserOverlay);
         _dqOverlayToggle    = AddOverlayToggle(row1, "Daily quest",       PanelType.DailyQuestOverlay);
         _profOverlayToggle  = AddOverlayToggle(row1, "Professions",       PanelType.ProfessionOverlay);
         _shiftOverlayToggle = AddOverlayToggle(row1, "Shift spell",       PanelType.ShiftSpellOverlay);
+
+        // Initial visibility — reflects whichever mode was active at last
+        // logout (Combined sticks across sessions via Settings).
+        ApplyCombinedFooterVisibility();
 
         // Row 2: panel behavior — visually separated by the spacing in
         // the parent VLG, so it doesn't get confused with the visibility
@@ -7264,8 +7439,47 @@ public partial class MainPanel : ResizeablePanelBase
             minHeight: 24, preferredHeight: 24, flexibleHeight: 0);
 
         t.Toggle.isOn = Plugin.UIManager.IsOverlayOpen(overlay);
-        t.OnValueChanged += _ => Plugin.UIManager.ToggleOverlay(overlay);
+        t.OnValueChanged += _ =>
+        {
+            Plugin.UIManager.ToggleOverlay(overlay);
+            // 0.14.0 friend-test v2: any footer toggle change cascades into
+            // a full sync — fixes the desync where toggling combined-mode
+            // left the footer XP/Familiar/etc. toggles showing stale state
+            // because their isOn was last set at construct time.
+            if (overlay == PanelType.CombinedOverlay)
+            {
+                ApplyCombinedFooterVisibility();
+                Plugin.UIManager?.RefreshCombinedOverlaySections();
+            }
+            RefreshAllOverlayToggleStates();
+        };
+        // 0.14.0: remember the toggle's GameObject so the footer can hide/show
+        // it in response to Combined-mode flips without rebuilding the row.
+        _overlayToggleGOs[overlay] = t.GameObject;
         return t.Toggle;
+    }
+
+    /// <summary>0.14.0: drive the footer toggle visibility for the
+    /// Combined-vs-individuals mutual exclusion. The Combined toggle stays
+    /// visible in both modes; the 4 info toggles it replaces (XP / Familiar /
+    /// Daily quest / Professions) hide when Combined is on. Familiar Browser
+    /// and Shift spell are independent overlays so they always stay visible.</summary>
+    public void ApplyCombinedFooterVisibility()
+    {
+        bool combined = Config.Settings.ShowCombinedOverlay;
+        SetToggleVisible(PanelType.ExperienceOverlay,  !combined);
+        SetToggleVisible(PanelType.FamiliarOverlay,    !combined);
+        SetToggleVisible(PanelType.DailyQuestOverlay,  !combined);
+        SetToggleVisible(PanelType.ProfessionOverlay,  !combined);
+    }
+
+    private void SetToggleVisible(PanelType overlay, bool visible)
+    {
+        if (_overlayToggleGOs.TryGetValue(overlay, out var go) && go != null
+            && go.activeSelf != visible)
+        {
+            go.SetActive(visible);
+        }
     }
 
     // -----------------------------------------------------------------------

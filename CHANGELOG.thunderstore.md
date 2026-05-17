@@ -7,6 +7,60 @@
 > bundled copy summarizes earlier versions and reproduces the most
 > recent release in full.
 
+## 0.14.0 — Combined info overlay + default-size bump + dead-command cleanup
+
+The marquee v0.14.0 feature: **one combined info overlay** that
+replaces the four standalone info overlays (XP, Familiar, Daily
+Quest, Profession) with a single draggable / resizable panel
+containing six configurable sections — XP, Familiar, Weapon
+Expertise, Blood Legacy, Professions, Daily/Weekly Quest. Mutually
+exclusive with the individuals: turning Combined on hides them;
+turning it off restores them.
+
+### Combined overlay highlights
+
+- **Six sections**, each with its own bold colored heading (Eclipse-
+  style color vocabulary — XP green, Familiar amber, Weapon grey,
+  Blood red, Professions gold, Quests cyan/gold).
+- **Per-section visibility checkboxes** in Settings → Display →
+  Combined overlay. XP / Familiar / Professions / Quests share the
+  same flags the footer toggles use, so the two surfaces stay in sync.
+- **Per-system progress bars** (Settings → Display → HUD extras →
+  "Show progress bars for") apply to BOTH the standalone overlays
+  AND the combined overlay so toggling one of these is consistent
+  regardless of which mode you're in. Fifth flag for Professions
+  was added in this release.
+- **Bonus stats + XP counter sub-rows** on the Weapon and Blood
+  sections respect the existing `ShowOverlayBonusStats` /
+  `ShowOverlayXpCounter` toggles — combined picks up the same data
+  feed the standalone XP overlay uses.
+- **Auto-fit**: panel snaps to its content size on construct, on
+  section toggle, and on overlay text-scale change (Standard ↔ Large
+  ↔ X-Large). Text-scale downshift shrinks the panel; manual width
+  resizing persists, manual height is reset on each text-scale rebuild.
+- **Transparency works end-to-end**: section sub-containers are
+  fully transparent so the panel's transparency slider controls the
+  entire visible area (pre-fix only the outer chrome was affected).
+- **Footer Combined toggle** with tooltip explains the mutual-
+  exclusion swap. When Combined is on, the four conflict toggles
+  (XP / Familiar / Daily quest / Professions) hide from the footer
+  — Familiar Browser + Shift Spell stay visible since they're
+  independent.
+
+### Other v0.14.0 changes
+
+- **Removed unimplemented Bloodcraft battle-group commands**
+  (`.fam abg`, `.fam cbg`, `.fam sbg`, `.fam dbg`, `.fam bgs`,
+  `.fam bg`, `.fam challenge`). Per Anton Krüger: these never
+  shipped functionally in Bloodcraft v1.1+. The entire Battle Groups
+  card on the Familiars tab is removed; intercept paths cleaned up.
+- **Main panel default size bumped from 600×380 → 960×700**. Two
+  rounds of friend-test feedback that the post-v0.13 layout was
+  cramped at the old default. Existing saved sizes preserved.
+- **Updated screenshots** to v0.13.0 captures — class context cards
+  on the Class / Weapon / Blood tabs, prestige progression reference,
+  dual-zone color picker, V-Bloods tab in-world.
+
 ## 0.13.1 — Hotfix: AwaitingBloodInfo timeout spam on Frailed / no-blood states
 
 User-reported bug: when a player's blood drains to Frailed (or

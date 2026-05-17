@@ -55,7 +55,13 @@ public class ExperienceOverlayPanel : ResizeablePanelBase
             int counterRow = ResolveRowHeight(Theme.ScaledOverlay(11));
             int bonusRow   = ResolveRowHeight(Theme.ScaledOverlay(11)) * 2; // wrapped
             int baseH = titleRow + 5 * normalRow + 12;
-            if (Settings.ShowProgressBars)      baseH += 3 * (Settings.ProgressBarHeight + 2);
+            // 0.14.0 friend-test v2: per-system bar flags. Count visible bars
+            // among the three rows the XP overlay renders (XP / Weapon / Blood).
+            int barCount = 0;
+            if (Settings.ShowProgressBarXP)        barCount++;
+            if (Settings.ShowProgressBarExpertise) barCount++;
+            if (Settings.ShowProgressBarLegacy)    barCount++;
+            if (barCount > 0)                   baseH += barCount * (Settings.ProgressBarHeight + 2);
             if (Settings.ShowOverlayBonusStats) baseH += 2 * bonusRow;
             if (Settings.ShowOverlayXpCounter)  baseH += 2 * counterRow;
             return baseH;
@@ -116,6 +122,32 @@ public class ExperienceOverlayPanel : ResizeablePanelBase
     private int    _wepGetRawExpertise;
     private float  _wepGetProgressPct;
     private bool   _wepGetHasData;
+    // 0.14.0 friend-test v6: public read-only accessors so the combined
+    // overlay can render the same Bonus Stats / XP Counter sub-rows the
+    // standalone XP overlay does. The data + auto-fetch lives here (this
+    // panel) for historical reasons; combined just reads it.
+    public bool WepGetHasData       => _wepGetHasData;
+    public int  WepGetRawExpertise  => _wepGetRawExpertise;
+    public float WepGetProgressPct  => _wepGetProgressPct;
+    public System.Collections.Generic.IReadOnlyList<string> CachedWepGetLines => _cachedWepGetLines;
+
+    /// <summary>0.14.0 friend-test v6: clean .wep get lines for display. Reuses
+    /// the strip-tags + filter-preamble logic from RenderWeaponStats so the
+    /// combined overlay's Weapon section shows the exact same content shape.
+    /// Returns null when no displayable data is cached.</summary>
+    public System.Collections.Generic.List<string> BuildCleanedWepGetStatsLines()
+    {
+        if (_cachedWepGetLines == null || _cachedWepGetLines.Count == 0) return null;
+        var clean = new System.Collections.Generic.List<string>(_cachedWepGetLines.Count);
+        foreach (var line in _cachedWepGetLines)
+        {
+            var stripped = _tmpTagStripRegex.Replace(line, string.Empty).Trim();
+            if (string.IsNullOrEmpty(stripped)) continue;
+            if (IsWepGetPreambleOrPlaceholder(stripped)) continue;
+            clean.Add(stripped);
+        }
+        return clean.Count > 0 ? clean : null;
+    }
     private bool _subscribed;
     private bool _expertiseSubscribed;
     private bool _legacySubscribed;
@@ -481,7 +513,8 @@ public class ExperienceOverlayPanel : ResizeablePanelBase
             : $"Weapon: {e.Type}  Lv {e.Level} ({e.Progress * 100f:0.#}%)";
         _weaponLabel.TextMesh.text = label;
 
-        bool showBar = Settings.ShowProgressBars;
+        // 0.14.0 friend-test v2: per-system bar toggle controls both standalone + combined.
+        bool showBar = Settings.ShowProgressBarExpertise;
         if (_weaponBar != null && _weaponBar.activeSelf != showBar) _weaponBar.SetActive(showBar);
         if (showBar)
         {
@@ -515,7 +548,8 @@ public class ExperienceOverlayPanel : ResizeablePanelBase
             : $"Legacy: {l.Type}  Lv {l.Level} ({l.Progress * 100f:0.#}%)";
         _legacyLabel.TextMesh.text = label;
 
-        bool showBar = Settings.ShowProgressBars;
+        // 0.14.0 friend-test v2: per-system bar toggle.
+        bool showBar = Settings.ShowProgressBarLegacy;
         if (_legacyBar != null && _legacyBar.activeSelf != showBar) _legacyBar.SetActive(showBar);
         if (showBar)
         {
@@ -712,9 +746,13 @@ public class ExperienceOverlayPanel : ResizeablePanelBase
 
         if (!Settings.ShowOverlayBonusStats) return;
         if (!MessageService.IsInitialized) return;
-        // Only refresh when the overlay is actually visible. Hidden overlays
-        // shouldn't burn chat traffic.
-        if (!Enabled) return;
+        // 0.14.0 friend-test v6: fire when EITHER the standalone XP overlay
+        // OR the combined overlay is visible. Combined needs the same cached
+        // .wep get / .bl get data; without this gate change, combined-mode
+        // users got no bonus stats / counter rows because this overlay was
+        // hidden and the ticker self-suppressed.
+        bool combinedActive = Plugin.UIManager?.CombinedOverlay?.Enabled ?? false;
+        if (!Enabled && !combinedActive) return;
 
         var now = UnityEngine.Time.realtimeSinceStartupAsDouble;
         if (_lastBonusStatsFetchAt > 0 && now - _lastBonusStatsFetchAt < OVERLAY_BONUS_REFRESH_SECONDS) return;
@@ -787,10 +825,9 @@ public class ExperienceOverlayPanel : ResizeablePanelBase
         _progressLabel.TextMesh.text = $"XP {(s.Progress * 100f):0.#}%";
         _classLabel.TextMesh.text    = $"Class: {s.Class}";
 
-        // 0.9.2: progress-bar visibility + fill. Re-read each render so the
-        // setting takes effect immediately without rebuild. ShowProgressBars
-        // default false → bar stays inactive.
-        bool showBar = Settings.ShowProgressBars;
+        // 0.9.2 / 0.14.0: progress-bar visibility + fill. Per-system XP bar
+        // flag (unified between standalone and combined overlay).
+        bool showBar = Settings.ShowProgressBarXP;
         if (_xpBar != null && _xpBar.activeSelf != showBar) _xpBar.SetActive(showBar);
         if (showBar)
         {
