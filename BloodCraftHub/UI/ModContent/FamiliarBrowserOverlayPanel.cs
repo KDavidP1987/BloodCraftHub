@@ -63,6 +63,13 @@ public class FamiliarBrowserOverlayPanel : ResizeablePanelBase
     public override bool CanDrag => true;
     public override PanelDragger.ResizeTypes CanResize => PanelDragger.ResizeTypes.All;
     public override float Opacity => Settings.TransparencyToAlpha(Settings.FamiliarBrowserTransparency);
+    // 0.12.0: shares both color pickers with the main panel. The five info
+    // overlays opt into the OUTER color too (friend-test redirect after the
+    // first pre-release: "all overlays should honor the color theme"), but
+    // only the main panel and this overlay have scroll views to recolor via
+    // the inner picker, so UsesCustomInnerBackgroundColor stays scoped.
+    public override bool UsesCustomBackgroundColor      => true;
+    public override bool UsesCustomInnerBackgroundColor => true;
 
     // Header
     private TextMeshProUGUI _boxNameLabel;
@@ -70,7 +77,12 @@ public class FamiliarBrowserOverlayPanel : ResizeablePanelBase
     private TextMeshProUGUI _swapWarningLabel;
     // Dynamic familiar list
     private GameObject _famListContainer;
-    // Footer
+    // Footer — v0.12.0 splits the old single "Unbind active" button into
+    // Toggle (.fam t, recallable) + Unbind (.fam ub, destructive). User
+    // feedback on v0.11.2: toggle-on/off is a far more common operation
+    // than destroy, and the old single-button footer made it easy to
+    // unbind by accident when you meant "dismiss for now."
+    private ButtonRef _toggleBtn;
     private ButtonRef _unbindBtn;
     // 0.10.1: sort cycle button in the header.
     private ButtonRef _sortBtn;
@@ -380,8 +392,8 @@ public class FamiliarBrowserOverlayPanel : ResizeablePanelBase
     private void BuildFooter()
     {
         // 0.10.11: tighter footer height (was 30/32 → 26/28) so the
-        // overlay shows ~4 px more familiar list. The button itself stays
-        // at 24/26, leaving just ~2 px of breathing room top/bottom.
+        // overlay shows ~4 px more familiar list. The buttons themselves
+        // stay at 24/26, leaving just ~2 px of breathing room top/bottom.
         var footer = UIFactory.CreateHorizontalGroup(ContentRoot, "Footer",
             forceExpandWidth: true, forceExpandHeight: false,
             childControlWidth: true, childControlHeight: true,
@@ -390,11 +402,31 @@ public class FamiliarBrowserOverlayPanel : ResizeablePanelBase
             minWidth: 260, preferredWidth: 280, flexibleWidth: 1,
             minHeight: 26, preferredHeight: 28, flexibleHeight: 0);
 
+        // 0.12.0: Toggle (left) — disables / re-enables the active
+        // familiar (`.fam t`). The common case is the NPC-dominate
+        // workflow: dominating an NPC auto-disables your familiar and
+        // leaves it disabled (unlike flying / teleporting which
+        // auto-re-enable on land). Toggle puts it back into combat
+        // without changing the binding.
+        _toggleBtn = UIFactory.CreateButton(footer, "Toggle", "Toggle");
+        UIFactory.SetLayoutElement(_toggleBtn.GameObject,
+            minWidth: 60, preferredWidth: 100, flexibleWidth: 1,
+            minHeight: 24, preferredHeight: 26, flexibleHeight: 0);
+        _toggleBtn.OnClick = () => EnqueueOrWarn(MessageService.BCCOM_FAM_TOGGLE);
+        UI.TooltipHover.Attach(_toggleBtn.GameObject,
+            ".fam t — Toggles your active familiar between enabled (visible / in combat) and disabled (hidden / out of combat). Flying and teleporting auto-disable the familiar but auto-re-enable on landing; dominating an NPC also disables it but does NOT re-enable — use Toggle to bring it back. Doesn't change which familiar is bound. Disabled when no familiar is bound.");
+
+        // 0.12.0: Unbind (right) — removes the active binding so the
+        // familiar returns to the box. NOT destructive — the box record
+        // is preserved; the user can re-bind from the box list. Permanent
+        // deletion is `.fam r [N]` (exposed in the main panel only).
         _unbindBtn = UIFactory.CreateButton(footer, "Unbind", "Unbind active");
         UIFactory.SetLayoutElement(_unbindBtn.GameObject,
-            minWidth: 120, preferredWidth: 200, flexibleWidth: 1,
+            minWidth: 90, preferredWidth: 140, flexibleWidth: 1,
             minHeight: 24, preferredHeight: 26, flexibleHeight: 0);
         _unbindBtn.OnClick = () => EnqueueOrWarn(MessageService.BCCOM_FAM_UNBIND);
+        UI.TooltipHover.Attach(_unbindBtn.GameObject,
+            ".fam ub — Removes the active binding. Familiar returns to your box and can be re-bound any time; the box record is preserved. Use Toggle if you only want to temporarily disable the familiar in combat. (Permanent box deletion is .fam r N, available on the main Familiars tab.)");
     }
 
     private static void EnqueueOrWarn(string command)
@@ -484,7 +516,9 @@ public class FamiliarBrowserOverlayPanel : ResizeablePanelBase
         _activeFamLabel.text = string.IsNullOrEmpty(fam.Name)
             ? "Active: (none bound)"
             : $"Active: {fam.Name}   Lv {fam.Level}";
-        if (_unbindBtn != null) _unbindBtn.Component.interactable = !string.IsNullOrEmpty(fam.Name);
+        bool hasFam = !string.IsNullOrEmpty(fam.Name);
+        if (_toggleBtn != null) _toggleBtn.Component.interactable = hasFam;
+        if (_unbindBtn != null) _unbindBtn.Component.interactable = hasFam;
 
         // Familiar list
         ClearChildren(_famListContainer);
@@ -683,7 +717,9 @@ public class FamiliarBrowserOverlayPanel : ResizeablePanelBase
         if (!string.IsNullOrEmpty(summonStatus)) header += $"   |  {summonStatus}";
         _activeFamLabel.text = header;
 
-        if (_unbindBtn != null) _unbindBtn.Component.interactable = false; // no per-row unbind concept in V-Blood view
+        // No per-row footer-action concept in V-Blood view (rows summon directly).
+        if (_toggleBtn != null) _toggleBtn.Component.interactable = false;
+        if (_unbindBtn != null) _unbindBtn.Component.interactable = false;
 
         ClearChildren(_famListContainer);
 

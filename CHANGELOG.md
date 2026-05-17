@@ -1,5 +1,74 @@
 # Changelog
 
+## 0.12.0 — Split Toggle/Unbind buttons + two-zone panel color theme
+
+First feedback-bundle release since the 0.11.2 hotfix. Two user-requested
+quality-of-life improvements, both opt-in via the existing Settings UI.
+
+### Familiar Browser footer: Toggle / Unbind active split
+
+The single "Unbind active" button on the Familiar Browser overlay's footer
+is replaced by two side-by-side buttons.
+
+- **Toggle** (left, `.fam t`) — calls / dismisses the active familiar
+  without changing the binding. The use case that drove the split:
+  dominating an NPC auto-disables the familiar but does NOT auto-re-enable
+  it on release (flying and teleporting do auto-re-enable). Toggle puts
+  the familiar back into combat in one click.
+- **Unbind active** (right, `.fam ub`) — removes the active binding. The
+  familiar returns to your box and can be re-bound any time. NOT
+  destructive — the box record is preserved. (Permanent box deletion is
+  `.fam r N` on the main Familiars tab.)
+
+Both buttons disable together when no familiar is bound. Tooltips describe
+the distinction directly so the dominate-NPC workflow is discoverable from
+the button itself.
+
+### Two-zone color theme for every panel + overlay
+
+Settings → Display now has two color-preset sections — one for the OUTER
+panel chrome and one for the INTERIOR scroll area. Each section offers
+seven curated presets (Default / Black / Slate / Wine / Forest / Indigo /
+Crimson) plus a Reset button and a "Current: #hex" indicator. Power users
+can hand-edit `BloodCraftHub.cfg` for any hex they want.
+
+**Outer color** (`Settings.PanelBackgroundColorHex`, default `#121212`)
+applies to every panel BCH builds — the main panel, Familiar Browser, and
+all five info overlays (XP, Familiar, Daily Quest, Profession, Shift
+Spell). Structural background Images recolor in one pass via a tree walker
+in `UIFactory.ApplyBackgroundColorRgbToPanel`. Card-style mid-grey accents
+(`Theme.CardBackground`) are detected and preserved so section grouping
+inside the tabs survives the recolor.
+
+**Interior color** (`Settings.InnerPanelBackgroundColorHex`, default
+`#121212`) targets the scroll-view wrappers and viewports inside the main
+panel (each tab's content scroll) and the Familiar Browser (the familiar
+list scroll). The framework was painting the wrapper Image with
+`Theme.Level1` = `(0.64, 0, 0)` — actual bright red. That's the strip of
+red color that was visible inside both panels in every prior version. The
+new default `#121212` masks it on construct so even users who never touch
+the picker get a near-black look from session start.
+
+Per-panel transparency is unchanged — the existing per-overlay
+transparency sliders continue to own each panel's alpha independently of
+either color picker.
+
+### Implementation notes (for future maintenance)
+
+- `PanelBase.ConstructUI` calls `RefreshBackgroundColor()` +
+  `RefreshInnerBackgroundColor()` after `ConstructPanelContent()`. Panels
+  opt in via the new virtual flags `UsesCustomBackgroundColor` (every
+  panel returns true) and `UsesCustomInnerBackgroundColor` (only
+  `MainPanel` + `FamiliarBrowserOverlayPanel` return true).
+- `BCHubUIManager.RefreshAllPanelBackgrounds()` and
+  `RefreshScopedInnerBackgrounds()` push live picks at runtime from the
+  Settings UI click handlers.
+- Color storage is hex string in `.cfg` for legibility. RGB parsing falls
+  back to the documented default if a user breaks their `.cfg`, so a bad
+  edit can't crash the UI.
+
+
+
 ## 0.11.2 — CRITICAL: panel can no longer grow larger than the screen
 
 Friend-test (severity: stuck-can't-play): a player resized the main panel

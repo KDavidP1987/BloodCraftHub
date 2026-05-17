@@ -45,6 +45,8 @@ public class ProfessionOverlayPanel : ResizeablePanelBase
     public override bool CanDrag => true;
     public override PanelDragger.ResizeTypes CanResize => PanelDragger.ResizeTypes.All;
     public override float Opacity => Settings.TransparencyToAlpha(Settings.ProfessionOverlayTransparency);
+    // 0.12.0: overlay-wide color theme.
+    public override bool UsesCustomBackgroundColor => true;
 
     private LabelRef _enchantingLabel;
     private LabelRef _alchemyLabel;

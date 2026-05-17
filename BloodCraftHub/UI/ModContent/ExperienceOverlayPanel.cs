@@ -76,6 +76,9 @@ public class ExperienceOverlayPanel : ResizeablePanelBase
     // converts and applies the 95% floor so the drag handle stays visible at the
     // user's "100% transparent" choice.
     public override float Opacity => Settings.TransparencyToAlpha(Settings.XPOverlayTransparency);
+    // 0.12.0: overlay-wide color theme — opted in after friend-test redirect
+    // ("all overlays should honor the panel color preset").
+    public override bool UsesCustomBackgroundColor => true;
 
     private LabelRef _levelLabel;
     private LabelRef _progressLabel;

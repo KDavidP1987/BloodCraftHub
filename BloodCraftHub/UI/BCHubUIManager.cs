@@ -380,6 +380,35 @@ public class BCHubUIManager : UIManagerBase
         _floatingButton?.RefreshOpacity();
     }
 
+    /// <summary>0.12.0: push the user's Settings.PanelBackgroundColor
+    /// (RGB only — alpha is owned by the transparency settings) onto every
+    /// panel that opted in via PanelBase.UsesCustomBackgroundColor. After
+    /// the friend-test redirect on the v0.12.0 pre-release, that's every
+    /// panel BCH builds — main panel + all six overlays.</summary>
+    public void RefreshAllPanelBackgrounds()
+    {
+        _mainPanel?.RefreshBackgroundColor();
+        _experienceOverlay?.RefreshBackgroundColor();
+        _familiarOverlay?.RefreshBackgroundColor();
+        _familiarBrowserOverlay?.RefreshBackgroundColor();
+        _dailyQuestOverlay?.RefreshBackgroundColor();
+        _professionOverlay?.RefreshBackgroundColor();
+        _shiftSpellOverlay?.RefreshBackgroundColor();
+        // Floating button intentionally excluded — it's a single-button
+        // strip without a chrome backdrop the user would want themed.
+    }
+
+    /// <summary>0.12.0: push Settings.InnerPanelBackgroundColor onto the
+    /// panels that own scroll-view interiors — the main panel (each tab's
+    /// content scroll view) and the Familiar Browser (the familiar list
+    /// scroll view). The five small info overlays don't host scroll views
+    /// worth recoloring so they stay out of this pass.</summary>
+    public void RefreshScopedInnerBackgrounds()
+    {
+        _mainPanel?.RefreshInnerBackgroundColor();
+        _familiarBrowserOverlay?.RefreshInnerBackgroundColor();
+    }
+
     public void RequestRebuildMainPanel()
     {
         if (_mainPanel == null) return;

@@ -57,6 +57,8 @@ public class ShiftSpellOverlayPanel : ResizeablePanelBase
     public override bool CanDrag => true;
     public override PanelDragger.ResizeTypes CanResize => PanelDragger.ResizeTypes.All;
     public override float Opacity => Settings.TransparencyToAlpha(Settings.ShiftSpellOverlayTransparency);
+    // 0.12.0: overlay-wide color theme.
+    public override bool UsesCustomBackgroundColor => true;
 
     // Cached widgets — driven each tick from ShiftCooldownService.
     private GameObject       _tileGo;

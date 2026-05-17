@@ -35,6 +35,8 @@ public class FamiliarOverlayPanel : ResizeablePanelBase
     public override bool CanDrag => true;
     public override PanelDragger.ResizeTypes CanResize => PanelDragger.ResizeTypes.All;
     public override float Opacity => Settings.TransparencyToAlpha(Settings.FamiliarOverlayTransparency);
+    // 0.12.0: overlay-wide color theme.
+    public override bool UsesCustomBackgroundColor => true;
 
     private LabelRef _nameLabel;
     private LabelRef _progressLabel;

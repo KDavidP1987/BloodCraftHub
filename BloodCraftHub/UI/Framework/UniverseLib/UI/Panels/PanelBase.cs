@@ -72,6 +72,39 @@ public abstract class PanelBase : UIBehaviourModel, IPanelBase
         UIFactory.ApplyOpacityToPanel(uiRoot, Opacity);
     }
 
+    /// <summary>0.12.0: apply Settings.PanelBackgroundColor to this panel's
+    /// structural backgrounds (LayoutGroup-attached Images). No-op when the
+    /// panel opts out by keeping <see cref="UsesCustomBackgroundColor"/>=false.
+    /// Pushed by BCHubUIManager.RefreshAllPanelBackgrounds on user pick.</summary>
+    public void RefreshBackgroundColor()
+    {
+        if (!UsesCustomBackgroundColor) return;
+        UIFactory.ApplyBackgroundColorRgbToPanel(uiRoot, Config.Settings.PanelBackgroundColor);
+    }
+
+    /// <summary>0.12.0: apply Settings.InnerPanelBackgroundColor to this
+    /// panel's scroll-view wrappers / viewports — the framework-default
+    /// red surfaces inside CreateScrollView. No-op when the panel opts
+    /// out by keeping <see cref="UsesCustomInnerBackgroundColor"/>=false.</summary>
+    public void RefreshInnerBackgroundColor()
+    {
+        if (!UsesCustomInnerBackgroundColor) return;
+        UIFactory.ApplyInnerBackgroundColorToPanel(uiRoot, Config.Settings.InnerPanelBackgroundColor);
+    }
+
+    /// <summary>0.12.0: opt-in flag — when true, this panel applies the
+    /// user's Settings.PanelBackgroundColorHex preference at construct
+    /// time and on live refresh. Pre-0.12.1 only MainPanel + FamiliarBrowserOverlayPanel
+    /// opted in; the five info overlays were preserved on default. v0.12.0
+    /// friend test wanted the color theme to span every panel — now flipped
+    /// true on every overlay too.</summary>
+    public virtual bool UsesCustomBackgroundColor => false;
+
+    /// <summary>0.12.0: opt-in flag for the SECOND color picker (Interior
+    /// background). True on MainPanel + FamiliarBrowserOverlayPanel only —
+    /// the smaller info overlays don't host scroll views worth recoloring.</summary>
+    public virtual bool UsesCustomInnerBackgroundColor => false;
+
     protected void ForceRecalculateBasePanelWidth(List<GameObject> data = null)
     {
         float contentWidth = 0;
@@ -315,6 +348,15 @@ public abstract class PanelBase : UIBehaviourModel, IPanelBase
         // content (abstract)
 
         ConstructPanelContent();
+
+        // 0.12.0: now that every Image in the panel subtree exists, paint
+        // them with the user's chosen colors. No-op for panels that opted
+        // out via UsesCustomBackgroundColor / UsesCustomInnerBackgroundColor.
+        // Done here in the base so individual panels don't have to remember
+        // to call this from ConstructPanelContent.
+        RefreshBackgroundColor();
+        RefreshInnerBackgroundColor();
+
         SetDefaultSizeAndPosition();
 
         CoroutineUtility.StartCoroutine(LateSetupCoroutine());

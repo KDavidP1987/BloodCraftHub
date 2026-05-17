@@ -224,6 +224,88 @@ public static class UIFactory
         img.color = c;
     }
 
+    /// <summary>0.12.0: apply a custom RGB background to every structural
+    /// layer of a panel built by CreatePanel + nested CreateVerticalGroup /
+    /// CreateHorizontalGroup calls. Preserves each Image's existing alpha
+    /// (per-panel transparency continues to flow through ApplyOpacityToPanel).
+    ///
+    /// Why a walker, not just the outer Content Image: BCH panels are
+    /// stacked VerticalLayoutGroup containers, each layer adding its own
+    /// Image with Theme.PanelBackground. The child Images completely
+    /// cover the outer one, so updating only the outer Content was
+    /// visually a no-op — the inner TitleBar / Body / LastResponse /
+    /// OverlayFooter / TooltipFooter Images all stayed dark grey.
+    ///
+    /// Heuristic: an Image is "structural" if its GameObject also hosts
+    /// a LayoutGroup (the UIFactory.Create*Group pattern). Buttons hold
+    /// an Image + Button + no LayoutGroup; sliders / progress bars use
+    /// their own Image without a LayoutGroup; tinted accents and cards
+    /// with explicit non-theme colors are addressed below. This catches
+    /// every panel-bg layer without disturbing accent visuals.
+    ///
+    /// Excluded by explicit color check: Images whose current RGB is
+    /// noticeably brighter than the theme dark-grey (e.g. CardBackground
+    /// 0.13 vs PanelBackground 0.07) — those use deliberate non-bg tones
+    /// and stay untouched. The check uses a generous epsilon so a custom
+    /// color the user picked previously is still recolored on the next
+    /// refresh (we don't track per-Image originals).</summary>
+    public static void ApplyBackgroundColorRgbToPanel(GameObject panelObj, Color rgb)
+    {
+        if (panelObj == null) return;
+        foreach (var img in panelObj.GetComponentsInChildren<Image>(true))
+        {
+            if (img == null) continue;
+            if (img.gameObject.GetComponent<LayoutGroup>() == null) continue;
+
+            var c = img.color;
+            // Preserve mid-grey "card-style" accents (Theme.CardBackground
+            // = ~0.13 grey) so section grouping survives a recolor. The
+            // panel base background (Theme.PanelBackground = ~0.07 grey)
+            // is BELOW the 0.10 floor so it still recolors. Once the user
+            // picks a colored preset the panel-bg Images have channel
+            // variation > 0.02 so they no longer look "card-ish" and DO
+            // recolor on the next preset click.
+            bool isCardish = c.r > 0.10f
+                          && c.r < 0.40f
+                          && System.Math.Abs(c.r - c.g) < 0.02f
+                          && System.Math.Abs(c.g - c.b) < 0.02f
+                          && System.Math.Abs(c.r - c.b) < 0.02f;
+            if (isCardish) continue;
+
+            img.color = new Color(rgb.r, rgb.g, rgb.b, c.a);
+        }
+    }
+
+    /// <summary>0.12.0: companion to ApplyBackgroundColorRgbToPanel that
+    /// targets the OTHER half of the panel's visible surfaces — the
+    /// scroll-view wrapper Images and viewports. CreateScrollView paints
+    /// the wrapper bright red (Theme.Level1 — pre-0.12.0 default) and the
+    /// viewport dark grey (Theme.ViewportBackground); both lack a
+    /// LayoutGroup so the outer walker leaves them untouched. The user-
+    /// perceived "red inside the panel" comes from the wrapper, which
+    /// shows around the viewport edges.
+    ///
+    /// Heuristic: an Image is "inner-scroll" if its GameObject hosts a
+    /// ScrollRect (scroll-view wrapper) or a Mask (viewport). Excludes
+    /// every LayoutGroup-attached Image (those are handled by the outer
+    /// walker, so we double-skip to keep responsibilities clean).</summary>
+    public static void ApplyInnerBackgroundColorToPanel(GameObject panelObj, Color rgb)
+    {
+        if (panelObj == null) return;
+        foreach (var img in panelObj.GetComponentsInChildren<Image>(true))
+        {
+            if (img == null) continue;
+            var go = img.gameObject;
+            if (go.GetComponent<LayoutGroup>() != null) continue;
+            bool isScrollWrapper = go.GetComponent<ScrollRect>() != null;
+            bool isViewport       = go.GetComponent<Mask>() != null;
+            if (!isScrollWrapper && !isViewport) continue;
+
+            var c = img.color;
+            img.color = new Color(rgb.r, rgb.g, rgb.b, c.a);
+        }
+    }
+
     /// <summary>
     /// Create a VerticalLayoutGroup object with an Image component. Use SetLayoutGroup to create one without an image.
     /// </summary>

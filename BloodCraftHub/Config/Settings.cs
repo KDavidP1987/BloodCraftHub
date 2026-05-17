@@ -152,6 +152,70 @@ public class Settings
         (ConfigEntries[nameof(AutoScanVBloodsOnTabOpen)] as ConfigEntry<bool>)?.Value ?? false;
     public static void SetAutoScanVBloodsOnTabOpen(bool v) => SetBool(nameof(AutoScanVBloodsOnTabOpen), v);
 
+    // 0.12.0: configurable background color for the main panel and the
+    // Familiar Browser overlay. Stored as a hex string so power users can
+    // pick any color via .cfg, while the Settings UI offers a preset row.
+    // Default "#121212" matches the historical Theme.DarkBackground RGB
+    // (~0.07, 0.07, 0.07) so users who never touch the setting see no
+    // change. ALPHA IS NOT STORED HERE — per-panel transparency continues
+    // to flow through UITransparency / FamiliarBrowserTransparency so
+    // existing alpha controls keep working.
+    public const string DEFAULT_PANEL_BG_HEX = "#121212";
+    public static string PanelBackgroundColorHex =>
+        (ConfigEntries.TryGetValue(nameof(PanelBackgroundColorHex), out var entry) && entry is ConfigEntry<string> s)
+            ? s.Value : DEFAULT_PANEL_BG_HEX;
+    public static void SetPanelBackgroundColorHex(string hex)
+    {
+        if (ConfigEntries.TryGetValue(nameof(PanelBackgroundColorHex), out var entry) && entry is ConfigEntry<string> s)
+            s.Value = hex;
+    }
+
+    /// <summary>0.12.0: parsed RGB form of PanelBackgroundColorHex. Alpha=1
+    /// by design — the per-panel transparency setting decides the final
+    /// alpha at apply time. Falls back to the documented default if the
+    /// user's .cfg contains garbage so a bad edit can't crash the UI.</summary>
+    public static UnityEngine.Color PanelBackgroundColor
+    {
+        get
+        {
+            if (UnityEngine.ColorUtility.TryParseHtmlString(PanelBackgroundColorHex, out var c))
+                return new UnityEngine.Color(c.r, c.g, c.b, 1f);
+            if (UnityEngine.ColorUtility.TryParseHtmlString(DEFAULT_PANEL_BG_HEX, out var fb))
+                return new UnityEngine.Color(fb.r, fb.g, fb.b, 1f);
+            return new UnityEngine.Color(0.07f, 0.07f, 0.07f, 1f);
+        }
+    }
+
+    // 0.12.0: interior background color (companion to PanelBackgroundColorHex).
+    // Targets the scroll-view wrapper Images and viewports inside the main
+    // panel and the Familiar Browser overlay — these were red by framework
+    // default (UIFactory.CreateScrollView used Theme.Level1 = bright red for
+    // the wrapper, plus Theme.ViewportBackground dark grey for the viewport).
+    // Friend-test feedback on v0.12.0 pre-release: "the outer panel recolors
+    // but there's still a red strip inside." That's what this setting
+    // controls. Independent of the outer color so users can build a two-tone
+    // theme (e.g. wine outer + black interior).
+    public const string DEFAULT_INNER_BG_HEX = "#121212";
+    public static string InnerPanelBackgroundColorHex =>
+        (ConfigEntries.TryGetValue(nameof(InnerPanelBackgroundColorHex), out var entry) && entry is ConfigEntry<string> s)
+            ? s.Value : DEFAULT_INNER_BG_HEX;
+    public static void SetInnerPanelBackgroundColorHex(string hex)
+    {
+        if (ConfigEntries.TryGetValue(nameof(InnerPanelBackgroundColorHex), out var entry) && entry is ConfigEntry<string> s)
+            s.Value = hex;
+    }
+    public static UnityEngine.Color InnerPanelBackgroundColor
+    {
+        get
+        {
+            if (UnityEngine.ColorUtility.TryParseHtmlString(InnerPanelBackgroundColorHex, out var c))
+                return new UnityEngine.Color(c.r, c.g, c.b, 1f);
+            if (UnityEngine.ColorUtility.TryParseHtmlString(DEFAULT_INNER_BG_HEX, out var fb))
+                return new UnityEngine.Color(fb.r, fb.g, fb.b, 1f);
+            return new UnityEngine.Color(0.07f, 0.07f, 0.07f, 1f);
+        }
+    }
+
     // 0.10.14: overlay-lock toggle. When on, every overlay panel's
     // IsPinned flag is set true, which short-circuits PanelDragger's
     // per-frame Update — no user drag, no user resize, no resize-hover
@@ -424,6 +488,8 @@ public class Settings
         InitConfigEntry(UI_SETTINGS_GROUP,      nameof(ProgressBarHeight),           8,     "Progress bar height in pixels when 'Scale bar with overlay' is OFF. Clamped 4..24. Default 8.");
         InitConfigEntry(UI_SETTINGS_GROUP,      nameof(ProgressBarHeightRelative),   false, "Scale progress bar height with the overlay (pre-0.10.7 behavior). Off by default — bars stay at the fixed pixel height regardless of overlay size.");
         InitConfigEntry(UI_SETTINGS_GROUP,      nameof(OverlayEdgePadding),          6,     "Left/right inner padding (pixels) applied to every overlay's content. Prevents text from sitting flush with the panel border. Clamped 0..32. Default 6. Applied at overlay construction; toggle an overlay off and back on (or change the overlay text scale) to pick up a new value live.");
+        InitConfigEntry(UI_SETTINGS_GROUP,      nameof(PanelBackgroundColorHex),     DEFAULT_PANEL_BG_HEX, "Background color for every BCH panel — main panel + Familiar Browser + all five info overlays. Hex string (e.g. #121212 = default near-black, #1A0A0A = warm dark, #0A0F1A = cool dark). Light colors may reduce text legibility — the white labels in BCH assume a dark background. Pick from presets in Settings → Display, or edit manually for any color. Transparency is configured separately by the per-panel transparency sliders.");
+        InitConfigEntry(UI_SETTINGS_GROUP,      nameof(InnerPanelBackgroundColorHex), DEFAULT_INNER_BG_HEX, "Interior background color for the main panel and Familiar Browser — specifically the scroll-view wrapper + viewport surfaces where tab content or familiar rows render. Pre-0.12.0 this was bright red by framework default (UIFactory.CreateScrollView painted the wrapper Theme.Level1). Independent of the outer panel color so users can build a two-tone theme.");
         InitConfigEntry(UI_SETTINGS_GROUP,      nameof(AutoScanVBloodsOnTabOpen),    false, "Automatically run a V-Blood scan the first time you open the V-Bloods tab in a session. Off by default — the scanner switches your active box ~10-15 times to walk all boxes; the user-controlled 'Scan all' button is the default trigger. Turn on if you want the scan to fire without a click.");
         InitConfigEntry(UI_SETTINGS_GROUP,      nameof(LockOverlays),                false, "Lock the position and size of every overlay so they can't be moved or resized by accident during play. Programmatic resize when settings change (e.g. enabling progress bars on the XP overlay) still works. Toggle via the 'Lock overlays' switch beside Auto-resize on the main panel.");
         InitConfigEntry(UI_SETTINGS_GROUP,      nameof(ShowPrestigeSubLine),         false, "Show a thin secondary fill inside the main XP/expertise/legacy bars reflecting prestige progress, like Eclipse's overlay. Off by default.");

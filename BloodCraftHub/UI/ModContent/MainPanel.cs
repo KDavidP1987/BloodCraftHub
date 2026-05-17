@@ -39,6 +39,12 @@ public partial class MainPanel : ResizeablePanelBase
     public override PanelDragger.ResizeTypes CanResize => PanelDragger.ResizeTypes.All;
     public override float Opacity => Settings.UITransparency;
     public override bool ResizeWholePanel => false;
+    // 0.12.0: opt the main panel into both color pickers. Construct-time
+    // application happens in PanelBase.ConstructUI; live picks flow in via
+    // BCHubUIManager.RefreshAllPanelBackgrounds (outer) and
+    // RefreshScopedInnerBackgrounds (inner — main + familiar browser only).
+    public override bool UsesCustomBackgroundColor      => true;
+    public override bool UsesCustomInnerBackgroundColor => true;
     // 0.10.14: the "Lock overlays" toggle pins the five overlays; the
     // main panel is NOT an overlay and must stay drag/resize-enabled.
     protected override bool RespectsLockOverlays => false;
@@ -4326,6 +4332,9 @@ public partial class MainPanel : ResizeablePanelBase
             v => Config.Settings.SetProfessionOverlayTransparency(v));
 
         AddSpacer(page, 8);
+        BuildPanelBackgroundColorSection(page);
+
+        AddSpacer(page, 8);
         AddSectionHeading(page, "HUD extras");
         AddShowProgressBarsToggle(page);
         AddShowOverlayBonusStatsToggle(page);
@@ -5212,6 +5221,150 @@ public partial class MainPanel : ResizeablePanelBase
         if (t != null) t.fontSize = 10;
         btn.OnClick = () => onClick();
     }
+
+    // 0.12.0: panel color preset sections. Two zones — "Panel background"
+    // (outer chrome of every panel) and "Interior background" (scroll-view
+    // wrappers + viewports inside the main panel and Familiar Browser).
+    // Hex strings stored in Settings.{Panel,Inner}PanelBackgroundColorHex;
+    // power users can hand-edit the .cfg for any specific color, this UI
+    // surfaces a row of seven curated presets per zone.
+    private TextMeshProUGUI _panelBgCurrentLabel;
+    private TextMeshProUGUI _innerBgCurrentLabel;
+
+    private void BuildPanelBackgroundColorSection(GameObject page)
+    {
+        // ── Outer (panel background, all panels) ────────────────────────
+        AddSectionHeading(page, "Panel background color");
+
+        AddPanelColorHelp(page, "PanelBgHelp",
+            "Sets the OUTER background color of every panel BCH builds — the main panel, the Familiar Browser, and all five info overlays (XP, Familiar, Daily Quest, Profession, Shift Spell). " +
+            "Light colors may reduce text legibility — labels assume a dark background. Transparency per panel is configured by the sliders above; this picker controls hue only.");
+
+        AddPanelColorPresetRow(page, "PanelBgPresetRow", ApplyOuterPanelBgHex);
+
+        _panelBgCurrentLabel = AddPanelColorInfoRow(page, "PanelBgInfoRow",
+            FormatOuterBgCurrentText,
+            resetHex: Config.Settings.DEFAULT_PANEL_BG_HEX,
+            resetTooltip: "Restore the default panel background color (#121212 — near-black, the pre-0.12.0 look).",
+            applyAction: ApplyOuterPanelBgHex);
+
+        AddSpacer(page, 6);
+
+        // ── Inner (scroll-view interior, main + familiar browser) ───────
+        AddSectionHeading(page, "Interior background color");
+
+        AddPanelColorHelp(page, "InnerBgHelp",
+            "Sets the INTERIOR background — the scroll-view area where tab content shows in the main panel and where familiar rows show in the Familiar Browser. Pre-0.12.0 this was bright red by framework default (UIFactory.CreateScrollView used Theme.Level1). " +
+            "Independent of the outer color above so you can build a two-tone theme. Smaller info overlays don't host scroll views so this picker doesn't affect them.");
+
+        AddPanelColorPresetRow(page, "InnerBgPresetRow", ApplyInnerPanelBgHex);
+
+        _innerBgCurrentLabel = AddPanelColorInfoRow(page, "InnerBgInfoRow",
+            FormatInnerBgCurrentText,
+            resetHex: Config.Settings.DEFAULT_INNER_BG_HEX,
+            resetTooltip: "Restore the default interior background (#121212 near-black — masks the framework-default red.)",
+            applyAction: ApplyInnerPanelBgHex);
+    }
+
+    private static void AddPanelColorHelp(GameObject page, string name, string body)
+    {
+        var help = UIFactory.CreateLabel(page, name,
+            $"<color={Theme.MutedBodyHex}>{body}</color>",
+            TextAlignmentOptions.TopLeft, color: null, fontSize: Theme.ScaledUI(12));
+        UIFactory.SetLayoutElement(help.GameObject,
+            minWidth: 360, preferredWidth: 400, flexibleWidth: 1,
+            minHeight: 36, preferredHeight: 52, flexibleHeight: 0);
+        help.TextMesh.enableWordWrapping = true;
+        help.TextMesh.overflowMode = TextOverflowModes.Overflow;
+    }
+
+    // Seven-button preset row, parameterized over which Apply action it
+    // calls so the same row layout drives both color zones.
+    private void AddPanelColorPresetRow(GameObject page, string name, System.Action<string> applyAction)
+    {
+        var row = UIFactory.CreateHorizontalGroup(page, name,
+            forceExpandWidth: true, forceExpandHeight: false,
+            childControlWidth: true, childControlHeight: true,
+            spacing: 6, padding: new Vector4(2, 2, 2, 2));
+        UIFactory.SetLayoutElement(row,
+            minWidth: 360, preferredWidth: 400, flexibleWidth: 1,
+            minHeight: 28, preferredHeight: 30, flexibleHeight: 0);
+
+        AddPanelBgPresetButton(row, "Default", Config.Settings.DEFAULT_PANEL_BG_HEX, applyAction);
+        AddPanelBgPresetButton(row, "Black",   "#000000", applyAction);
+        AddPanelBgPresetButton(row, "Slate",   "#1A1B25", applyAction);
+        AddPanelBgPresetButton(row, "Wine",    "#1F0A10", applyAction);
+        AddPanelBgPresetButton(row, "Forest",  "#0A1A0B", applyAction);
+        AddPanelBgPresetButton(row, "Indigo",  "#0E0A1F", applyAction);
+        AddPanelBgPresetButton(row, "Crimson", "#3B0B0F", applyAction);
+    }
+
+    // "Current: #hex" label + Reset button row. Returns the TMP_Text so the
+    // caller can keep a reference and refresh it on each pick.
+    private TextMeshProUGUI AddPanelColorInfoRow(GameObject page, string name,
+        System.Func<string> currentText,
+        string resetHex,
+        string resetTooltip,
+        System.Action<string> applyAction)
+    {
+        var info = UIFactory.CreateHorizontalGroup(page, name,
+            forceExpandWidth: true, forceExpandHeight: false,
+            childControlWidth: true, childControlHeight: true,
+            spacing: 6, padding: new Vector4(2, 2, 2, 2));
+        UIFactory.SetLayoutElement(info,
+            minWidth: 360, preferredWidth: 400, flexibleWidth: 1,
+            minHeight: 24, preferredHeight: 26, flexibleHeight: 0);
+
+        var current = UIFactory.CreateLabel(info, $"{name}_Current",
+            currentText(),
+            TextAlignmentOptions.MidlineLeft, color: null, fontSize: Theme.ScaledUI(11));
+        UIFactory.SetLayoutElement(current.GameObject,
+            minWidth: 200, preferredWidth: 260, flexibleWidth: 1,
+            minHeight: 22, preferredHeight: 24, flexibleHeight: 0);
+        current.TextMesh.fontStyle = FontStyles.Italic;
+
+        var reset = UIFactory.CreateButton(info, $"{name}_Reset", "Reset");
+        UIFactory.SetLayoutElement(reset.GameObject,
+            minWidth: 54, preferredWidth: 60, flexibleWidth: 0,
+            minHeight: 22, preferredHeight: 24, flexibleHeight: 0);
+        var resetText = reset.Component.GetComponentInChildren<TextMeshProUGUI>();
+        if (resetText != null) resetText.fontSize = Theme.ScaledUI(11);
+        reset.OnClick = () => applyAction(resetHex);
+        TooltipHover.Attach(reset.GameObject, resetTooltip);
+
+        return current.TextMesh;
+    }
+
+    private void AddPanelBgPresetButton(GameObject row, string label, string hex, System.Action<string> applyAction)
+    {
+        var btn = UIFactory.CreateButton(row, $"PanelBg_{row.name}_{label}", label);
+        UIFactory.SetLayoutElement(btn.GameObject,
+            minWidth: 50, preferredWidth: 60, flexibleWidth: 1,
+            minHeight: 22, preferredHeight: 24, flexibleHeight: 0);
+        var t = btn.Component.GetComponentInChildren<TextMeshProUGUI>();
+        if (t != null) t.fontSize = Theme.ScaledUI(11);
+        btn.OnClick = () => applyAction(hex);
+        TooltipHover.Attach(btn.GameObject, $"Apply preset {label} ({hex}).");
+    }
+
+    private void ApplyOuterPanelBgHex(string hex)
+    {
+        Config.Settings.SetPanelBackgroundColorHex(hex);
+        Plugin.UIManager?.RefreshAllPanelBackgrounds();
+        if (_panelBgCurrentLabel != null) _panelBgCurrentLabel.text = FormatOuterBgCurrentText();
+    }
+
+    private void ApplyInnerPanelBgHex(string hex)
+    {
+        Config.Settings.SetInnerPanelBackgroundColorHex(hex);
+        Plugin.UIManager?.RefreshScopedInnerBackgrounds();
+        if (_innerBgCurrentLabel != null) _innerBgCurrentLabel.text = FormatInnerBgCurrentText();
+    }
+
+    private static string FormatOuterBgCurrentText()
+        => $"Current: {Config.Settings.PanelBackgroundColorHex}";
+    private static string FormatInnerBgCurrentText()
+        => $"Current: {Config.Settings.InnerPanelBackgroundColorHex}";
 
     /// <summary>One row showing a label, the URL, and an "Open" button that
     /// hands the URL to <see cref="UnityEngine.Application.OpenURL"/> so the
