@@ -52,6 +52,10 @@ public static class Theme
     public static Color White                 {get; private set; }
     public static Color ToggleNormal          {get; private set; }
     public static Color ToggleCheckMark { get; private set; }
+    // 0.15.0: 1-px outline applied to the toggle checkbox so it remains
+    // visible against the panel background on low-contrast monitors.
+    // Applied in UIFactory.CreateToggle as an UI.Outline component.
+    public static Color ToggleOutline { get; private set; }
 
     public static Color DropDownScrollBarNormal     {get; private set; }
     public static Color DropDownScrollbarHighlighted{get; private set; }
@@ -181,7 +185,24 @@ public static class Theme
         InputFieldNormal = new Color(1f, 1f, 1f, Opacity);
         InputFieldHighlighted = new Color(0.95f, 0.95f, 0.95f, Opacity);
         InputFieldPressed = new Color(0.78f, 0.78f, 0.78f, Opacity);
-        ToggleNormal = new Color(0f, 0f, 0f, Opacity);
+        // 0.15.0: lifted toggle background from pure black to a dark slate.
+        // Pre-0.15 was (0,0,0,Opacity) which rendered as a "void hole" on
+        // a 0.07 panel — friend-test surfaced users on certain laptop
+        // monitors literally couldn't see the checkbox at all even with
+        // a check mark drawn on top. Paired with the Frame-image border
+        // added in UIFactory.CreateToggle, the checkbox now reads as a
+        // tangible button on every monitor tested.
+        ToggleNormal = new Color(0.18f, 0.18f, 0.21f, Opacity);
+        // 0.15.0 friend-test v3: bumped to near-white (0.92,0.92,0.95).
+        // v1 used Unity Outline at low alpha — invisible at checkbox
+        // scale. v2 used a 1-px Frame Image at (0.78,0.78,0.82) — still
+        // too subtle on the user's monitor. v3 doubles the border to
+        // 2 px (UIFactory.CreateToggle now uses HLG padding 2 + grows
+        // the outer Frame by 4 px so the inner fill stays close to the
+        // v0.14 visible size) and runs the color at near-white full
+        // alpha. The result is an unmistakable bright ring on every
+        // monitor at every panel-opacity setting.
+        ToggleOutline = new Color(0.92f, 0.92f, 0.95f, 1.0f);
         ToggleCheckMark = new Color(0.6f, 0.7f, 0.6f, Opacity);
         ViewportBackground = new Color(0.07f, 0.07f, 0.07f, Opacity);
         ScrollbarNormal = new Color(0.4f, 0.4f, 0.4f, Opacity);

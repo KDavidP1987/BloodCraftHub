@@ -6,6 +6,8 @@ using BloodCraftHub.UI.Framework.UniverseLib.UI.Panels;
 using BloodCraftHub.UI.ModContent.Data;
 using BloodCraftHub.Utils;
 using UnityEngine;
+using UnityEngine.EventSystems;
+using UnityEngine.UI;
 using UIBase = BloodCraftHub.UI.Framework.UniverseLib.UI.UIBase;
 
 namespace BloodCraftHub.UI.ModContent;
@@ -70,10 +72,17 @@ public class FloatingButtonPanel : ResizeablePanelBase
         hubRt.pivot     = new Vector2(0.5f, 0.5f);
         hubRt.sizeDelta = new Vector2(40, 40);
         hubRt.anchoredPosition = new Vector2(-24, 0); // left of center
+        DisableNavigationFocus(hubBtn.Component);
         hubBtn.OnClick = () =>
         {
-            try { Plugin.UIManager.ToggleMainPanel(); }
+            try
+            {
+                var sel = EventSystem.current?.currentSelectedGameObject;
+                LogUtils.LogDiagnostic($"FloatingButton BCH OnClick. PrevSelected={(sel != null ? sel.name : "(none)")} MainPanelOpen={Plugin.UIManager.IsMainPanelOpen}");
+                Plugin.UIManager.ToggleMainPanel();
+            }
             catch (System.Exception ex) { LogUtils.LogError($"FloatingButton click failed: {ex}"); }
+            finally { ClearEventSystemSelection(); }
         };
         TooltipHover.Attach(hubBtn.GameObject, "Open or close the BloodCraftHub main panel.");
 
@@ -91,15 +100,50 @@ public class FloatingButtonPanel : ResizeablePanelBase
         ovRt.pivot     = new Vector2(0.5f, 0.5f);
         ovRt.sizeDelta = new Vector2(40, 40);
         ovRt.anchoredPosition = new Vector2(24, 0); // right of center
+        DisableNavigationFocus(ovBtn.Component);
         ovBtn.OnClick = () =>
         {
-            try { Plugin.UIManager.ToggleAllOverlaysSuppressed(); }
+            try
+            {
+                var sel = EventSystem.current?.currentSelectedGameObject;
+                LogUtils.LogDiagnostic($"FloatingButton OV OnClick. PrevSelected={(sel != null ? sel.name : "(none)")} Suppressed(before)={Plugin.UIManager.AreOverlaysSuppressed}");
+                Plugin.UIManager.ToggleAllOverlaysSuppressed();
+            }
             catch (System.Exception ex) { LogUtils.LogError($"FloatingButton OV click failed: {ex}"); }
+            finally { ClearEventSystemSelection(); }
         };
         TooltipHover.Attach(ovBtn.GameObject,
             "Show/hide all currently-enabled overlays. Useful when the in-game menus conflict with overlay positioning on smaller screens. " +
             "This only toggles overlays you've already enabled via the panel footer — it never makes hidden-by-config overlays visible. " +
             "Session-only: overlays return to their configured visibility on game restart.");
+    }
+
+    // 0.15.0: prevent the floating BCH / OV buttons from being navigated to
+    // (and thus activated) by gamepad UI nav. Friend-test 0.14.0: pressing A
+    // on a controller after using a teleport waypoint re-clicked the BCH
+    // button and re-opened the main panel because the EventSystem's
+    // currentSelectedGameObject was still pointing at the floating button
+    // from the user's last mouse click. With Navigation.Mode.None the button
+    // is excluded from the UI navigation graph entirely — A presses no
+    // longer route to it. Real mouse clicks still work because they go
+    // through the pointer-event path, not the navigation path.
+    private static void DisableNavigationFocus(Selectable selectable)
+    {
+        if (selectable == null) return;
+        var nav = selectable.navigation;
+        nav.mode = Navigation.Mode.None;
+        selectable.navigation = nav;
+    }
+
+    // 0.15.0: belt-and-braces — even with Navigation.Mode.None we explicitly
+    // clear the EventSystem's selected GameObject after each click so a stale
+    // selection from elsewhere in the UI can't ghost-activate via controller A
+    // on the next press. Mirrors the same pattern FormBuilder uses after a
+    // form submit (~line 180 of FormBuilder.cs).
+    private static void ClearEventSystemSelection()
+    {
+        try { EventSystem.current?.SetSelectedGameObject(null); }
+        catch { /* harmless — EventSystem may not exist on first frame */ }
     }
 
     internal override void Reset() { /* nothing extra to reset */ }

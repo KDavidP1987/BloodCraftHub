@@ -34,7 +34,7 @@ public static partial class MessageService
     public const string BCCOM_FAM_RENAMEBOX_FORMAT       = ".fam rb {0} {1}"; // {0} = current name, {1} = new name
     public const string BCCOM_FAM_MOVEBOX_FORMAT         = ".fam mb {0}";    // {0} = destination box; acts on currently bound familiar
     public const string BCCOM_FAM_REMOVE_FORMAT          = ".fam r {0}";     // {0} = index in current box; permanently deletes from collection
-    public const string BCCOM_FAM_UNBIND                 = ".fam ub";       // DESTRUCTIVE: permanently destroys active familiar
+    public const string BCCOM_FAM_UNBIND                 = ".fam ub";       // Releases the active familiar entity. Box record + unlock data preserved — re-bind any time with .fam b N.
     public const string BCCOM_FAM_TOGGLE                 = ".fam t";        // calls/dismisses (recallable)
     public const string BCCOM_FAM_COMBAT                 = ".fam c";        // toggle combat on/off
     public const string BCCOM_FAM_TOGGLE_EMOTES          = ".fam e";        // enable/disable emote-action bindings (e.g. clap = open inventory)
@@ -56,15 +56,15 @@ public static partial class MessageService
     public const string BCCOM_FAM_SHINY_FORMAT           = ".fam shiny {0}";       // make active familiar shiny ([SpellSchool] = blood/storm/unholy/chaos/frost/illusion)
     public const string BCCOM_FAM_OPTION_FORMAT          = ".fam option {0}";      // toggle a per-player familiar setting (e.g. shiny, vbloodemotes)
     public const string BCCOM_FAM_ECHOES_FORMAT          = ".fam echoes \"{0}\"";  // purchase exo reward via VBlood essence (quoted)
-    public const string BCCOM_FAM_RESET                  = ".fam reset";       // DESTRUCTIVE: destroy all entities in followerbuffer + clear active data
+    public const string BCCOM_FAM_RESET                  = ".fam reset";       // Force-cleanup: destroys any leftover entities in the FollowerBuffer and clears the active-familiar record so a stuck familiar can be re-bound. Box records and unlocks are NOT touched — familiars can be re-summoned via .fam b N afterwards. Server-side handler also refuses to run if the active familiar is still alive — user must .fam ub first in that case.
 
     // 0.14.0: battle-group / challenge BCCOM_* constants removed.
     // Bloodcraft v1.1+ never wired the underlying server features — the
     // .fam bgs / .fam bg / .fam abg / .fam cbg / .fam sbg / .fam dbg /
     // .fam challenge commands appear in the Bloodcraft README but are
-    // no-ops on the server. Anton Krüger confirmed in chat. Backing
-    // forms removed from the Familiars tab in the same release; the
-    // intercept startsWith branches below were also removed.
+    // no-ops on the server (confirmed in chat by a Bloodcraft server
+    // admin). Backing forms removed from the Familiars tab in the same
+    // release; the intercept startsWith branches below were also removed.
 
     // ---------- Leveling (.lvl) ----------
     public const string BCCOM_LVL_GET            = ".lvl get";

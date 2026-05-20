@@ -112,6 +112,10 @@ public static class EclipseProtocolService
         RegistrationGaveUp = false;
         _registrationSentAt = 0f;
         _registrationAttemptCount = 0;
+        // 0.15.0: per-feature detection is per-session. Resetting registration
+        // (e.g. world exit / re-login) also clears the sticky-Enabled flags
+        // and the settling timer so the next session starts fresh.
+        PlayerStateService.ResetFeatureFlags();
     }
 
     /// <summary>
@@ -200,6 +204,7 @@ public static class EclipseProtocolService
                     if (!wasRegistered)
                     {
                         LogUtils.LogInfo($"Eclipse: server acknowledged registration on attempt #{_registrationAttemptCount}; structured data flowing.");
+                        LogUtils.LogDiagnostic($"Eclipse state transition: UserRegistered false -> true (attempt #{_registrationAttemptCount}). Config payload length={payload?.Length ?? 0}.");
                         try { AvailabilityChanged?.Invoke(); }
                         catch (Exception ex) { LogUtils.LogWarning($"Eclipse: AvailabilityChanged subscriber threw: {ex.Message}"); }
                     }
@@ -354,6 +359,19 @@ public static class EclipseProtocolService
                 SpellIndex = PlayerStateService.ParseInt(p[45]),
             });
         }
+
+        // 0.15.0: refresh per-system availability flags. The individual
+        // Update* mutators above wrote the latest data into the state
+        // structs; this call walks them and updates sticky-Enabled flags
+        // + the settling timer. Detection is best-effort heuristic — see
+        // PlayerStateService.RecomputeFeatureFlagsFromLatest. Friend-test
+        // 0.14.0 root cause: Bloodcraft servers with only QuestSystem +
+        // ProfessionSystem enabled (plus at least one of the five "core"
+        // systems so Core.Eclipsed=true and broadcasts happen) were
+        // sending zeroed-out CSV fields for the disabled systems. BCH
+        // rendered the empty data without a hint that the feature was
+        // disabled, leaving users staring at "Level 0 / 0%" forever.
+        PlayerStateService.RecomputeFeatureFlagsFromLatest();
     }
 
     private static void HandleConfigMessage(string csv)
@@ -407,6 +425,7 @@ public static class EclipseProtocolService
                 RegistrationGaveUp = true;
                 RegistrationPending = false;
                 LogUtils.LogInfo($"Eclipse: gave up after {_registrationAttemptCount} registration attempts without ACK. Marking Bloodcraft as unavailable (use BloodcraftAvailability=On in .cfg to override).");
+                LogUtils.LogDiagnostic($"Eclipse state transition: RegistrationGaveUp false -> true after {_registrationAttemptCount} attempts. The diagnostic panel should be visible in the BLOODCRAFT rail.");
                 try { AvailabilityChanged?.Invoke(); }
                 catch (Exception ex) { LogUtils.LogWarning($"Eclipse: AvailabilityChanged subscriber threw: {ex.Message}"); }
                 return;

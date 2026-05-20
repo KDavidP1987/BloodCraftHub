@@ -322,6 +322,21 @@ public partial class MainPanel : ResizeablePanelBase
     // → confirmed-available (or → unavailable on give-up) in place when the
     // AvailabilityChanged event fires.
     private readonly System.Collections.Generic.Dictionary<string, BloodCraftHub.UI.Framework.UniverseLib.UI.Models.ButtonRef> _groupHeaderButton = new();
+    // 0.15.0: Bloodcraft "registration failed — here's why + force-enable"
+    // diagnostic. When Settings.BloodcraftAvailability == Auto AND the Eclipse
+    // protocol handshake gave up after 3 retries (15s), we render a small
+    // explanatory panel inside the Bloodcraft group's content area instead
+    // of the usual sub-tab button list. The panel calls out the three likely
+    // root causes (no Bloodcraft / Quests-Professions only / older Bloodcraft
+    // with hard Eclipsed=false) and offers a one-click "Force-enable" that
+    // flips BloodcraftAvailability=On for the rest of the session so the
+    // user can navigate into the tabs and drive whatever the chat-regex
+    // pipeline supports (.fam boxes / .quest p / .bl get / etc.). _groupTabListGo
+    // tracks the sub-tab button list separately from _groupContent so the
+    // diagnostic and sub-tabs can be hidden/shown independently within the
+    // same expanded group.
+    private readonly System.Collections.Generic.Dictionary<string, GameObject>       _groupTabListGo  = new();
+    private GameObject _bloodcraftDiagnosticGo;
     private bool _availabilitySubscribed;
     private GameObject _tabStripGo;
 
@@ -713,47 +728,76 @@ public partial class MainPanel : ResizeablePanelBase
         if (!_availabilitySubscribed)
         {
             Services.EclipseProtocolService.AvailabilityChanged += OnBloodcraftAvailabilityChanged;
+            // 0.15.0: per-feature flag transitions also drive UI refresh.
+            PlayerStateService.FeatureFlagsChanged += OnFeatureFlagsChanged;
             _availabilitySubscribed = true;
         }
+
+        // 0.15.0: wrap the tab strip in a ScrollRect so it scrolls when the
+        // expanded sum of group content heights exceeds the panel's left-rail
+        // height. Pre-0.15.0: with all four groups (BLOODCRAFT 12 / KINDRED 6
+        // / SETTINGS+HELP 5+) expanded simultaneously, the VLG ran out of
+        // vertical space and collapsed the lowest-priority group's content
+        // to minHeight=0 — Bloodcraft sub-tab buttons rendered at zero height
+        // visually overlapping the KINDRED header. The ScrollRect makes that
+        // overflow scroll instead of clipping. Combined with the minHeight ==
+        // preferredHeight clamp in BuildTabGroup, content can no longer
+        // collapse but DOES scroll cleanly when there's too much of it.
+        var scrollWrap = UIFactory.CreateScrollView(parent, "TabStripScroll",
+            out var stripContent, out _, color: Color.clear);
+        UIFactory.SetLayoutElement(scrollWrap,
+            minWidth: (int)TAB_STRIP_MAX_WIDTH,
+            preferredWidth: (int)TAB_STRIP_MAX_WIDTH,
+            flexibleWidth: 0,
+            flexibleHeight: 1);
 
         // childControlHeight: true is required - the strip stacks group headers
         // and group-content blocks of varying heights, and without it the layout
         // group leaves children at default sizeDelta (~0px) so KINDRED/HELP
         // headers overlap the BLOODCRAFT sub-tab list.
-        var strip = UIFactory.CreateVerticalGroup(parent, "TabStrip",
-            forceWidth: false, forceHeight: false,
-            childControlWidth: true, childControlHeight: true,
-            spacing: 2, padding: new Vector4(2, 2, 2, 2));
-        // 0.9.7: pin preferredWidth = minWidth = TAB_STRIP_MAX_WIDTH so the
-        // strip doesn't expand past the cap regardless of panel width. The
-        // body's HorizontalLayoutGroup with childControlWidth=true respects
-        // preferredWidth, so the right content area absorbs all the extra
-        // horizontal space.
-        UIFactory.SetLayoutElement(strip,
-            minWidth: (int)TAB_STRIP_MAX_WIDTH,
-            preferredWidth: (int)TAB_STRIP_MAX_WIDTH,
-            flexibleWidth: 0,
-            flexibleHeight: 1);
-        _tabStripGo = strip;
+        // 0.15.0: CreateScrollView already added a VerticalLayoutGroup +
+        // ContentSizeFitter to the scroll content; we just tune its padding
+        // and spacing to match the previous TabStrip styling.
+        var stripVlg = stripContent.GetComponent<UnityEngine.UI.VerticalLayoutGroup>();
+        if (stripVlg != null)
+        {
+            stripVlg.spacing = 2;
+            var pad = stripVlg.padding;
+            pad.left = 2; pad.right = 2; pad.top = 2; pad.bottom = 2;
+            stripVlg.padding = pad;
+            // childControlHeight defaults to true on CreateScrollView, which is
+            // what we need so the group headers/content size correctly.
+        }
+        _tabStripGo = stripContent;
 
         foreach (var group in TabGroups)
-            BuildTabGroup(strip, group);
+            BuildTabGroup(stripContent, group);
     }
 
     private void BuildTabGroup(GameObject parent, TabGroupDef group)
     {
         _groupExpanded[group.Title] = group.StartExpanded;
 
-        // Resolve per-group availability. If the server doesn't have the
-        // backing mod, the group is rendered as collapsed-and-disabled with
-        // a "(unavailable)" suffix and grayed text — still visible so the
-        // user can see what BCH supports, but unable to expand or click in.
-        bool available = IsTabGroupAvailable(group.Title);
-        bool startExpanded = group.StartExpanded && available;
+        // Resolve per-group availability. There are now THREE states for the
+        // Bloodcraft group (Item 1, 0.15.0):
+        //   available           — render normally with sub-tabs.
+        //   diagnostic pending  — render with the "registration failed" panel
+        //                         instead of sub-tabs; header still expandable.
+        //   disabled             — user explicitly set Off in .cfg; grayed.
+        bool available  = IsTabGroupAvailable(group.Title);
+        bool diagnostic = IsBloodcraftDiagnosticState(group.Title);
+        // Header is interactable when group is usable OR when we have a
+        // diagnostic to show. Only the explicit-Off case fully disables it.
+        bool headerInteractable = available || diagnostic;
+        bool startExpanded = group.StartExpanded && headerInteractable;
+        // 0.15.0: auto-expand the Bloodcraft group when in diagnostic state
+        // so the user immediately sees the explanation + Force-enable button.
+        if (diagnostic) startExpanded = true;
+        _groupExpanded[group.Title] = startExpanded;
 
-        // Header button - clicking toggles the group's content visibility (when available).
+        // Header button - clicking toggles the group's content visibility (when interactable).
         var header = UIFactory.CreateButton(parent, $"GroupHeader_{group.Title}",
-            FormatGroupHeader(group.Title, startExpanded, available));
+            FormatGroupHeader(group.Title, startExpanded, available || diagnostic));
         UIFactory.SetLayoutElement(header.GameObject,
             minWidth: 140, preferredWidth: 144, flexibleWidth: 1,
             minHeight: 26, preferredHeight: 28, flexibleHeight: 0);
@@ -765,29 +809,53 @@ public partial class MainPanel : ResizeablePanelBase
             headerText.overflowMode = TextOverflowModes.Overflow;
             headerText.fontStyle = FontStyles.Bold;
             headerText.fontSize = Theme.ScaledUI(12);
-            if (!available) headerText.color = new Color(0.55f, 0.55f, 0.55f); // grayed
+            // In diagnostic state we keep the text bright so the user notices
+            // and clicks in — the grayed treatment is reserved for explicit Off.
+            if (!available && !diagnostic) headerText.color = new Color(0.55f, 0.55f, 0.55f);
             _groupHeaderText[group.Title] = headerText;
         }
-        if (!available) header.Component.interactable = false;
+        header.Component.interactable = headerInteractable;
         _groupHeaderButton[group.Title] = header;
         TooltipHover.Attach(header.GameObject,
-            available
-                ? $"Show / hide the {group.Title} tab list."
-                : $"{group.Title} is marked unavailable on this server (no backing mod detected). Adjust via .cfg: BloodcraftAvailability / KindredAvailability = On to force-enable.");
+            diagnostic
+                ? "Bloodcraft handshake didn't complete — click to see why and force-enable the tabs anyway."
+                : (available
+                    ? $"Show / hide the {group.Title} tab list."
+                    : $"{group.Title} is marked unavailable on this server (no backing mod detected). Adjust via .cfg: BloodcraftAvailability / KindredAvailability = On to force-enable."));
 
-        // Sub-tabs container (slight left indent so the group structure reads).
+        // Outer container for everything inside the group (sub-tabs OR diagnostic).
         var content = UIFactory.CreateVerticalGroup(parent, $"GroupContent_{group.Title}",
             forceWidth: true, forceHeight: false,
             childControlWidth: true, childControlHeight: true,
             spacing: 2, padding: new Vector4(6, 2, 2, 2));
+        // 0.15.0: clamp minHeight to preferredHeight so the parent VLG can't
+        // collapse this content down to zero when the strip's total content
+        // exceeds the available height. Pre-0.15.0 minHeight was 0 — with all
+        // groups expanded, the BLOODCRAFT group (12 sub-tabs * 30 px = ~360 px
+        // tall preferred) would collapse to 0 px and its Admin button
+        // overlapped the KINDRED header beneath it. Combined with the
+        // ScrollRect added to BuildTabStrip, content now keeps its full
+        // height AND the strip scrolls when overflow happens.
+        int groupContentHeight = Mathf.Max(28, group.Tabs.Length * 30 + 4);
         UIFactory.SetLayoutElement(content,
             minWidth: 140, preferredWidth: 144, flexibleWidth: 1,
-            minHeight: 0, preferredHeight: Mathf.Max(28, group.Tabs.Length * 30 + 4), flexibleHeight: 0);
+            minHeight: groupContentHeight, preferredHeight: groupContentHeight, flexibleHeight: 0);
         _groupContent[group.Title] = content;
+
+        // Sub-tab button list lives inside a nested container so we can hide
+        // the buttons without hiding the diagnostic that sits next to them.
+        var tabListGo = UIFactory.CreateVerticalGroup(content, $"GroupTabList_{group.Title}",
+            forceWidth: true, forceHeight: false,
+            childControlWidth: true, childControlHeight: true,
+            spacing: 2, padding: new Vector4(0, 0, 0, 0));
+        UIFactory.SetLayoutElement(tabListGo,
+            minWidth: 130, preferredWidth: 140, flexibleWidth: 1,
+            minHeight: 0, flexibleHeight: 0);
+        _groupTabListGo[group.Title] = tabListGo;
 
         if (group.Tabs.Length == 0)
         {
-            var placeholder = UIFactory.CreateLabel(content, "Empty",
+            var placeholder = UIFactory.CreateLabel(tabListGo, "Empty",
                 "(coming soon)",
                 TextAlignmentOptions.MidlineLeft, color: null, fontSize: Theme.ScaledUI(11));
             UIFactory.SetLayoutElement(placeholder.GameObject,
@@ -800,7 +868,7 @@ public partial class MainPanel : ResizeablePanelBase
         {
             foreach (var (tab, label) in group.Tabs)
             {
-                var b = UIFactory.CreateButton(content, $"TabBtn_{tab}", label);
+                var b = UIFactory.CreateButton(tabListGo, $"TabBtn_{tab}", label);
                 UIFactory.SetLayoutElement(b.GameObject,
                     minWidth: 130, preferredWidth: 138, flexibleWidth: 1,
                     minHeight: 26, preferredHeight: 28, flexibleHeight: 0);
@@ -815,11 +883,177 @@ public partial class MainPanel : ResizeablePanelBase
                 var captured = tab;
                 b.OnClick = () => ShowTab(captured);
                 _tabButtons[tab] = b;
+                // 0.15.0: apply initial per-tab dimming based on the system
+                // availability detected from ProgressToClient broadcasts.
+                ApplyTabAvailability(captured);
             }
         }
 
+        // 0.15.0: build the Bloodcraft diagnostic panel alongside the sub-tab
+        // list. Hidden whenever the group is in normal-available state; shown
+        // when registration gave up + user setting is still Auto.
+        if (group.Title == "Bloodcraft")
+        {
+            BuildBloodcraftDiagnosticPanel(content);
+        }
+
+        // Apply initial visibility — diagnostic OR sub-tab list, never both.
+        ApplyBloodcraftGroupVisibility(group.Title, diagnostic);
+
         content.SetActive(startExpanded);
-        if (available) header.OnClick = () => ToggleGroup(group.Title);
+        if (headerInteractable) header.OnClick = () => ToggleGroup(group.Title);
+    }
+
+    // 0.15.0: helper called from both BuildTabGroup (initial render) and
+    // RefreshTabGroupAvailability (when the handshake completes or gives up
+    // mid-session) so the diagnostic + sub-tab visibility stays consistent
+    // with the current Bloodcraft availability state.
+    private void ApplyBloodcraftGroupVisibility(string groupTitle, bool diagnostic)
+    {
+        if (groupTitle != "Bloodcraft") return;
+        if (_groupTabListGo.TryGetValue(groupTitle, out var tabListGo) && tabListGo != null)
+            tabListGo.SetActive(!diagnostic);
+        if (_bloodcraftDiagnosticGo != null)
+            _bloodcraftDiagnosticGo.SetActive(diagnostic);
+    }
+
+    // 0.15.0 (reverted): per-tab visibility/dimming based on detected system
+    // availability. Friend-test on a fully-enabled Bloodcraft server showed
+    // false positives — the Familiar/Shift signals (HasActive / SpellIndex)
+    // only fire when the user is actively engaged with those systems at
+    // broadcast time. A logged-in player who hasn't summoned a familiar
+    // OR cast their shift spell in 30s falsely tripped the Disabled state
+    // even though the server fully supports those systems. ConfigsToClient
+    // max-level fields don't help either (they're config defaults that
+    // come through regardless of whether the system is enabled). Restoring
+    // unconditional tab rendering until a more reliable probe (chat-regex
+    // "Familiars are not enabled." reply detection, manual user-set
+    // per-system visibility toggles, or a Bloodcraft-side protocol
+    // extension) lands in a follow-up release. The FeatureFlags
+    // infrastructure still tracks detection results for diagnostic mode.
+    private void ApplyTabAvailability(PanelType tab)
+    {
+        // Intentionally a no-op for 0.15.0 — see comment above.
+        _ = tab;
+    }
+
+    private static string LookupTabLabel(PanelType tab)
+    {
+        foreach (var g in TabGroups)
+            foreach (var (t, l) in g.Tabs)
+                if (t == tab) return l;
+        return null;
+    }
+
+    // 0.15.0: refresh per-tab dimming on every tab when FeatureFlagsChanged
+    // fires. Called from the deferred FeatureFlagsChanged handler so the
+    // tab strip stays in sync with the latest detection results.
+    private void RefreshAllTabAvailability()
+    {
+        foreach (var key in new List<PanelType>(_tabButtons.Keys))
+            ApplyTabAvailability(key);
+    }
+
+    // 0.15.0: in-rail diagnostic shown when Bloodcraft handshake gave up while
+    // the user is still on the Auto setting. Friend-test 0.14.0 surfaced two
+    // failure modes that produced the same "empty BCH" symptom:
+    //   • server runs ONLY QuestSystem or ProfessionSystem — Bloodcraft's
+    //     Core.Eclipsed gate (ChatMessageSystemPatch.cs:24) requires at least
+    //     one of {Leveling, Legacy, Expertise, Class, Familiar} to even
+    //     PROCESS our RegisterUser handshake;
+    //   • older Bloodcraft + the misleadingly-named Eclipsed=false config
+    //     value, which on some pre-1.13 builds was a hard kill rather than
+    //     the modern "broadcast frequency" knob.
+    // Both cases leave the user unable to navigate into the tabs at all,
+    // so the chat-regex pipeline (which DOES work without Core.Eclipsed —
+    // .quest p, .fam boxes, .bl get, .wep get, etc.) is unreachable. The
+    // "Force-enable" button below flips BloodcraftAvailability=On for the
+    // rest of the session so the user can drive whatever the regex pipe
+    // supports. Doc context lives in README.md's compatibility section.
+    private void BuildBloodcraftDiagnosticPanel(GameObject parent)
+    {
+        var card = UIFactory.CreateVerticalGroup(parent, "BloodcraftDiagnostic",
+            forceWidth: true, forceHeight: false,
+            childControlWidth: true, childControlHeight: true,
+            spacing: 4, padding: new Vector4(6, 6, 6, 6),
+            bgColor: Theme.CardBackground);
+        UIFactory.SetLayoutElement(card,
+            minWidth: 130, preferredWidth: 140, flexibleWidth: 1,
+            minHeight: 0, flexibleHeight: 0);
+        _bloodcraftDiagnosticGo = card;
+
+        // Yellow attention-grabbing heading.
+        var heading = UIFactory.CreateLabel(card, "DiagHeading",
+            "Handshake failed",
+            TextAlignmentOptions.MidlineLeft, color: Color.yellow, fontSize: Theme.ScaledUI(11));
+        UIFactory.SetLayoutElement(heading.GameObject,
+            minWidth: 120, preferredWidth: 130, flexibleWidth: 1,
+            minHeight: 18, preferredHeight: 20, flexibleHeight: 0);
+        heading.TextMesh.fontStyle = FontStyles.Bold;
+        heading.TextMesh.enableWordWrapping = true;
+
+        // Body — wrapped to ~140 px. Concise on purpose; the README
+        // carries the full explanation.
+        var body = UIFactory.CreateLabel(card, "DiagBody",
+            "Server didn't ACK our Bloodcraft handshake after 15s.\n\n" +
+            "Likely causes:\n" +
+            "• Bloodcraft not installed on the server.\n" +
+            "• Bloodcraft installed but only Quests / Professions enabled (needs at least one of Leveling / Legacy / Expertise / Class / Familiar to broadcast).\n" +
+            "• Older Bloodcraft with server config Eclipsed=false.",
+            TextAlignmentOptions.TopLeft, color: Theme.MutedBody, fontSize: Theme.ScaledUI(10));
+        UIFactory.SetLayoutElement(body.GameObject,
+            minWidth: 120, preferredWidth: 130, flexibleWidth: 1,
+            minHeight: 110, flexibleHeight: 1);
+        body.TextMesh.enableWordWrapping = true;
+        body.TextMesh.overflowMode = TextOverflowModes.Overflow;
+
+        // Force-enable button — flips BloodcraftAvailability to On so the
+        // sub-tabs become accessible. Doesn't make the structured pipeline
+        // start working (server still won't ACK), but lets the user drive
+        // the chat-regex pipeline (.quest p / .fam boxes / etc.) via the
+        // tab forms.
+        var btn = UIFactory.CreateButton(card, "DiagForceEnableBtn", "Force-enable tabs");
+        UIFactory.SetLayoutElement(btn.GameObject,
+            minWidth: 120, preferredWidth: 130, flexibleWidth: 1,
+            minHeight: 28, preferredHeight: 30, flexibleHeight: 0);
+        var btnTxt = btn.Component.GetComponentInChildren<TextMeshProUGUI>();
+        if (btnTxt != null)
+        {
+            btnTxt.fontSize = Theme.ScaledUI(11);
+            btnTxt.fontStyle = FontStyles.Bold;
+            btnTxt.enableWordWrapping = true;
+        }
+        btn.OnClick = OnBloodcraftForceEnableClicked;
+        TooltipHover.Attach(btn.GameObject,
+            "Flip BloodcraftAvailability to On for the rest of the session. The Bloodcraft tabs become navigable so you can manually issue commands (.quest p / .fam boxes / .bl get / etc.) and read replies in the Last server response panel. Live overlay updates still won't work because the server's structured broadcast remains disabled — see the README's Server compatibility section for the full picture.");
+
+        // Footnote — points to the .cfg setting for permanence.
+        var footnote = UIFactory.CreateLabel(card, "DiagFootnote",
+            "To persist across sessions, set BloodcraftAvailability=On in kdpen.BloodCraftHub.cfg.",
+            TextAlignmentOptions.TopLeft, color: Theme.MutedBody, fontSize: Theme.ScaledUI(9));
+        UIFactory.SetLayoutElement(footnote.GameObject,
+            minWidth: 120, preferredWidth: 130, flexibleWidth: 1,
+            minHeight: 30, flexibleHeight: 0);
+        footnote.TextMesh.fontStyle = FontStyles.Italic;
+        footnote.TextMesh.enableWordWrapping = true;
+    }
+
+    // 0.15.0: click handler for the diagnostic's Force-enable button. Flips
+    // BloodcraftAvailability=On (session-only, not persisted to disk) and
+    // refreshes the tab strip so the sub-tab buttons replace the diagnostic.
+    private void OnBloodcraftForceEnableClicked()
+    {
+        try
+        {
+            Settings.SetBloodcraftAvailability(Settings.ModAvailability.On);
+            LogUtils.LogInfo("Bloodcraft availability force-enabled by user via diagnostic panel. Setting persists for the session only — edit kdpen.BloodCraftHub.cfg to make it permanent.");
+        }
+        catch (System.Exception ex)
+        {
+            LogUtils.LogError($"OnBloodcraftForceEnableClicked failed: {ex}");
+        }
+        // Refresh the tab strip availability so the sub-tabs appear immediately.
+        RefreshAllTabGroupAvailability();
     }
 
     /// <summary>
@@ -855,6 +1089,53 @@ public partial class MainPanel : ResizeablePanelBase
                 };
             default:
                 return true; // Help, future groups
+        }
+    }
+
+    /// <summary>0.15.0: true when the Bloodcraft group should render the
+    /// diagnostic panel (handshake failed + user is on the default Auto
+    /// setting). When the user has explicitly set BloodcraftAvailability=On
+    /// or =Off, we honor that choice and never show the diagnostic. The
+    /// diagnostic state is distinct from "available" — header is still
+    /// interactable so the user can expand to read the message.</summary>
+    private static bool IsBloodcraftDiagnosticState(string title)
+    {
+        if (title != "Bloodcraft") return false;
+        if (Settings.BloodcraftAvailability != Settings.ModAvailability.Auto) return false;
+        return Services.EclipseProtocolService.RegistrationGaveUp
+            && !Services.EclipseProtocolService.UserRegistered;
+    }
+
+    /// <summary>0.15.0: map each Bloodcraft tab to the Bloodcraft system that
+    /// backs it. Returns null when the tab isn't tied to a single system
+    /// (Admin/Prestige cross-cut multiple systems and aren't gated). UI
+    /// uses this to dim/hide tabs when the corresponding system shows as
+    /// Disabled after the feature-detection settling window.</summary>
+    private static PlayerStateService.SystemKind? TabBackingSystem(PanelType tab)
+    {
+        switch (tab)
+        {
+            case PanelType.FamiliarsTab:
+            case PanelType.BoxesTab:
+            case PanelType.VBloodsTab:
+            case PanelType.AllFamiliarsTab:
+                return PlayerStateService.SystemKind.Familiar;
+            case PanelType.ClassTab:
+                return PlayerStateService.SystemKind.Class;
+            case PanelType.ExpertiseTab:
+                return PlayerStateService.SystemKind.Expertise;
+            case PanelType.BloodLegacyTab:
+                return PlayerStateService.SystemKind.Legacy;
+            case PanelType.LevelsTab:
+                return PlayerStateService.SystemKind.Leveling;
+            case PanelType.DailyQuestTab:
+                return PlayerStateService.SystemKind.Quest;
+            case PanelType.UnarmedShiftTab:
+                return PlayerStateService.SystemKind.ShiftSlot;
+            // PrestigeTab + AdminTab cross-cut multiple systems / pure admin
+            // tools — both always render.
+            default:
+                return null;
         }
     }
 
@@ -896,6 +1177,28 @@ public partial class MainPanel : ResizeablePanelBase
         BloodCraftHub.Behaviors.CoreUpdateBehavior.Actions.Add(_deferredAvailabilityRefresh);
     }
 
+    // 0.15.0: per-feature flag transition handler. Same deferred-frame
+    // pattern as OnBloodcraftAvailabilityChanged (this fires from inside
+    // ClientChatPatch.OnUpdate_Prefix mid-iteration; mutating UI mid-
+    // iteration is technically legal but the deferred pattern is what
+    // every other event subscriber uses).
+    private System.Action _deferredFeatureFlagsRefresh;
+    private void OnFeatureFlagsChanged()
+    {
+        if (_deferredFeatureFlagsRefresh != null) return;
+        _deferredFeatureFlagsRefresh = () =>
+        {
+            BloodCraftHub.Behaviors.CoreUpdateBehavior.Actions.Remove(_deferredFeatureFlagsRefresh);
+            _deferredFeatureFlagsRefresh = null;
+            RefreshAllTabAvailability();
+            // Push the same flags out to BCHubUIManager so it can hide
+            // overlays whose backing system was just detected disabled.
+            try { Plugin.UIManager?.ApplyServerFeatureFlagsToOverlays(); }
+            catch (System.Exception ex) { LogUtils.LogError($"ApplyServerFeatureFlagsToOverlays failed: {ex}"); }
+        };
+        BloodCraftHub.Behaviors.CoreUpdateBehavior.Actions.Add(_deferredFeatureFlagsRefresh);
+    }
+
     private void RefreshAllTabGroupAvailability()
     {
         foreach (var title in new System.Collections.Generic.List<string>(_groupHeaderText.Keys))
@@ -905,28 +1208,44 @@ public partial class MainPanel : ResizeablePanelBase
 
     private void RefreshTabGroupAvailability(string title)
     {
-        bool available = IsTabGroupAvailable(title);
+        bool available  = IsTabGroupAvailable(title);
+        bool diagnostic = IsBloodcraftDiagnosticState(title);
+        bool headerInteractable = available || diagnostic;
         bool expanded = _groupExpanded.TryGetValue(title, out var e) && e;
+
+        // 0.15.0: if we just entered diagnostic state, auto-expand the group so
+        // the user sees the explanation immediately instead of staring at a
+        // grayed header that gives no hint of WHY.
+        if (diagnostic && !expanded)
+        {
+            _groupExpanded[title] = true;
+            expanded = true;
+        }
 
         if (_groupHeaderText.TryGetValue(title, out var headerText))
         {
-            headerText.text = FormatGroupHeader(title, expanded && available, available);
-            headerText.color = available ? Theme.DefaultText : new Color(0.55f, 0.55f, 0.55f);
+            headerText.text = FormatGroupHeader(title, expanded && headerInteractable, available || diagnostic);
+            // Diagnostic state stays bright (uses default text color) so it
+            // catches the user's attention; explicit-Off is the only grayed state.
+            headerText.color = headerInteractable ? Theme.DefaultText : new Color(0.55f, 0.55f, 0.55f);
         }
         if (_groupHeaderButton.TryGetValue(title, out var btn))
         {
-            btn.Component.interactable = available;
+            btn.Component.interactable = headerInteractable;
             // Re-wire the OnClick: a previously-unavailable header had its OnClick
             // skipped during BuildTabGroup. Assign now if it's become available.
-            btn.OnClick = available ? () => ToggleGroup(title) : null;
+            btn.OnClick = headerInteractable ? () => ToggleGroup(title) : null;
         }
         if (_groupContent.TryGetValue(title, out var go))
         {
-            // Don't auto-expand on becoming available — preserve user agency.
-            // Just ensure that if currently expanded but no longer available,
-            // we collapse it (defensive — Off via .cfg edit while panel open).
-            if (!available && go.activeSelf) go.SetActive(false);
+            // Auto-expand on diagnostic, otherwise preserve user agency.
+            // If currently expanded but no longer accessible, collapse it.
+            if (diagnostic && !go.activeSelf) go.SetActive(true);
+            else if (!headerInteractable && go.activeSelf) go.SetActive(false);
         }
+
+        // 0.15.0: swap sub-tab list ↔ diagnostic panel based on current state.
+        ApplyBloodcraftGroupVisibility(title, diagnostic);
     }
 
     // -----------------------------------------------------------------------
@@ -1220,14 +1539,14 @@ public partial class MainPanel : ResizeablePanelBase
                     tooltip: "Exact display name of the V-Blood whose echo reward you want.")));
 
         CollapsibleSection.Build(moreActionsCard,
-            title: "Reset all familiar entities (.fam reset) — DESTRUCTIVE",
+            title: "Force-unbind stuck familiar (.fam reset)",
             startExpanded: false,
-            tooltip: "Destroys every entity in your follower buffer and clears your familiar-actives state. Use to recover from a bugged or stuck familiar bind. Required confirm checkbox.",
+            tooltip: "Cleanup utility for a familiar that won't unbind normally. Clears leftover follower entities and the active-familiar record so you can re-bind from your box. Box records and familiar unlocks are PRESERVED — you can re-summon any familiar with .fam b N after running this. Use only when .fam ub (Unbind) doesn't work; the server-side handler refuses to run if the active familiar entity is still alive in-world.",
             buildContent: c => FormBuilder.Build(c,
-                title: "Reset familiars",
+                title: "Force-unbind",
                 commandTemplate: ".fam reset",
-                new BoolField("confirm", "Yes, destroy active follower entities",
-                    tooltip: "Required. Box records and unlock data are NOT touched — this only clears in-world entities + active state. Re-bind from a box to summon again.",
+                new BoolField("confirm", "Yes, clear stuck familiar bind",
+                    tooltip: "Required. Same effect as Unbind (.fam ub) for handling stuck/bugged familiars. Box records and unlocks are NOT touched — re-bind any familiar from its box after running this.",
                     requireTrue: true)));
 
         // 0.10.11: in-panel results display for the .fam s search above.
@@ -1242,14 +1561,13 @@ public partial class MainPanel : ResizeablePanelBase
         // 0.14.0: Battle Groups card removed. Bloodcraft v1.1+ never
         // implemented the feature set behind .fam bgs / .fam bg / .fam abg
         // / .fam cbg / .fam sbg / .fam dbg / .fam challenge — the README
-        // still documents them but they are no-ops on the server. Anton
-        // Krüger (server admin on Bloodcraft) confirmed in chat: "I always
-        // tell people those commands don't work and Mitch keeps forgetting
-        // to update the commands page." Surfacing them in the UI just
-        // produced silent failures + log clutter, so the entire BG card
-        // is removed. Backing constants in MessageService_Processing.cs
-        // and the intercept startsWith branches are removed in the same
-        // commit so the dead-feature surface area shrinks to zero.
+        // still documents them but they are no-ops on the server (a
+        // Bloodcraft server admin confirmed in chat). Surfacing them in
+        // the UI just produced silent failures + log clutter, so the
+        // entire BG card is removed. Backing constants in
+        // MessageService_Processing.cs and the intercept startsWith
+        // branches are removed in the same commit so the dead-feature
+        // surface area shrinks to zero.
 
         RenderFamiliar(PlayerStateService.Familiar);
         if (!_famSubscribed)
@@ -4757,6 +5075,291 @@ public partial class MainPanel : ResizeablePanelBase
         // 0.10.6: Chat Logging diagnostic toggles. At the bottom of Settings
         // so users see it last when scanning the page top-to-bottom.
         BuildChatLoggingSection(page);
+
+        AddSpacer(page, 8);
+        // 0.15.0: optional keyboard hotkeys for the floating BCH / OV button
+        // actions + diagnostic mode toggle. Both opt-in.
+        BuildHotkeysSection(page);
+    }
+
+    // 0.15.0: configurable hotkeys + diagnostic mode toggle, all under one
+    // collapsible section so they don't visually compete with the existing
+    // Display Settings controls.
+    private void BuildHotkeysSection(GameObject page)
+    {
+        AddSectionHeading(page, "Hotkeys & diagnostics");
+
+        AddGuideSection(page, "",
+            "Optional keyboard shortcuts for the BCH and OV floating buttons. " +
+            "Both are unbound by default — click \"Set...\" then press the key " +
+            "(or modifier+key combo) you want. Click \"Clear\" to remove the binding. " +
+            "Diagnostic mode emits [DIAG]-tagged trace logs to BepInEx for UI clicks, " +
+            "overlay toggles, protocol state changes, and hotkey fires — toggle it on " +
+            "when reproducing an issue, then share LogOutput.log to help debug.");
+
+        AddHotkeyRow(page, "Open main panel",
+            () => Config.Settings.HotkeyToggleMainPanel,
+            v  => Config.Settings.SetHotkeyToggleMainPanel(v));
+        AddHotkeyRow(page, "Toggle all overlays",
+            () => Config.Settings.HotkeyToggleAllOverlays,
+            v  => Config.Settings.SetHotkeyToggleAllOverlays(v));
+
+        AddSpacer(page, 4);
+        AddDiagnosticModeToggle(page);
+    }
+
+    // 0.15.0: a hotkey rebind row — label + current-binding text + Set... +
+    // Clear buttons. Click "Set..." to enter listening mode; the next non-
+    // modifier key pressed becomes the binding, with all currently-held
+    // modifier keys (Ctrl/Alt/Shift/Win) captured as the combo.
+    private void AddHotkeyRow(GameObject parent, string label,
+        System.Func<Config.BCHotkey> get, System.Action<Config.BCHotkey> set)
+    {
+        var row = UIFactory.CreateHorizontalGroup(parent, $"HotkeyRow_{label}",
+            forceExpandWidth: true, forceExpandHeight: false,
+            childControlWidth: true, childControlHeight: true,
+            spacing: 6, padding: new Vector4(2, 2, 2, 2));
+        UIFactory.SetLayoutElement(row,
+            minWidth: 360, preferredWidth: 400, flexibleWidth: 1,
+            minHeight: 28, preferredHeight: 30, flexibleHeight: 0);
+
+        var labelLbl = UIFactory.CreateLabel(row, $"HotkeyLabel_{label}", label + ":",
+            TextAlignmentOptions.MidlineLeft, color: null, fontSize: Theme.ScaledUI(12));
+        UIFactory.SetLayoutElement(labelLbl.GameObject,
+            minWidth: 140, preferredWidth: 150, flexibleWidth: 0,
+            minHeight: 24, preferredHeight: 26, flexibleHeight: 0);
+        labelLbl.TextMesh.enableWordWrapping = false;
+        labelLbl.TextMesh.overflowMode = TextOverflowModes.Overflow;
+
+        // Current-binding display. Shows the key combo as text. When binding
+        // is empty, shows "(unbound)" in muted color.
+        var bindingLbl = UIFactory.CreateLabel(row, $"HotkeyBinding_{label}", "",
+            TextAlignmentOptions.MidlineLeft, color: null, fontSize: Theme.ScaledUI(12));
+        UIFactory.SetLayoutElement(bindingLbl.GameObject,
+            minWidth: 110, preferredWidth: 130, flexibleWidth: 1,
+            minHeight: 24, preferredHeight: 26, flexibleHeight: 0);
+        bindingLbl.TextMesh.enableWordWrapping = false;
+        bindingLbl.TextMesh.overflowMode = TextOverflowModes.Overflow;
+        bindingLbl.TextMesh.fontStyle = FontStyles.Bold;
+
+        var setBtn = UIFactory.CreateButton(row, $"HotkeySet_{label}", "Set...");
+        UIFactory.SetLayoutElement(setBtn.GameObject,
+            minWidth: 60, preferredWidth: 64, flexibleWidth: 0,
+            minHeight: 26, preferredHeight: 28, flexibleHeight: 0);
+        var setTxt = setBtn.Component.GetComponentInChildren<TextMeshProUGUI>();
+        if (setTxt != null) setTxt.fontSize = Theme.ScaledUI(11);
+        TooltipHover.Attach(setBtn.GameObject,
+            $"Click then press the key (or modifier+key combo) you want to bind to '{label}'. Modifiers (Ctrl / Alt / Shift / Win) are captured along with the key. Press Escape to cancel.");
+
+        var clearBtn = UIFactory.CreateButton(row, $"HotkeyClear_{label}", "Clear");
+        UIFactory.SetLayoutElement(clearBtn.GameObject,
+            minWidth: 56, preferredWidth: 60, flexibleWidth: 0,
+            minHeight: 26, preferredHeight: 28, flexibleHeight: 0);
+        var clearTxt = clearBtn.Component.GetComponentInChildren<TextMeshProUGUI>();
+        if (clearTxt != null) clearTxt.fontSize = Theme.ScaledUI(11);
+        TooltipHover.Attach(clearBtn.GameObject, $"Remove the '{label}' hotkey binding.");
+
+        // Refresh the binding label to reflect current setting.
+        System.Action refreshLabel = () =>
+        {
+            var current = get();
+            if (current.IsEmpty)
+            {
+                bindingLbl.TextMesh.text = "(unbound)";
+                bindingLbl.TextMesh.color = Theme.MutedBody;
+            }
+            else
+            {
+                bindingLbl.TextMesh.text = current.ToString();
+                bindingLbl.TextMesh.color = Theme.DefaultText;
+            }
+        };
+        refreshLabel();
+
+        // Listening state — only one row can be listening at a time, but we
+        // don't enforce that across rows; the per-row ticker self-unregisters
+        // on first key press or Escape.
+        System.Action listener = null;
+        setBtn.OnClick = () =>
+        {
+            // If we're already listening, cancel that listener first.
+            if (listener != null)
+            {
+                Behaviors.CoreUpdateBehavior.Actions.Remove(listener);
+                listener = null;
+            }
+            bindingLbl.TextMesh.text = "press a key...";
+            bindingLbl.TextMesh.color = Color.yellow;
+
+            listener = () =>
+            {
+                try
+                {
+                    // Escape cancels — restore prior binding.
+                    if (Input.GetKeyDown(KeyCode.Escape))
+                    {
+                        Behaviors.CoreUpdateBehavior.Actions.Remove(listener);
+                        listener = null;
+                        refreshLabel();
+                        return;
+                    }
+                    // Find the first non-modifier key pressed THIS FRAME.
+                    KeyCode pressed = KeyCode.None;
+                    for (int k = (int)KeyCode.Backspace; k < (int)KeyCode.JoystickButton0; k++)
+                    {
+                        var kc = (KeyCode)k;
+                        if (IsModifierKey(kc)) continue;
+                        if (Input.GetKeyDown(kc)) { pressed = kc; break; }
+                    }
+                    if (pressed == KeyCode.None) return;
+                    // Capture currently-held modifiers as the combo.
+                    var mods = new List<KeyCode>();
+                    if (Input.GetKey(KeyCode.LeftControl) || Input.GetKey(KeyCode.RightControl)) mods.Add(KeyCode.LeftControl);
+                    if (Input.GetKey(KeyCode.LeftAlt)     || Input.GetKey(KeyCode.RightAlt))     mods.Add(KeyCode.LeftAlt);
+                    if (Input.GetKey(KeyCode.LeftShift)   || Input.GetKey(KeyCode.RightShift))   mods.Add(KeyCode.LeftShift);
+                    if (Input.GetKey(KeyCode.LeftWindows) || Input.GetKey(KeyCode.RightWindows)) mods.Add(KeyCode.LeftWindows);
+
+                    var hotkey = new Config.BCHotkey
+                    {
+                        MainKey = pressed,
+                        Modifiers = mods.Count > 0 ? mods.ToArray() : null,
+                    };
+                    set(hotkey);
+                    Behaviors.CoreUpdateBehavior.Actions.Remove(listener);
+                    listener = null;
+                    refreshLabel();
+                    LogUtils.LogInfo($"Hotkey '{label}' bound to {hotkey}.");
+                }
+                catch (System.Exception ex)
+                {
+                    LogUtils.LogError($"Hotkey bind failed: {ex}");
+                    Behaviors.CoreUpdateBehavior.Actions.Remove(listener);
+                    listener = null;
+                    refreshLabel();
+                }
+            };
+            Behaviors.CoreUpdateBehavior.Actions.Add(listener);
+        };
+
+        clearBtn.OnClick = () =>
+        {
+            // Cancel any pending listener.
+            if (listener != null)
+            {
+                Behaviors.CoreUpdateBehavior.Actions.Remove(listener);
+                listener = null;
+            }
+            set(Config.BCHotkey.Empty);
+            refreshLabel();
+            LogUtils.LogInfo($"Hotkey '{label}' cleared.");
+        };
+    }
+
+    private static bool IsModifierKey(KeyCode k) =>
+        k == KeyCode.LeftControl  || k == KeyCode.RightControl
+     || k == KeyCode.LeftAlt      || k == KeyCode.RightAlt
+     || k == KeyCode.LeftShift    || k == KeyCode.RightShift
+     || k == KeyCode.LeftWindows  || k == KeyCode.RightWindows
+     || k == KeyCode.LeftCommand  || k == KeyCode.RightCommand
+     || k == KeyCode.AltGr;
+
+    private void AddDiagnosticModeToggle(GameObject parent)
+    {
+        // 0.15.0 friend-test v3: three radio-style buttons instead of a
+        // single bool. Off / Session / Always — Session is a runtime-only
+        // override that resets on game restart so users who flip diagnostic
+        // on to reproduce a bug don't accidentally leave it on forever.
+
+        var labelLbl = UIFactory.CreateLabel(parent, "DiagnosticModeLabel",
+            "Diagnostic mode:",
+            TextAlignmentOptions.MidlineLeft, color: null, fontSize: Theme.ScaledUI(12));
+        UIFactory.SetLayoutElement(labelLbl.GameObject,
+            minWidth: 360, preferredWidth: 400, flexibleWidth: 1,
+            minHeight: 22, preferredHeight: 24, flexibleHeight: 0);
+        labelLbl.TextMesh.fontStyle = FontStyles.Bold;
+        TooltipHover.Attach(labelLbl.GameObject,
+            "Verbose logging to BepInEx for UI clicks, overlay toggles, protocol state changes, feature-flag transitions, and hotkey fires. Off by default. Use Session when reproducing a single-bug repro so logging silently shuts off on next restart; use Always to keep logging on across sessions. Share LogOutput.log with the maintainer for debugging.");
+
+        var row = UIFactory.CreateHorizontalGroup(parent, "DiagnosticModeRow",
+            forceExpandWidth: true, forceExpandHeight: false,
+            childControlWidth: true, childControlHeight: true,
+            spacing: 8, padding: new Vector4(2, 2, 2, 2));
+        UIFactory.SetLayoutElement(row,
+            minWidth: 360, preferredWidth: 400, flexibleWidth: 1,
+            minHeight: 28, preferredHeight: 30, flexibleHeight: 0);
+
+        // We keep the three toggle refs so we can re-sync isOn after any
+        // click — the click on one toggle must clear the other two to
+        // preserve mutual exclusion.
+        ToggleRef offT     = null;
+        ToggleRef sessionT = null;
+        ToggleRef alwaysT  = null;
+
+        System.Action refresh = () =>
+        {
+            var current = Config.Settings.DiagnosticModeSetting;
+            if (offT     != null) offT.Toggle.SetIsOnWithoutNotify(current == Config.Settings.DiagnosticModeChoice.Off);
+            if (sessionT != null) sessionT.Toggle.SetIsOnWithoutNotify(current == Config.Settings.DiagnosticModeChoice.Session);
+            if (alwaysT  != null) alwaysT.Toggle.SetIsOnWithoutNotify(current == Config.Settings.DiagnosticModeChoice.Always);
+        };
+
+        offT = AddDiagnosticRadio(row, "Off",
+            "No diagnostic logging. Default state.",
+            () => Config.Settings.DiagnosticModeSetting == Config.Settings.DiagnosticModeChoice.Off,
+            () => { Config.Settings.SetDiagnosticMode(Config.Settings.DiagnosticModeChoice.Off); refresh(); LogUtils.LogInfo("DiagnosticMode -> Off."); });
+
+        sessionT = AddDiagnosticRadio(row, "This session",
+            "Diagnostic logging enabled until the game restarts. The .cfg stays at Off so a forgotten Session-only mode silently clears on next launch.",
+            () => Config.Settings.DiagnosticModeSetting == Config.Settings.DiagnosticModeChoice.Session,
+            () => { Config.Settings.SetDiagnosticMode(Config.Settings.DiagnosticModeChoice.Session); refresh(); LogUtils.LogInfo("DiagnosticMode -> Session (resets on game restart)."); });
+
+        alwaysT = AddDiagnosticRadio(row, "Always",
+            "Diagnostic logging enabled every session until the user turns it off. Persists to .cfg.",
+            () => Config.Settings.DiagnosticModeSetting == Config.Settings.DiagnosticModeChoice.Always,
+            () => { Config.Settings.SetDiagnosticMode(Config.Settings.DiagnosticModeChoice.Always); refresh(); LogUtils.LogInfo("DiagnosticMode -> Always (persists across game restarts)."); });
+
+        // Sync initial state.
+        refresh();
+    }
+
+    /// <summary>0.15.0: one mutually-exclusive radio button for the
+    /// DiagnosticMode three-state. Uses the standard CreateToggle factory
+    /// (so it inherits the same Frame-border styling as every other
+    /// toggle in BCH) — mutual exclusion is enforced by the OnClick
+    /// callback re-syncing the sibling toggles via the outer `refresh`
+    /// closure.</summary>
+    private static ToggleRef AddDiagnosticRadio(GameObject parent, string label, string tooltip,
+        System.Func<bool> isSelected, System.Action onSelect)
+    {
+        var t = UIFactory.CreateToggle(parent, $"DiagnosticRadio_{label}");
+        UIFactory.SetLayoutElement(t.GameObject,
+            minWidth: 90, preferredWidth: 110, flexibleWidth: 1,
+            minHeight: 24, preferredHeight: 26, flexibleHeight: 0);
+        t.Text.text = label;
+        t.Text.fontSize = Theme.ScaledUI(11);
+        t.Text.enableWordWrapping = false;
+        t.Text.overflowMode = TextOverflowModes.Overflow;
+        t.Text.alignment = TextAlignmentOptions.MidlineLeft;
+        UIFactory.SetLayoutElement(t.Text.gameObject,
+            minWidth: 70, preferredWidth: 90, flexibleWidth: 1,
+            minHeight: 22, preferredHeight: 24, flexibleHeight: 0);
+        t.Toggle.SetIsOnWithoutNotify(isSelected());
+        TooltipHover.Attach(t.GameObject, tooltip);
+        t.OnValueChanged += v =>
+        {
+            // Radio behavior: only fire onSelect when the user CHECKS the
+            // button. A user who manually un-checks gets re-checked by the
+            // refresh() call inside onSelect — but if nothing else became
+            // selected, we have to re-check ourselves.
+            if (v) onSelect();
+            else
+            {
+                // Re-check ourselves if we're still the "selected" choice
+                // (mutual exclusion didn't transfer to another button).
+                if (isSelected()) t.Toggle.SetIsOnWithoutNotify(true);
+            }
+        };
+        return t;
     }
 
     // -----------------------------------------------------------------------
@@ -4970,8 +5573,22 @@ public partial class MainPanel : ResizeablePanelBase
             "Toggle the main panel between its current size+position and a fullscreen stretch (with a small inset so the edges stay grabbable). Mirrors the maximize button on the title bar.",
             ToggleFullscreen);
         AddSizePosButton(btnRow, "Default",
-            "Reset the main panel to its default size (does NOT move it — drag to re-center if you want).",
-            () => { SetFullscreen(false); SetDefaultSize(); });
+            "Reset the main panel to its default size + unpin and re-center it. Recovers from any 'panel feels stuck' state.",
+            () => {
+                SetFullscreen(false);
+                // 0.15.0: defensive unpin. The main panel never opts into
+                // the lock-overlays system, but a stale IsPinned=true
+                // from save data could leave it locked against drag/
+                // resize. Clearing here ensures the user always has a
+                // single-click recovery path even before they restart
+                // the game (the load-time fix in ApplySaveData stops
+                // the persistence; this button restores movement in the
+                // current session).
+                IsPinned = false;
+                SetDefaultSize();
+                EnsureValidPosition();
+                SaveInternalData();
+            });
 
         // Width + Height step rows
         AddSizePosStepRow(page, "Width",
@@ -7593,6 +8210,7 @@ public partial class MainPanel : ResizeablePanelBase
         if (_availabilitySubscribed)
         {
             Services.EclipseProtocolService.AvailabilityChanged -= OnBloodcraftAvailabilityChanged;
+            PlayerStateService.FeatureFlagsChanged -= OnFeatureFlagsChanged;
             _availabilitySubscribed = false;
         }
         if (_deferredAvailabilityRefresh != null)

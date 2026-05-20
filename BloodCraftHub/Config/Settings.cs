@@ -1,9 +1,91 @@
+using System;
 using System.Collections.Generic;
 using System.IO;
 using BepInEx;
 using BepInEx.Configuration;
+using UnityEngine;
 
 namespace BloodCraftHub.Config;
+
+/// <summary>0.15.0: lightweight serializable hotkey. BepInEx 6 (V Rising's
+/// IL2CPP build) dropped the older 5.x KeyboardShortcut from its public
+/// surface so we own a minimal copy here. Stored in the .cfg as a "+"-
+/// delimited string ("Insert", "F3", "LeftControl+H", "LeftShift+F5").
+/// IsDown() returns true on the frame the main key transitions Up -> Down
+/// AND every modifier is currently held — same semantics as the upstream
+/// KeyboardShortcut.IsDown().</summary>
+public struct BCHotkey : IEquatable<BCHotkey>
+{
+    public KeyCode MainKey;
+    public KeyCode[] Modifiers;
+
+    public static BCHotkey Empty => default;
+    public bool IsEmpty => MainKey == KeyCode.None;
+
+    public bool IsDown()
+    {
+        if (IsEmpty) return false;
+        if (!Input.GetKeyDown(MainKey)) return false;
+        if (Modifiers != null)
+        {
+            for (int i = 0; i < Modifiers.Length; i++)
+                if (!Input.GetKey(Modifiers[i])) return false;
+        }
+        return true;
+    }
+
+    public override string ToString()
+    {
+        if (IsEmpty) return string.Empty;
+        if (Modifiers == null || Modifiers.Length == 0) return MainKey.ToString();
+        return string.Join("+", Modifiers) + "+" + MainKey;
+    }
+
+    public static BCHotkey Parse(string s)
+    {
+        if (string.IsNullOrWhiteSpace(s)) return Empty;
+        var parts = s.Split('+');
+        if (parts.Length == 0) return Empty;
+        var main = ParseKey(parts[parts.Length - 1].Trim());
+        if (main == KeyCode.None) return Empty;
+        var mods = new List<KeyCode>();
+        for (int i = 0; i < parts.Length - 1; i++)
+        {
+            var m = ParseKey(parts[i].Trim());
+            if (m != KeyCode.None) mods.Add(m);
+        }
+        return new BCHotkey { MainKey = main, Modifiers = mods.Count > 0 ? mods.ToArray() : null };
+    }
+
+    private static KeyCode ParseKey(string s)
+    {
+        if (string.IsNullOrWhiteSpace(s)) return KeyCode.None;
+        // Accept short modifier aliases for ergonomics in the .cfg file.
+        switch (s.Trim().ToLowerInvariant())
+        {
+            case "ctrl":
+            case "control":  return KeyCode.LeftControl;
+            case "alt":      return KeyCode.LeftAlt;
+            case "shift":    return KeyCode.LeftShift;
+            case "cmd":
+            case "win":
+            case "windows":  return KeyCode.LeftWindows;
+        }
+        return Enum.TryParse<KeyCode>(s, true, out var k) ? k : KeyCode.None;
+    }
+
+    public bool Equals(BCHotkey other)
+    {
+        if (MainKey != other.MainKey) return false;
+        int a = Modifiers?.Length ?? 0;
+        int b = other.Modifiers?.Length ?? 0;
+        if (a != b) return false;
+        for (int i = 0; i < a; i++) if (Modifiers[i] != other.Modifiers[i]) return false;
+        return true;
+    }
+    public override bool Equals(object obj) => obj is BCHotkey o && Equals(o);
+    public override int GetHashCode() => (int)MainKey;
+}
 
 // Static settings registry. Modeled on BloodCraftUI's Config/Settings.cs.
 // The copied UI framework references `Settings.UITransparency` (etc.) as
@@ -538,6 +620,101 @@ public class Settings
     public static ModAvailability KindredAvailability    => ReadAvailability(nameof(KindredAvailability));
     public static void SetBloodcraftAvailability(ModAvailability v) => SetAvailability(nameof(BloodcraftAvailability), v);
     public static void SetKindredAvailability(ModAvailability v)    => SetAvailability(nameof(KindredAvailability), v);
+
+    // 0.15.0: configurable keyboard hotkeys for the two floating-button
+    // actions. Opt-in by design — default value is KeyboardShortcut.Empty
+    // so first-time users get the v0.14-and-earlier mouse-only experience.
+    // Users bind via Settings → Display → Hotkeys (click-to-bind UI) or
+    // by editing the .cfg directly. The bind UI accepts a single key OR
+    // a key + modifier combo (Ctrl+/Alt+/Shift+) — BepInEx's
+    // KeyboardShortcut handles the combo natively.
+    //
+    // Friend-test 0.14.0 motivation: streamers / users who set the
+    // floating button to very low transparency couldn't find it again
+    // to click; the BCH/OV buttons were also susceptible to a controller-
+    // A-press ghost-activation regression (Item 4 in 0.15.0). Hotkeys
+    // give an alternative entry point that never depends on cursor or
+    // gamepad focus state.
+    public static BCHotkey HotkeyToggleMainPanel  => ReadHotkey(nameof(HotkeyToggleMainPanel));
+    public static BCHotkey HotkeyToggleAllOverlays => ReadHotkey(nameof(HotkeyToggleAllOverlays));
+    public static void SetHotkeyToggleMainPanel(BCHotkey v)  => WriteHotkey(nameof(HotkeyToggleMainPanel), v);
+    public static void SetHotkeyToggleAllOverlays(BCHotkey v) => WriteHotkey(nameof(HotkeyToggleAllOverlays), v);
+    private static BCHotkey ReadHotkey(string key)
+    {
+        if (ConfigEntries.TryGetValue(key, out var entry) && entry is ConfigEntry<string> s)
+            return BCHotkey.Parse(s.Value);
+        return BCHotkey.Empty;
+    }
+    private static void WriteHotkey(string key, BCHotkey v)
+    {
+        if (ConfigEntries.TryGetValue(key, out var entry) && entry is ConfigEntry<string> s)
+            s.Value = v.ToString();
+    }
+
+    // 0.15.0 friend-test v3: three-state diagnostic mode. Only Off /
+    // Always persist to the .cfg — Session is a runtime-only override
+    // that resets on game restart so users who flip it on to
+    // reproduce a single bug don't accidentally leave verbose logging
+    // running forever.
+    //
+    //   Off       — no [DIAG] logs.
+    //   Session   — log THIS run only; .cfg stays at Off.
+    //   Always    — log every run until the user changes it.
+    public enum DiagnosticModeChoice { Off, Session, Always }
+
+    // Persisted "Off" or "Always" — set by SetDiagnosticMode. Session is
+    // a per-process override and never reaches this value.
+    private static bool DiagnosticPersistedAlways
+    {
+        get => (ConfigEntries.TryGetValue(nameof(DiagnosticMode), out var e) && e is ConfigEntry<string> s)
+            && string.Equals(s.Value, "Always", System.StringComparison.OrdinalIgnoreCase);
+        set
+        {
+            if (ConfigEntries.TryGetValue(nameof(DiagnosticMode), out var e) && e is ConfigEntry<string> s)
+                s.Value = value ? "Always" : "Off";
+        }
+    }
+
+    // Runtime-only flag for "Session" mode. Set by the radio UI; never
+    // written to disk. Defaults false; cleared by SetDiagnosticMode(Off).
+    private static bool _diagnosticSessionActive;
+
+    /// <summary>True if LogDiagnostic should emit. Used by
+    /// LogUtils.LogDiagnostic as the cheap gate on every call.</summary>
+    public static bool DiagnosticMode => DiagnosticPersistedAlways || _diagnosticSessionActive;
+
+    /// <summary>Three-state read for the UI. "Session" wins over
+    /// "Always" only when the user explicitly picked Session this run.
+    /// In practice the UI radio buttons preserve mutual exclusion so
+    /// the three states never overlap.</summary>
+    public static DiagnosticModeChoice DiagnosticModeSetting
+    {
+        get
+        {
+            if (DiagnosticPersistedAlways) return DiagnosticModeChoice.Always;
+            if (_diagnosticSessionActive)  return DiagnosticModeChoice.Session;
+            return DiagnosticModeChoice.Off;
+        }
+    }
+
+    public static void SetDiagnosticMode(DiagnosticModeChoice choice)
+    {
+        switch (choice)
+        {
+            case DiagnosticModeChoice.Off:
+                DiagnosticPersistedAlways = false;
+                _diagnosticSessionActive = false;
+                break;
+            case DiagnosticModeChoice.Session:
+                DiagnosticPersistedAlways = false; // stays Off in .cfg
+                _diagnosticSessionActive = true;   // active for THIS session only
+                break;
+            case DiagnosticModeChoice.Always:
+                DiagnosticPersistedAlways = true;
+                _diagnosticSessionActive = true;   // immediate effect without restart
+                break;
+        }
+    }
     private static void SetAvailability(string key, ModAvailability v)
     {
         if (ConfigEntries.TryGetValue(key, out var entry) && entry is ConfigEntry<string> s)
@@ -641,6 +818,19 @@ public class Settings
         InitConfigEntry(OVERLAY_SETTINGS_GROUP, nameof(CombinedOverlayTransparency),  0.4f,  "Combined overlay background transparency (0.0=solid, 1.0=invisible).");
         InitConfigEntry(GENERAL_SETTINGS_GROUP, nameof(BloodcraftAvailability),      "Auto", "Whether the server has the Bloodcraft mod. Auto = present iff the server ACK'd our Eclipse handshake. On = always assume present. Off = always disable the BLOODCRAFT tab group.");
         InitConfigEntry(GENERAL_SETTINGS_GROUP, nameof(KindredAvailability),         "Auto", "Whether the server has the Kindred suite (KindredCommands + KindredLogistics). No protocol probe is wired yet, so Auto currently means 'assume present'. Set to Off explicitly if your server doesn't have these mods to grey out the KINDRED tab group.");
+
+        // 0.15.0: opt-in keyboard hotkeys for the floating BCH / OV button
+        // actions. Both default to KeyboardShortcut.Empty (no binding) so
+        // first-time users keep the v0.14-and-earlier mouse-only entry
+        // point. Bind via Settings → Display → Hotkeys (click-to-bind UI)
+        // or edit this .cfg directly with values like "Insert", "F3",
+        // "Ctrl+H", "Shift+F5", etc.
+        InitConfigEntry(GENERAL_SETTINGS_GROUP, nameof(HotkeyToggleMainPanel),  string.Empty,
+            "Hotkey to open / close the main BloodCraftHub panel. Empty by default — bind via Settings → Display → Hotkeys, or set here directly. Format: a single key name (e.g. 'Insert', 'F3') OR a modifier-prefixed combo joined with '+' (e.g. 'LeftControl+H', 'Ctrl+H', 'Shift+F5'). Aliases accepted for modifiers: ctrl, alt, shift, win.");
+        InitConfigEntry(GENERAL_SETTINGS_GROUP, nameof(HotkeyToggleAllOverlays), string.Empty,
+            "Hotkey to show / hide all overlays at once (master overlay toggle). Empty by default — same format and bind-via-Settings UI as the main panel hotkey.");
+        InitConfigEntry(GENERAL_SETTINGS_GROUP, nameof(DiagnosticMode),         "Off",
+            "Diagnostic mode: emit detailed [DIAG]-prefixed trace logs to BepInEx for UI clicks, overlay toggles, protocol state changes, and hotkey fires. Valid persistent values: 'Off' or 'Always'. Use Settings → Display → Hotkeys & diagnostics to also pick 'Session' (this run only — resets to Off on game restart). Cheap when off (one bool check + early return per call site).");
 
         return this;
     }

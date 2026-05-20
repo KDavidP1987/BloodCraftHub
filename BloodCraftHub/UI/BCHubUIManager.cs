@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using BloodCraftHub.Services;
 using BloodCraftHub.UI.Framework.CustomLib.Panel;
 using BloodCraftHub.UI.Framework.UniverseLib.UI.Panels;
 using BloodCraftHub.UI.ModContent;
@@ -136,7 +137,9 @@ public class BCHubUIManager : UIManagerBase
     public void ToggleMainPanel()
     {
         EnsureMainPanel();
-        _mainPanel.SetActive(!_mainPanel.Enabled);
+        bool nextState = !_mainPanel.Enabled;
+        BloodCraftHub.Utils.LogUtils.LogDiagnostic($"ToggleMainPanel: {_mainPanel.Enabled} -> {nextState}");
+        _mainPanel.SetActive(nextState);
     }
 
     /// <summary>Show or hide a specific tab inside the main panel (and bring the panel up if needed).</summary>
@@ -150,6 +153,7 @@ public class BCHubUIManager : UIManagerBase
     /// <summary>Toggle one of the secondary overlays.</summary>
     public void ToggleOverlay(PanelType overlay)
     {
+        BloodCraftHub.Utils.LogUtils.LogDiagnostic($"ToggleOverlay({overlay}).");
         switch (overlay)
         {
             case PanelType.ExperienceOverlay:
@@ -322,6 +326,8 @@ public class BCHubUIManager : UIManagerBase
         // ApplyCombinedOverlayMutualExclusion ensures the right set is up;
         // we still restore FamiliarBrowser + ShiftSpell because they're
         // independent of combined-mode.
+        // 0.15.0: feature-flag gating on each restore was reverted — see
+        // ApplyServerFeatureFlagsToOverlays.
         if (BloodCraftHub.Config.Settings.ShowCombinedOverlay)
         {
             ApplyCombinedOverlayMutualExclusion();
@@ -508,6 +514,28 @@ public class BCHubUIManager : UIManagerBase
     /// in Settings → Display. Cheaper than rebuilding the overlay — just
     /// walks the label rows + bars and re-reads PlayerStateService.</summary>
     public void RefreshProfessionOverlay() => _professionOverlay?.Refresh();
+
+    /// <summary>0.15.0 (reverted): per-system overlay auto-hide based on
+    /// detected feature flags. False positives on the friend-test (Familiar
+    /// / Shift signals only fire when the user is actively engaging with
+    /// the system at broadcast time) made this user-hostile — hiding the
+    /// overlay people just enabled. Reverted to a no-op until a reliable
+    /// probe lands. PlayerStateService.FeatureFlags still tracks
+    /// detection internally + emits diagnostic-mode log lines, but
+    /// nothing visually acts on it.</summary>
+    public void ApplyServerFeatureFlagsToOverlays()
+    {
+        // Intentionally a no-op for 0.15.0 — see comment above.
+    }
+
+    /// <summary>0.15.0: thin pass-through; always returns true while
+    /// auto-detect visual gating is reverted. Future code that adds
+    /// reliable per-system probes can route through this.</summary>
+    public static bool IsSystemAvailable(PlayerStateService.SystemKind kind)
+    {
+        _ = kind;
+        return true;
+    }
 
     public void RequestRebuildMainPanel()
     {

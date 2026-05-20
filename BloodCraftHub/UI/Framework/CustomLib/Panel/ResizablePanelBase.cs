@@ -131,7 +131,27 @@ public abstract class ResizeablePanelBase : PanelBase
             Rect.SetAnchorsFromString(split[0]);
             Rect.SetPositionFromString(split[1]);
             if (split.Length > 2 && bool.TryParse(split[2], out var pinned))
-                IsPinned = pinned;
+            {
+                // 0.15.0 fix: only restore IsPinned for panels that opt in
+                // to the lock-overlays system. The main panel
+                // (RespectsLockOverlays=false) must NEVER be pinned from
+                // save data — pre-0.15.0 a stale IsPinned=True bit (e.g.
+                // persisted from a pre-0.11.2 fullscreen session that
+                // triggered a save before the "don't save fullscreen state"
+                // comment landed) would permanently lock the main panel
+                // against drag/resize, with no UI affordance to unpin
+                // because RespectsLockOverlays=false also skips the
+                // Settings.LockOverlays clear path in LateConstructUI.
+                // Friend-test 0.15.0: "panel feels locked in place — I
+                // click on the borders and it doesn't move." On next save
+                // (any drag/resize/etc.) the IsPinned=false current value
+                // overwrites the stale True, so the .cfg self-heals
+                // permanently after one session.
+                if (RespectsLockOverlays)
+                    IsPinned = pinned;
+                else if (pinned)
+                    LogUtils.LogInfo($"Panel {PanelConfigKey}: ignoring stale IsPinned=True from save data (this panel does not respect lock-overlays; .cfg will be corrected on next save).");
+            }
             EnsureValidSize();
             EnsureValidPosition();
         }

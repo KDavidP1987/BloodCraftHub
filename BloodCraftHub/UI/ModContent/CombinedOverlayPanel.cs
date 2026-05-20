@@ -291,6 +291,10 @@ public class CombinedOverlayPanel : ResizeablePanelBase
         // overlays — so toggling them in either the footer OR the Settings
         // combined section affects both views consistently. Expertise/Legacy
         // stay combined-only (no standalone equivalent).
+        // 0.15.0 (reverted): per-system feature-flag gating was added then
+        // pulled — the Familiar/Shift detection signals fired false positives
+        // on real-world testing. See ApplyServerFeatureFlagsToOverlays for
+        // the full notes. Restoring v0.14 visibility logic.
         if (_xpSection        != null) _xpSection.SetActive(Settings.ShowExperienceOverlay);
         if (_familiarSection  != null) _familiarSection.SetActive(Settings.ShowFamiliarOverlay);
         if (_expertiseSection != null) _expertiseSection.SetActive(Settings.CombinedOverlayShowExpertise);

@@ -12,14 +12,30 @@ BloodCraftHub is built around the same MAC-signed protocol Eclipse uses, and hav
 **2 — Pre-1.0 testing.**
 v0.x is still public-beta. The major feature set is in place and the mod has been daily-driven on a live PvE server for months, but APIs and UI may still shift before 1.0. If you spot a bug, please reach out on the **[The Shadow Realm Discord](https://discord.gg/usC9QgBrXK)** — that's the fastest way to get a fix in the next release. GitHub issues also work for written-up reports.
 
+**3 — Controller / gamepad input (under investigation).**
+There are known interaction edge cases when V Rising's controller input pipeline intersects with the BCH UI — for example, after using a teleport waypoint the controller's A button can re-open the BCH main panel because Unity's UI navigation system retains focus on the floating BCH button. v0.15.0 ships a first-pass fix that excludes the floating BCH / OV buttons from gamepad UI navigation, but more thorough controller testing is in progress. If you play with a controller and hit something unexpected — UI opening / closing on the wrong button, focus getting stuck, hotkeys not firing under controller input, etc. — please report it on the Discord with as much repro detail as you can. We're actively working on coverage here.
+
+**4 — Server-side Bloodcraft compatibility (read this if BCH looks empty).**
+The live HUD overlays + tab readouts in BCH are driven by Bloodcraft's signed broadcast protocol, which the Bloodcraft server-side mod only emits when **at least one** of these systems is enabled on the server:
+
+- `LevelingSystem` — XP / levels / class
+- `LegacySystem` — blood legacy
+- `ExpertiseSystem` — weapon expertise
+- `ClassSystem` — Bloodcraft classes
+- `FamiliarSystem` — familiars
+
+A server that runs **only** `QuestSystem` or `ProfessionSystem` (with all five above disabled) will not engage the protocol at all, and BCH will mark the **BLOODCRAFT** tab group as unavailable. In that situation, click the **BLOODCRAFT** header in the left rail — BCH shows an in-panel diagnostic with a one-click "Force-enable tabs" button. After force-enabling, the chat-regex pipeline still works (`.fam boxes`, `.quest p`, `.bl get`, `.wep get`, etc.) and replies surface in the **Last server response** panel, but live HUD overlays will remain empty because the server isn't broadcasting.
+
+If you want full BCH functionality on a Quests-only / Professions-only server, ask the admin to enable at least one of the five systems above. The `Eclipsed` Bloodcraft config value is a separate broadcast-frequency knob (true = 0.1 s updates, false = 2.5 s updates) — both values work, but `Eclipsed=true` gives the smoothest experience on modern Bloodcraft. On older Bloodcraft builds, `Eclipsed=false` may suppress broadcasts entirely; if your server is stuck on an older release, set it to true.
+
 ---
 
 **Repo:** https://github.com/KDavidP1987/BloodCraftHub
-**Status:** v0.14.0 — public on Thunderstore. 17 tabs across BLOODCRAFT / KINDRED / SETTINGS-AND-HELP, 7 secondary overlays (including the new combined info overlay), every chat command from the 3 backing server mods surfaced as forms + buttons (~250+ commands). v0.12.x added a two-zone panel color theme + Game Guide tab + Bloodcraft handshake retry; v0.13.x added per-profession overlay toggles, a comprehensive Mod Help reference with collapsible Details / Default Settings blocks, and inline class-synergy hint cards on the Class / Weapon Expertise / Blood Legacy / Prestige tabs; v0.14.0 ships the combined info overlay — one draggable panel containing XP / Familiar / Weapon Expertise / Blood Legacy / Professions / Quests in a single container, with per-system progress bars and stat-value sub-rows that respect the existing HUD-extras settings.
+**Status:** v0.15.0 — public on Thunderstore. **Pre-1.0 public beta** — actively developed; APIs and UI may still shift before 1.0. 24 tabs across BLOODCRAFT / KINDRED / SETTINGS-AND-HELP, 7 secondary overlays (including the combined info overlay), every chat command from the 3 backing server mods surfaced as forms + buttons (~250+ commands). v0.12.x added a two-zone panel color theme + Game Guide tab + Bloodcraft handshake retry; v0.13.x added per-profession overlay toggles, a comprehensive Mod Help reference, and inline class-synergy hint cards; v0.14.0 shipped the combined info overlay. **v0.15.0** is a UX-polish + reliability release: an in-rail diagnostic panel that explains a failed Bloodcraft handshake (and offers a one-click "Force-enable" override so users on partial servers can still drive the chat-regex pipeline); a per-feature availability tracker (infrastructure for v0.16's chat-regex probes); a tab-strip ScrollRect + minHeight clamp so the Bloodcraft Admin button never hides behind the Kindred header; toggle/checkbox borders that are now genuinely visible on every monitor (anchored-stretch Frame + opaque ColorBlock); a "Reset familiar" relabel to clarify it's non-destructive; a familiar-browser min-height drop (440 → 220) so users with large text settings can fit it into small monitor corners; a first-pass controller-A-press regression fix on the floating BCH/OV buttons (controller testing is ongoing — see the controller heads-up at the top of this README); opt-in keyboard hotkeys for the floating-button actions (bind via Settings → Display → Hotkeys); a three-state diagnostic logging mode (Off / Session / Always); and a main-panel save-data fix that prevents a stale `IsPinned=True` from locking the panel against drag/resize.
 
 ## Screenshots
 
-*All captures below are from v0.13.0 — every UI piece shown still applies in v0.14.0.*
+*All captures below are from v0.13.0 — every UI piece shown still applies in v0.15.0. v0.15.0's UX polish (in-rail Bloodcraft handshake diagnostic, brighter toggle borders, opt-in hotkeys, three-state diagnostic logging) is largely invisible until triggered; the screenshots below still represent the day-to-day look of the panel.*
 
 ![Class tab — class-synergy card (v0.13.0)](https://raw.githubusercontent.com/KDavidP1987/BloodCraftHub/main/docs/screenshots/v0.13.0%20Screenshots/BloodCraftHub_Screenshot_v0.13.0-IMG4.png)
 *Class tab — Active Class card now includes the live class-details block (Death Mage shown here, with archetype + tagline + weapon/blood synergies + on-hit debuff). The Last server response strip at the bottom shows the same data the Bloodcraft `.class lst` reply carries, with stat synergies color-coded by Weapon / Blood. Settings → Display → Combined overlay carries the same data into the combined HUD overlay's Weapon and Blood sections.*
@@ -39,21 +55,29 @@ v0.x is still public-beta. The major feature set is in place and the mod has bee
 ![In-game capture — combined HUD elements (v0.13.0)](https://raw.githubusercontent.com/KDavidP1987/BloodCraftHub/main/docs/screenshots/v0.13.0%20Screenshots/BloodCraftHub_Screenshot_v0.13.0-IMG1.png)
 *Main panel open in-world to the V-Bloods collection tab, with the bound-familiar indicator at the right of the screen and the floating BCH button strip at the top-right. The footer overlay-toggle row (visible at the bottom of the main panel) is where the v0.14 Combined toggle lives, sitting alongside XP / Familiar / Familiar Browser / Daily Quest / Professions / Shift Spell.*
 
+![In-world combat capture — overlay readouts during play](https://raw.githubusercontent.com/KDavidP1987/BloodCraftHub/main/docs/screenshots/v0.13.0%20Screenshots/BloodCraftHub_Screenshot_v0.13.0-IMG12.png)
+*Mid-combat shot showing BCH's overlays running unobtrusively alongside the V Rising HUD. The right-side stack shows the XP / weapon / blood / familiar progress readouts streaming live data via Bloodcraft's signed broadcast protocol; the per-overlay transparency settings keep them legible without competing for visual attention with the vampire-vs-VBlood fight in the center.*
+
 ## What it does
 
-- **Single floating "BCH" button** top-right of the screen → opens the main panel.
+- **Floating BCH + OV button strip** top-right of the screen → BCH opens the main panel; OV is a master overlay show/hide that respects each overlay's individual setting.
 - **Tabbed primary UI** with 3 collapsible groups in the left rail:
-  - **BLOODCRAFT** (10 tabs): Familiars, Boxes, Class, Weapon Expertise, Blood Legacy, Unarmed + Shift, Prestige, Levels, Daily Quests, Admin
+  - **BLOODCRAFT** (12 tabs): Familiars, Boxes, V-Bloods, All Familiars, Class, Weapon Expertise, Blood Legacy, Unarmed + Shift, Prestige, Levels, Daily Quests, Admin
   - **KINDRED** (6 tabs): Logistics, Logistics: Admin, Commands, Admin: Players, Admin: Server, Admin: World
-  - **HELP** (3 tabs): Quick Start, Vanilla Admin reference, About
-- **Five secondary overlays** (toggle from footer): XP tracker (with EXO prestige), Familiar quick-glance, Familiar Browser, Daily Quest tracker, and Professions (all eight Bloodcraft profession levels). Each is independent draggable + resizable, with its own background transparency setting (0/25/50/75/100%). Visibility persists across sessions; a master "OV" button next to the BCH floating button hides/shows all currently-enabled overlays at once.
-- **Dual text-size toggle** (Small / Standard / Large, separate for the UI and for the overlays) on the Help → About tab.
+  - **SETTINGS AND HELP** (6 tabs): Quick Start, Mod Help, Game Guide, Settings, Vanilla Admin, About
+- **Seven secondary overlays** (toggle from footer): XP tracker (with EXO prestige), Familiar quick-glance, Familiar Browser, Daily Quest tracker, Professions (all eight Bloodcraft profession levels), Shift Spell cooldown, and the v0.14 Combined info overlay (one panel with XP + Familiar + Weapon + Blood + Professions + Quests in configurable sections). Each is independently draggable + resizable, with its own background transparency setting. Visibility persists across sessions; the OV button hides/shows all currently-enabled overlays at once. Combined mode is mutually exclusive with the four standalone info overlays it replaces (XP / Familiar / Daily Quest / Professions).
+- **In-rail Bloodcraft diagnostic + Force-enable** (v0.15.0) — when the Bloodcraft handshake fails (server doesn't run Bloodcraft, runs only Quests/Professions, or has the older hard-Eclipsed config), the BLOODCRAFT group expands to a diagnostic explaining the cause + a one-click button to force-enable tabs so the chat-regex pipeline (`.fam boxes`, `.quest p`, `.bl get`, etc.) remains usable.
+- **Opt-in keyboard hotkeys** (v0.15.0) — bind one key to "open main panel" and another to "toggle all overlays" via Settings → Display → Hotkeys. Unbound by default; mouse clicks on the floating button strip work unchanged.
+- **Three-state diagnostic mode** (v0.15.0) — Off / Session / Always. Session-only logging never persists across game restarts, so a one-off bug repro can't leave verbose logging on forever.
+- **Dual text-size toggle** (Small / Standard / Large / X-Large, separate for the UI and for the overlays) on the Settings tab.
 - **"Last server response" docked panel** at the bottom of the main panel — replies to read-data chat commands (`.wep get`, `.class l`, `.misc userstats`, `.clan list`, etc.) appear in-UI as well as in chat, so you don't have to chase the chat box for the answer.
 - **Forms-driven commands** — every chat command with arguments has a real form (player picker + enum dropdowns + numeric inputs + Submit). No more typing `.lvl set <Player> <Level>` in chat.
-- **Live data** via Bloodcraft's structured MAC-signed protocol (the same channel Eclipse uses). Falls back to regex parsing for `.fam boxes`/`.fam l` replies.
-- **Hover tooltips** for every control, surfaced in a single footer line.
-- **Scrollable tabs** — long admin tabs scroll within the viewport instead of clipping.
+- **Live data** via Bloodcraft's structured MAC-signed protocol (the same channel Eclipse uses). Falls back to regex parsing for `.fam boxes` / `.fam l` / `.bl get` / `.wep get` and other read-data replies that the structured protocol doesn't cover.
+- **Two-zone panel color theme** (v0.12.x) — outer chrome and interior scroll surfaces are independently themed, with seven dark + seven bright presets for the interior and a free-form hex picker for either zone.
+- **Hover tooltips** for every control, surfaced in a single footer line at the bottom of the panel.
+- **Scrollable tabs + scrollable left rail** — long admin tabs scroll within the viewport instead of clipping; the tab strip itself scrolls when all groups are expanded so the BLOODCRAFT Admin button is always reachable.
 - **Auto-resizing panel** that grows/shrinks to fit the active tab content (capped at 90% of screen height; toggleable).
+- **V-Blood collection scanner** — walks every familiar box to catalog which V-Bloods you've captured, with summon-from-anywhere via the V-Bloods tab or the Familiar Browser overlay's V-Blood mode.
 - **Passive player-name autocomplete cache** that fills as the server prints names into chat.
 
 ## Installation
@@ -94,14 +118,17 @@ BloodCraftHub talks to the server through chat commands and Bloodcraft's signed 
 | **Bloodcraft** (server) | v1.13.21 | Primary integration target |
 | **KindredCommands** (server) | v2.5.8 | Admin/player commands surfaced under KINDRED |
 | **KindredLogistics** (server) | v1.6.0 | Personal/admin toggles surfaced under KINDRED |
-| **Eclipse** (client, optional) | v1.3.13 | Source mod for the signed-protocol design; coexists, doesn't conflict |
+| **Eclipse** (client) | v1.3.13 | Source mod for the signed-protocol design. **⚠ Currently conflicts** — see the Eclipse heads-up at the top of this README. Disable Eclipse while running BloodCraftHub. Coexistence work is planned for a future release. |
 | **BloodCraftUI / OnlyFams** (client, optional) | v1.1.0 | Source mod for the panel framework; coexists, doesn't conflict |
 
 If the server is running a newer Bloodcraft, most things should still work — the chat-command grammar is fairly stable. If a tab silently does nothing on click, the server probably renamed a command and `MessageService_Processing.cs`'s `BCCOM_*` constants need a bump.
 
 ## Known issues
 
-- **Tooltips occasionally don't render** on some control rows — diagnostic logging is in. If you see "TooltipHover wired" in BepInEx's `LogOutput.log` but the footer never updates while hovering, please open a GitHub issue.
+- **Eclipse mod conflict** — see the top-of-README heads-up. Having Eclipse + BCH installed simultaneously hard-crashes the V Rising client. Disable Eclipse while running BloodCraftHub. Coexistence work is planned.
+- **Controller / gamepad edge cases under investigation** — see the controller heads-up at the top of this README. v0.15.0 ships a first-pass fix; more thorough testing is in progress. If you play with a controller and notice the UI opening, closing, or focusing on the wrong button after an in-game action, please report via Discord with repro steps.
+- **Per-feature server detection is conservative** — when a Bloodcraft server has the structured protocol enabled but individual systems (Familiars / Quests / Professions / etc.) disabled, BCH currently still shows the corresponding tabs and overlays. v0.16.0 will add chat-regex probes so the UI can hide / dim per-system surfaces that the server has turned off.
+- **Tooltips occasionally don't render** on some control rows — diagnostic logging is in. If you see "TooltipHover wired" in BepInEx's `LogOutput.log` but the footer never updates while hovering, please open a GitHub issue (or toggle Settings → Display → Hotkeys & diagnostics → Diagnostic mode to **This session** and share the relevant `LogOutput.log` snippet).
 - **No autocomplete dropdown yet** — the player-name cache fills passively from chat, but the form fields don't render a dropdown of known names. You still have to type the name. Planned for a follow-up release.
 - **Pagination only on `.clan list`** — the other paginated commands (`.castle plotsowned`, `.search item`, etc.) accept a `page` int but don't have prev/next widgets yet. Type the command in chat for now.
 - **Quitting V Rising is required before redeploy** if you're a developer iterating — the running game file-locks `BloodCraftHub.dll` and the post-build copy step errors.

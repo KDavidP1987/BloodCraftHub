@@ -110,6 +110,13 @@ public class Plugin : BasePlugin
         // adds the standard "click anywhere on the track to jump there" UX.
         CoreUpdateBehavior.Actions.Add(UI.Framework.UniverseLib.UI.Widgets.SliderClickRegistry.TickClickOnTrack);
 
+        // 0.15.0: hotkey listener. Polls the two configurable shortcuts every
+        // frame and fires the same actions as clicking the floating BCH / OV
+        // buttons. Hotkeys default to KeyboardShortcut.Empty so the listener
+        // is effectively a single bool check (IsEmpty) per frame until the
+        // user binds something — cheap when unused.
+        CoreUpdateBehavior.Actions.Add(TickHotkeys);
+
         _harmony = Harmony.CreateAndPatchAll(Assembly.GetExecutingAssembly(), MyPluginInfo.PLUGIN_GUID);
 
         IsInitialized = true;
@@ -154,5 +161,37 @@ public class Plugin : BasePlugin
         _client = world;
         IsGameDataInitialized = true;
         LogUtils.LogInfo("Client world bound; game data initialized.");
+    }
+
+    // 0.15.0: per-frame hotkey poll. BCHotkey.IsDown returns true only on
+    // the frame the binding's main key transitions Up -> Down AND every
+    // modifier is currently held — fires once per press regardless of how
+    // long the user holds the key. Skipped until UIManager is initialized
+    // since UIOnInitialize wires the click handlers we route to.
+    private static void TickHotkeys()
+    {
+        if (UIManager == null || !UIManager.IsInitialized) return;
+
+        var mainHotkey = Settings.HotkeyToggleMainPanel;
+        if (!mainHotkey.IsEmpty && mainHotkey.IsDown())
+        {
+            try
+            {
+                LogUtils.LogDiagnostic($"Hotkey fired: HotkeyToggleMainPanel ({mainHotkey})");
+                UIManager.ToggleMainPanel();
+            }
+            catch (System.Exception ex) { LogUtils.LogError($"HotkeyToggleMainPanel handler threw: {ex}"); }
+        }
+
+        var overlayHotkey = Settings.HotkeyToggleAllOverlays;
+        if (!overlayHotkey.IsEmpty && overlayHotkey.IsDown())
+        {
+            try
+            {
+                LogUtils.LogDiagnostic($"Hotkey fired: HotkeyToggleAllOverlays ({overlayHotkey})");
+                UIManager.ToggleAllOverlaysSuppressed();
+            }
+            catch (System.Exception ex) { LogUtils.LogError($"HotkeyToggleAllOverlays handler threw: {ex}"); }
+        }
     }
 }

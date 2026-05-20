@@ -7,6 +7,116 @@
 > bundled copy summarizes earlier versions and reproduces the most
 > recent release in full.
 
+## 0.15.0 — Bloodcraft availability diagnostic + visible toggle borders + opt-in hotkeys + diagnostic mode + drag-fix
+
+Friend-test feedback bundle on top of v0.14.0. Eleven items across UX
+redundancy, polish, a controller regression, a panel-locked-by-stale-
+save regression, and two new opt-in user-experience tools (configurable
+hotkeys + three-state diagnostic logging).
+
+### Bloodcraft availability — diagnostic + override
+
+- **In-rail diagnostic panel.** When BCH's Eclipse-protocol handshake
+  times out after the 15-second retry window AND `BloodcraftAvailability`
+  is still on the default `Auto`, the BLOODCRAFT tab group in the left
+  rail expands to a bright-labeled diagnostic instead of just greying
+  out. It names the three likely root causes (server doesn't run
+  Bloodcraft; runs only `QuestSystem` / `ProfessionSystem`; older
+  Bloodcraft with hard `Eclipsed=false`) and surfaces a one-click
+  **Force-enable tabs** button. Clicking it flips
+  `BloodcraftAvailability=On` for the session so the user can navigate
+  into Bloodcraft tabs and drive the chat-regex pipeline (`.fam boxes`
+  / `.quest p` / `.bl get` / etc.) with replies surfacing in the
+  **Last server response** docked panel.
+- **Per-feature degradation infrastructure** (visual treatment
+  reverted). `PlayerStateService.ServerFeatureFlags` tracks per-system
+  Bloodcraft availability from each ProgressToClient broadcast and
+  exposes a `FeatureFlagsChanged` event. The in-UI tab dimming +
+  overlay auto-hide that v0.15.0 originally added was reverted after
+  friend-test surfaced false positives (Familiar/Shift detection
+  signals only fire when the user is actively engaged with each
+  system). Infrastructure stays for v0.16's chat-regex probes.
+
+### UI polish
+
+- **Toggle / checkbox borders are now genuinely visible** on every
+  monitor. Five-iteration fix landing on an anchored-stretch 2-px
+  Frame Image painted near-white plus a custom opaque ColorBlock so
+  the inner fill no longer ghosts into the panel chrome at low
+  panel-opacity settings. Affects every Toggle in BCH — form
+  `BoolField`s, footer overlay toggles, Settings toggles, etc.
+- **Tab strip overflow fix.** All three groups expanded
+  simultaneously (BLOODCRAFT 12 / KINDRED 6 / SETTINGS-AND-HELP 6)
+  no longer collapses the BLOODCRAFT content to zero height and
+  hides the Admin button behind the KINDRED header. Two-part fix:
+  `minHeight = preferredHeight` clamp on each group's content
+  GameObject + ScrollRect wrapping the entire strip so it scrolls
+  when content exceeds available vertical space.
+- **Familiar Browser overlay min-height** dropped from 440 → 220 so
+  users with Large text settings can fit it into small monitor
+  corners. Shrinkage comes entirely out of the central scrollable
+  list — toolbar, box-name, status, and Unbind/Toggle footer rows
+  stay at their natural heights at every overlay size.
+
+### Wording
+
+- **"Reset all familiar entities" relabel.** Pre-0.15 the
+  Familiars-tab section was titled `"Reset all familiar entities
+  (.fam reset) — DESTRUCTIVE"` and the confirm checkbox read `"Yes,
+  destroy active follower entities"`. A user-test showed `.fam reset`
+  is actually non-destructive at the collection level — it clears
+  stuck `FollowerBuffer` entities + the active-familiar record, but
+  box records and unlocks are preserved (familiars can be re-summoned
+  via `.fam b N` afterwards). Now titled `"Force-unbind stuck
+  familiar (.fam reset)"` with a tooltip that emphasizes box records
+  + unlocks are preserved.
+
+### Regressions fixed
+
+- **Controller A-press could re-open the main panel after a teleport
+  waypoint.** First-pass fix: `Navigation.Mode.None` on the floating
+  BCH / OV buttons so they're excluded from the UI navigation graph
+  entirely, plus `EventSystem.SetSelectedGameObject(null)` after each
+  click as belt-and-braces. Mouse clicks work unchanged. **Controller
+  testing is ongoing** — the README's new "Controller / gamepad input
+  under investigation" heads-up asks for repro reports via Discord.
+- **Main panel could load locked against drag/resize** when a stale
+  `IsPinned=True` had been persisted in the panel's save data (e.g.
+  from a pre-0.11.2 fullscreen session that triggered a save before
+  the "fullscreen state is transient" rule landed). `ApplySaveData`
+  now skips the IsPinned bit for panels that don't opt into
+  `RespectsLockOverlays` (the main panel doesn't), and the Settings
+  → Display → Size & Positioning **Default** button defensively
+  unpins so existing-broken-state users can recover without
+  restarting the game.
+
+### New opt-in tools
+
+- **Keyboard hotkeys** for the floating-button actions. Two slots:
+  Open main panel + Toggle all overlays. Both unbound by default;
+  bind via Settings → Display → Hotkeys & diagnostics → click "Set..."
+  → press any key (or modifier+key combo). Persists to `.cfg` as a
+  human-readable string (`"Insert"`, `"Ctrl+H"`, etc.).
+- **Three-state diagnostic mode** — Off / Session / Always. Off by
+  default; Session-only logging never persists across game restarts,
+  so a one-off bug repro can't leave verbose `[DIAG]` logging on
+  forever. When active in any non-Off state, BCH emits `[DIAG]`-
+  tagged trace logs for UI clicks, overlay toggles, protocol
+  registration transitions, feature-flag transitions, and hotkey
+  fires.
+
+### Documentation
+
+- README adds two new "Heads-up before you install" entries
+  (controller-input under investigation; server-side Bloodcraft
+  compatibility) and updates the Eclipse compatibility-table row to
+  reflect the current client-crash conflict (previously listed Eclipse
+  as "coexists, doesn't conflict" — outdated since the issue was
+  discovered).
+- New screenshot added (mid-combat capture showing BCH overlays
+  running alongside the V Rising HUD).
+- Tab counts, overlay counts, and group names refreshed throughout.
+
 ## 0.14.0 — Combined info overlay + default-size bump + dead-command cleanup
 
 The marquee v0.14.0 feature: **one combined info overlay** that
@@ -51,9 +161,10 @@ turning it off restores them.
 
 - **Removed unimplemented Bloodcraft battle-group commands**
   (`.fam abg`, `.fam cbg`, `.fam sbg`, `.fam dbg`, `.fam bgs`,
-  `.fam bg`, `.fam challenge`). Per Anton Krüger: these never
-  shipped functionally in Bloodcraft v1.1+. The entire Battle Groups
-  card on the Familiars tab is removed; intercept paths cleaned up.
+  `.fam bg`, `.fam challenge`). A Bloodcraft server admin confirmed
+  in chat that these never shipped functionally in Bloodcraft v1.1+.
+  The entire Battle Groups card on the Familiars tab is removed;
+  intercept paths cleaned up.
 - **Main panel default size bumped from 600×380 → 960×700**. Two
   rounds of friend-test feedback that the post-v0.13 layout was
   cramped at the old default. Existing saved sizes preserved.

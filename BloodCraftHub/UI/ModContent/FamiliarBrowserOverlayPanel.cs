@@ -46,10 +46,18 @@ public class FamiliarBrowserOverlayPanel : ResizeablePanelBase
     public override PanelType PanelType => PanelType.FamiliarBrowserOverlay;
 
     public override int MinWidth  => 280;
-    // Tall enough that the default size shows ~12 familiar rows comfortably
-    // (a full 10-fam box plus a couple extra). At 22px per row that's 264px
-    // for the list + ~110px for header/status/footer + chrome.
-    public override int MinHeight => 440;
+    // 0.15.0: lowered from 440 to 220. The toolbar / box-name / status rows
+    // sum to ~70 px at their minHeights, the footer to 26 px, and the scroll
+    // view's own minHeight is 80 px — so 220 (with chrome) is the practical
+    // floor below which content starts overlapping. The header and footer
+    // rows have flexibleHeight: 0 while the scroll view has flexibleHeight:
+    // 1, which means ALL of the shrinkage between the default 440 and the
+    // new 220 floor comes out of the familiar list area — header buttons,
+    // box name + count, and the Unbind footer stay at their natural sizes.
+    // Friend-test 0.14.0: users with large text settings reported a sliver
+    // of unused space below the list when they wanted to fit the overlay
+    // into a small monitor corner.
+    public override int MinHeight => 220;
 
     public override Vector2 DefaultAnchorMin => new(0.5f, 0.5f);
     public override Vector2 DefaultAnchorMax => new(0.5f, 0.5f);

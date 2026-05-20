@@ -613,38 +613,131 @@ public static class UIFactory
         SetLayoutGroup<HorizontalLayoutGroup>(result.GameObject, false, false, true, true, 5, 0, 0, 0, 0, childAlignment: TextAnchor.MiddleLeft);
         result.Toggle = result.GameObject.AddComponent<Toggle>();
         result.Toggle.isOn = true;
-        SetDefaultSelectableValues(result.Toggle);
-        // need a second reference so we can use it inside the lambda, since 'toggle' is an out var.
-        //var t2 = result.Toggle;
-        //result.Toggle.onValueChanged.AddListener(_ => { t2.OnDeselect(null); });
 
-        // Check mark background
+        // 0.15.0 friend-test v4: third Frame-border attempt. v1 used Unity
+        // Outline (4 corner specks — invisible at scale). v2 used HLG-
+        // based 1-px Frame (user still couldn't see the border). v3 used
+        // HLG-based 2-px Frame with near-white color — STILL invisible per
+        // the user's third report.
+        //
+        // Two root causes diagnosed for v4:
+        //
+        //   (a) HLG-driven sizing for the Background inside the Frame was
+        //       unreliable across the various nested layouts BCH uses.
+        //       The Background's flexibleWidth/Height could overrun the
+        //       Frame's content area in some HLG contexts, covering the
+        //       entire Frame and leaving zero visible border. v4 uses
+        //       explicit anchored-stretch positioning (Background pinned
+        //       to Frame's edges with offsetMin/Max = border thickness),
+        //       which is mathematically guaranteed to leave the border
+        //       visible regardless of any parent layout choices.
+        //
+        //   (b) Unity's Selectable component overwrites targetGraphic.color
+        //       every frame to match colors.normalColor (which inherits
+        //       panel opacity via Theme.SelectableNormal). At 60% panel
+        //       opacity the Background fill rendered at 60% alpha, making
+        //       the entire toggle ghost into the panel — and a dark fill
+        //       at 60% alpha against a 0.07 panel looks practically
+        //       identical to the panel itself. v4 assigns a custom
+        //       ColorBlock with FULL-ALPHA colors specifically for
+        //       toggles so the fill is opaque at every panel opacity
+        //       setting.
+        //
+        // Hierarchy (anchored throughout, no nested HLGs):
+        //
+        //   Frame  (LayoutElement 28x28, Image = Theme.ToggleOutline)
+        //     └ Background (anchored stretch offset 3 px, Image = inner
+        //                    fill — color managed by Selectable but with
+        //                    custom ColorBlock so FILL is opaque)
+        //         └ Checkmark (anchored stretch offset 3 px, Image)
+        //
+        // Border ring = 3 px on all four sides. Inner fill area = 22x22,
+        // visually identical to the v0.14 checkbox before any border
+        // additions. Outer footprint = 28x28, 8 px larger than v0.14 on
+        // each side — large enough that the border reads as a clear ring
+        // and not a sliver.
 
-        var checkBgObj = CreateUIObject("Background", result.GameObject);
+        // 0.15.0 friend-test v5: trimmed border from 3 px to 2 px and
+        // dropped the extra +2 outer padding from v4. Reader feedback:
+        // "borders are now too thick" after the v4 jump. 2 px stays
+        // unmistakable on every monitor tested but doesn't dominate the
+        // toggle visually. Outer footprint = checkWidth + 4 (e.g. 24×24
+        // for the default 20×20 callers), inner fill stays 20×20.
+        const int BORDER_PX = 2;
+        const int CHECK_INSET_PX = 3;
+        int frameW = checkWidth + 2 * BORDER_PX;
+        int frameH = checkHeight + 2 * BORDER_PX;
+
+        // Custom ColorBlock — full-alpha brighter slate so the toggle fill
+        // is opaque + visible at every panel opacity. Compare to
+        // Theme.SelectableNormal (0.2,0.2,0.2, Opacity) which ghosts at
+        // low panel opacity. The fill still gets the standard hover/press
+        // tint, just from a higher floor so it never becomes invisible.
+        var toggleColors = new ColorBlock
+        {
+            normalColor      = new Color(0.30f, 0.30f, 0.34f, 1.0f),
+            highlightedColor = new Color(0.45f, 0.45f, 0.50f, 1.0f),
+            pressedColor     = new Color(0.22f, 0.22f, 0.26f, 1.0f),
+            selectedColor    = new Color(0.35f, 0.35f, 0.40f, 1.0f),
+            disabledColor    = new Color(0.16f, 0.16f, 0.18f, 0.5f),
+            colorMultiplier  = 1f,
+            fadeDuration     = 0.1f,
+        };
+        result.Toggle.colors = toggleColors;
+        var nav = result.Toggle.navigation;
+        nav.mode = Navigation.Mode.Explicit;
+        result.Toggle.navigation = nav;
+
+        // Frame — outer border. Locked to frameW x frameH by LayoutElement
+        // so the toggle's outer HLG can't squeeze it.
+        var frameObj = CreateUIObject("Frame", result.GameObject);
+        var frameImage = frameObj.AddComponent<Image>();
+        frameImage.color = Theme.ToggleOutline;
+        frameImage.raycastTarget = true; // Selectable needs a raycast target on the click area
+        SetLayoutElement(frameObj,
+            minWidth: frameW, preferredWidth: frameW, flexibleWidth: 0,
+            minHeight: frameH, preferredHeight: frameH, flexibleHeight: 0);
+
+        // Background — anchored-stretched to fill Frame minus BORDER_PX
+        // on each side. THIS IS THE KEY DIFFERENCE FROM v2/v3: no HLG,
+        // no LayoutElement on Background. Anchored stretching is
+        // mathematically guaranteed to inset by exactly BORDER_PX
+        // regardless of any layout-group quirks.
+        var checkBgObj = CreateUIObject("Background", frameObj);
+        var bgRect = checkBgObj.GetComponent<RectTransform>();
+        bgRect.anchorMin = Vector2.zero;
+        bgRect.anchorMax = Vector2.one;
+        bgRect.offsetMin = new Vector2(BORDER_PX, BORDER_PX);
+        bgRect.offsetMax = new Vector2(-BORDER_PX, -BORDER_PX);
         var bgImage = checkBgObj.AddComponent<Image>();
-        bgImage.color = bgColor == default ? Theme.ToggleNormal: bgColor;
+        bgImage.color = bgColor == default ? toggleColors.normalColor : bgColor;
+        bgImage.raycastTarget = true;
 
-        SetLayoutGroup<HorizontalLayoutGroup>(checkBgObj, true, true, true, true, 0, 2, 2, 2, 2);
-        SetLayoutElement(checkBgObj, minWidth: checkWidth, flexibleWidth: 0, minHeight: checkHeight, flexibleHeight: 0);
-
-        // Check mark image
-
-        GameObject checkMarkObj = CreateUIObject("Checkmark", checkBgObj);
-        Image checkImage = checkMarkObj.AddComponent<Image>();
+        // Checkmark — anchored-stretched to fill Background minus
+        // CHECK_INSET_PX on each side. Visible only when isOn=true (the
+        // Toggle component manages this via the graphic property below).
+        var checkMarkObj = CreateUIObject("Checkmark", checkBgObj);
+        var ckRect = checkMarkObj.GetComponent<RectTransform>();
+        ckRect.anchorMin = Vector2.zero;
+        ckRect.anchorMax = Vector2.one;
+        ckRect.offsetMin = new Vector2(CHECK_INSET_PX, CHECK_INSET_PX);
+        ckRect.offsetMax = new Vector2(-CHECK_INSET_PX, -CHECK_INSET_PX);
+        var checkImage = checkMarkObj.AddComponent<Image>();
         checkImage.color = Theme.ToggleCheckMark;
+        checkImage.raycastTarget = false;
 
-        // Label 
+        // Label
 
-        GameObject labelObj = CreateUIObject("Label", result.GameObject);
+        var labelObj = CreateUIObject("Label", result.GameObject);
         result.Text = labelObj.AddComponent<TextMeshProUGUI>();
         result.Text.text = text;
         result.Text.alignment = TextAlignmentOptions.MidlineLeft;
         SetDefaultTextValues(result.Text);
+        SetLayoutElement(labelObj, minWidth: 0, flexibleWidth: 0, minHeight: frameH, flexibleHeight: 0);
 
-        SetLayoutElement(labelObj, minWidth: 0, flexibleWidth: 0, minHeight: checkHeight, flexibleHeight: 0);
-
-        // References
-
+        // References. targetGraphic = inner Background; Selectable's
+        // hover/press tint applies to the fill while the Frame's bright
+        // border stays a constant color regardless of state.
         result.Toggle.graphic = checkImage;
         result.Toggle.targetGraphic = bgImage;
 

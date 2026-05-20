@@ -468,6 +468,37 @@ public static class PlayerStateService
         public int  MaxFamiliarLevel;
     }
 
+    /// <summary>0.15.0: per-Bloodcraft-system availability inferred from
+    /// ProgressToClient broadcasts. Each flag is sticky-Enabled: once we
+    /// observe non-zero data for a system, it stays Enabled for the
+    /// session regardless of subsequent zeroed broadcasts (a player who
+    /// resets their progress should still see the tab/overlay).
+    ///
+    /// SettlingComplete flips true after a fixed observation window (see
+    /// FEATURE_DETECTION_SETTLING_SECONDS) — only after that do any "still
+    /// at zero" systems get marked Disabled. Pre-settling, every system
+    /// reads as Enabled so the UI doesn't briefly hide things right after
+    /// world entry while ProgressToClient broadcasts haven't accumulated.
+    ///
+    /// "Disabled" here means "Bloodcraft's server-side EclipseService
+    /// returned all-zeros for this system across the settling window"
+    /// — usually because the corresponding ConfigService.XxxSystem flag
+    /// is false on the server. UI gates dim/hide their elements when
+    /// the flag is Disabled.</summary>
+    public struct ServerFeatureFlags
+    {
+        public bool Leveling;
+        public bool Legacy;
+        public bool Expertise;
+        public bool Familiar;
+        public bool Class;
+        public bool Profession;
+        public bool Quest;
+        public bool ShiftSlot;
+        public bool SettlingComplete;
+        public int  ObservedBroadcasts;
+    }
+
     // =========================================================================
     // STATE + EVENTS
     // =========================================================================
@@ -481,6 +512,20 @@ public static class PlayerStateService
     public static QuestState       WeeklyQuest { get; private set; }
     public static ShiftSpellState  ShiftSpell  { get; private set; }
     public static ServerConfig     Config      { get; private set; }
+    public static ServerFeatureFlags FeatureFlags { get; private set; } = DefaultFeatureFlags();
+
+    // 0.15.0: settling window for per-feature detection. After the FIRST
+    // ProgressToClient broadcast lands, we observe data for this many
+    // seconds before marking any system as Disabled. The window has to
+    // exceed Bloodcraft's broadcast interval (0.1s when ConfigService.
+    // Eclipsed=true, 2.5s when false) by enough that a brand-new player
+    // who hasn't done anything still has time to (a) be assigned a daily
+    // quest, (b) receive their first XP/legacy gain, etc. 30 s is a
+    // friendly trade-off — long enough to avoid false Disabled on fresh
+    // accounts, short enough that users on partial-system servers see
+    // the UI degrade quickly.
+    private const float FEATURE_DETECTION_SETTLING_SECONDS = 30f;
+    private static float _firstProgressAt = -1f;
 
     // Box-browser state fed by the legacy regex pipeline (MessageService_Processing.HandleInboundChat).
     public static System.Collections.Generic.List<string> BoxList { get; private set; }
@@ -492,6 +537,11 @@ public static class PlayerStateService
     public static event Action ExperienceChanged;
     public static event Action LegacyChanged;
     public static event Action ExpertiseChanged;
+    /// <summary>0.15.0: fired whenever any flag on FeatureFlags transitions
+    /// (sticky-Enabled flip, settling completion, etc.). UI subscribers
+    /// (tab strip, overlay manager, combined overlay) refresh their
+    /// per-system visibility on this signal.</summary>
+    public static event Action FeatureFlagsChanged;
     public static event Action FamiliarChanged;
     public static event Action ProfessionChanged;
     public static event Action QuestChanged;
@@ -671,6 +721,138 @@ public static class PlayerStateService
     internal static void UpdateWeeklyQuest(in QuestState s)     { WeeklyQuest = s; Fire(QuestChanged); }
     internal static void UpdateShiftSpell(in ShiftSpellState s) { ShiftSpell = s; Fire(ShiftSpellChanged); }
     internal static void UpdateConfig(in ServerConfig s)        { Config = s;     Fire(ConfigChanged); }
+
+    /// <summary>0.15.0: re-run per-feature availability detection. Called by
+    /// EclipseProtocolService AFTER each ProgressToClient broadcast has
+    /// updated the individual state structs. The detection rule is
+    /// sticky-Enabled: once we see non-zero data for a system, the flag
+    /// flips Enabled and stays Enabled for the session. Pre-settling we
+    /// keep every flag Enabled so the UI doesn't briefly hide things at
+    /// world-entry. After FEATURE_DETECTION_SETTLING_SECONDS, any system
+    /// that never showed non-zero data gets marked Disabled.</summary>
+    internal static void RecomputeFeatureFlagsFromLatest()
+    {
+        var f = FeatureFlags;
+        bool anyChange = false;
+
+        // Initialize the settling timer on the FIRST ProgressToClient. The
+        // EclipseProtocolService only calls this method after a successful
+        // MAC-verified ProgressToClient parse, so reaching here is itself
+        // proof that the structured pipeline is live.
+        if (_firstProgressAt < 0f) _firstProgressAt = UnityEngine.Time.realtimeSinceStartup;
+        f.ObservedBroadcasts++;
+
+        // Sticky-Enabled per system. The signals are chosen to be
+        // unambiguously non-zero whenever the system is enabled server-side
+        // — see explore-agent's audit of Bloodcraft/Services/EclipseService.cs
+        // GetXxxData. Each GetXxxData returns all zeros when its
+        // ConfigService.XxxSystem flag is false, so any non-zero value here
+        // is positive proof the system is enabled.
+        if (!f.Leveling   && Experience.Level > 0)                       { f.Leveling   = true; anyChange = true; }
+        if (!f.Class      && Experience.Class != PlayerClass.None)       { f.Class      = true; anyChange = true; }
+        if (!f.Legacy     && (Legacy.Level > 0 || Legacy.Prestige > 0
+                              || !string.IsNullOrEmpty(Legacy.BonusStatsRaw)))
+                                                                          { f.Legacy     = true; anyChange = true; }
+        if (!f.Expertise  && (Expertise.Level > 0 || Expertise.Prestige > 0
+                              || !string.IsNullOrEmpty(Expertise.BonusStatsRaw)))
+                                                                          { f.Expertise  = true; anyChange = true; }
+        if (!f.Familiar   && Familiar.HasActive)                          { f.Familiar   = true; anyChange = true; }
+        if (!f.Profession && (Profession.EnchantingLevel    > 0
+                              || Profession.AlchemyLevel       > 0
+                              || Profession.HarvestingLevel    > 0
+                              || Profession.BlacksmithingLevel > 0
+                              || Profession.TailoringLevel     > 0
+                              || Profession.WoodcuttingLevel   > 0
+                              || Profession.MiningLevel        > 0
+                              || Profession.FishingLevel       > 0))
+                                                                          { f.Profession = true; anyChange = true; }
+        if (!f.Quest      && (DailyQuest.Goal > 0 || WeeklyQuest.Goal > 0)) { f.Quest    = true; anyChange = true; }
+        if (!f.ShiftSlot  && ShiftSpell.SpellIndex > 0)                    { f.ShiftSlot = true; anyChange = true; }
+
+        // Settling complete? After enough wall-time has passed, lock in
+        // any systems that never showed non-zero data as Disabled.
+        bool settled = (UnityEngine.Time.realtimeSinceStartup - _firstProgressAt) >= FEATURE_DETECTION_SETTLING_SECONDS;
+        if (settled && !f.SettlingComplete)
+        {
+            f.SettlingComplete = true;
+            anyChange = true;
+        }
+
+        if (anyChange)
+        {
+            FeatureFlags = f;
+            BloodCraftHub.Utils.LogUtils.LogDiagnostic(
+                $"FeatureFlags update (broadcast #{f.ObservedBroadcasts}, settled={f.SettlingComplete}): "
+              + $"Leveling={f.Leveling} Legacy={f.Legacy} Expertise={f.Expertise} Familiar={f.Familiar} "
+              + $"Class={f.Class} Profession={f.Profession} Quest={f.Quest} ShiftSlot={f.ShiftSlot}");
+            Fire(FeatureFlagsChanged);
+        }
+    }
+
+    /// <summary>Reset detection state on session boundary (world exit / re-login).
+    /// Called from Plugin or EclipseProtocolService.Reset.</summary>
+    internal static void ResetFeatureFlags()
+    {
+        FeatureFlags = DefaultFeatureFlags();
+        _firstProgressAt = -1f;
+        Fire(FeatureFlagsChanged);
+    }
+
+    /// <summary>0.15.0: pre-settling defaults. Every system reads as Enabled
+    /// so the UI doesn't dim/hide things during the first ~30 s of world
+    /// entry. After settling, any flag that's still false from this
+    /// default would have been overwritten in RecomputeFeatureFlagsFromLatest
+    /// if its system was active — so flags still false at settling time
+    /// genuinely never observed data.</summary>
+    private static ServerFeatureFlags DefaultFeatureFlags() => new ServerFeatureFlags
+    {
+        Leveling   = false,
+        Legacy     = false,
+        Expertise  = false,
+        Familiar   = false,
+        Class      = false,
+        Profession = false,
+        Quest      = false,
+        ShiftSlot  = false,
+        SettlingComplete = false,
+        ObservedBroadcasts = 0,
+    };
+
+    /// <summary>0.15.0: resolve the EFFECTIVE per-system availability. While
+    /// settling, all systems read Enabled so the UI doesn't transiently
+    /// hide things. After settling, systems where we never observed
+    /// non-zero data read Disabled. Helper to keep call sites readable
+    /// — direct FeatureFlags.X queries forget the "pre-settling = enabled"
+    /// rule and produce false negatives.</summary>
+    public static bool IsSystemEnabled(SystemKind kind)
+    {
+        var f = FeatureFlags;
+        if (!f.SettlingComplete) return true;
+        return kind switch
+        {
+            SystemKind.Leveling   => f.Leveling,
+            SystemKind.Legacy     => f.Legacy,
+            SystemKind.Expertise  => f.Expertise,
+            SystemKind.Familiar   => f.Familiar,
+            SystemKind.Class      => f.Class,
+            SystemKind.Profession => f.Profession,
+            SystemKind.Quest      => f.Quest,
+            SystemKind.ShiftSlot  => f.ShiftSlot,
+            _ => true,
+        };
+    }
+
+    public enum SystemKind
+    {
+        Leveling,
+        Legacy,
+        Expertise,
+        Familiar,
+        Class,
+        Profession,
+        Quest,
+        ShiftSlot,
+    }
 
     internal static void UpdateBoxList(System.Collections.Generic.List<string> boxes)
     {

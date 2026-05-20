@@ -1,5 +1,395 @@
 # Changelog
 
+## 0.15.0 — Bloodcraft availability diagnostic + per-feature degradation + tab strip overflow + checkbox visibility + controller-A fix + familiar overlay min-height + .fam reset relabel + opt-in hotkeys + diagnostic mode + main-panel drag fix
+
+Friend-test feedback bundle on top of v0.14.0. Eleven fixes spanning UX
+redundancy, polish, a controller regression, a panel-locked-by-stale-
+save regression, and two new opt-in user-experience tools (configurable
+hotkeys + three-state diagnostic logging).
+
+### New: Bloodcraft "Handshake failed" diagnostic panel
+
+When BCH's Eclipse-protocol RegisterUser handshake times out after the
+15-second retry window AND the user is still on the default
+`BloodcraftAvailability=Auto` setting, the BLOODCRAFT tab group in the
+left rail now expands to an in-panel diagnostic instead of just
+greying out. The diagnostic:
+
+- Stays brightly-labeled (no longer grayed) so the user notices it.
+- Names the three likely root causes: server doesn't run Bloodcraft;
+  server runs Bloodcraft but only `QuestSystem` / `ProfessionSystem`
+  is enabled (which doesn't satisfy Bloodcraft's `Core.Eclipsed` gate);
+  older Bloodcraft + server config `Eclipsed=false`.
+- Surfaces a one-click **Force-enable tabs** button. Clicking it
+  flips `BloodcraftAvailability=On` for the rest of the session and
+  rebuilds the tab strip in place — sub-tab buttons replace the
+  diagnostic, the user can navigate into any Bloodcraft tab and
+  drive the chat-regex pipeline (`.fam boxes` / `.quest p` / `.bl get`
+  / `.wep get` / etc.) with replies surfacing in the **Last server
+  response** docked panel.
+- Notes in a footnote that the override is session-only; to persist
+  across launches, edit `BloodcraftAvailability=On` in
+  `kdpen.BloodCraftHub.cfg`.
+
+The override doesn't make the structured ProgressToClient broadcast
+start working (that gate lives entirely on the server side), so live
+HUD overlays still won't tick — but at least the user can issue
+commands and read replies. README's new **Server-side Bloodcraft
+compatibility** section explains the protocol-gating relationship
+between the five core systems and the broadcast.
+
+Friend-test 0.14.0 root cause: Bloodcraft v1.13.21 only initializes
+its `EclipseService` (the thing that broadcasts ProgressToClient and
+processes the RegisterUser handshake) when at least one of
+`LevelingSystem` / `LegacySystem` / `ExpertiseSystem` / `ClassSystem` /
+`FamiliarSystem` is enabled. Quests-only / Professions-only servers
+silently drop our handshake entirely, leaving BCH staring at an
+unaccountably empty tab group. Pre-0.15.0 the tab group went grey
+with no explanation; users had to know about the `BloodcraftAvailability`
+.cfg override to recover.
+
+### New: per-feature degradation infrastructure (visual gating reverted)
+
+Per-system availability detection is wired up under the hood:
+`PlayerStateService.ServerFeatureFlags` tracks sticky-Enabled booleans
+per Bloodcraft system, populated heuristically from each
+ProgressToClient broadcast. Diagnostic mode logs every transition so
+the data is observable.
+
+**However**, the in-UI visual treatment (dimming tabs with "(off)"
+suffix, auto-hiding standalone overlays, collapsing combined-overlay
+sections) is **disabled in 0.15.0**. Friend-test on a fully-enabled
+Bloodcraft server surfaced false positives because the only
+detection signals available from Bloodcraft's protocol are
+"is the user currently engaged with system X" (e.g. Familiar.HasActive
+= true ONLY when a familiar is bound + summoned right now; ShiftSpell.
+SpellIndex > 0 = true ONLY when a shift spell is currently slotted).
+A real user who logs in and hasn't summoned a familiar in 30 seconds
+falsely tripped Familiar=Disabled even though every familiar tab
+worked fine the moment they tried it.
+
+ConfigsToClient's max-level fields don't help either — they're
+config defaults that come through identically whether the system is
+enabled or disabled on the server.
+
+Restoring v0.14 unconditional tab/overlay rendering until a reliable
+probe lands. The two paths under consideration for v0.16:
+
+- chat-regex probes (issue `.fam boxes`, parse "Familiars are not
+  enabled." vs. any other reply, do the same for `.quest p` /
+  `.prof l` / etc.) — accurate but adds outbound startup commands.
+- Manual per-system "Show in UI" toggles in Settings → Display, all
+  defaulting to on. Users who know their server is partial flip
+  what they don't want to see. Cheap + 100% accurate but requires
+  user knowledge.
+
+The infrastructure stays in place so when the probe lands the UI
+plumbing is already there.
+
+### Original "per-feature graceful degradation" (kept for reference)
+
+Even when the handshake succeeds, individual Bloodcraft systems can be
+disabled server-side independently (e.g., a server runs LevelingSystem +
+QuestSystem only, with Legacy/Expertise/Familiars/Class/Profession off).
+Bloodcraft's `EclipseService.GetXxxData` returns zeros for disabled
+systems, so ProgressToClient broadcasts still arrive with all 46 fields
+but disabled features come through as 0s. Pre-0.15.0 BCH rendered the
+zero data without any indication the feature was disabled, leaving
+users staring at "Level 0 / 0%" indefinitely.
+
+0.15.0 adds heuristic per-system availability detection:
+
+- `PlayerStateService.ServerFeatureFlags` — sticky-Enabled bools for
+  Leveling / Legacy / Expertise / Familiar / Class / Profession /
+  Quest / ShiftSlot. Once a system shows non-zero data, the flag flips
+  Enabled and stays Enabled for the session.
+- 30-second settling window after the first ProgressToClient broadcast.
+  During settling every system reads as Enabled so the UI doesn't
+  briefly hide things at world entry. After settling, any system that
+  never showed non-zero data gets marked Disabled.
+- New `FeatureFlagsChanged` event — UI subscribers (tab strip,
+  BCHubUIManager, combined overlay) refresh visibility on transition.
+
+UI surface area gated by feature flags:
+
+- **Tab strip** — sub-tabs whose backing system shows Disabled get
+  italicized + grayed text + an " (off)" suffix. Still clickable so
+  users can navigate in if they want.
+- **Standalone overlays** — XP / Familiar / Familiar Browser / Daily
+  Quest / Professions / Shift Spell each hide when their backing
+  system is Disabled. The user's `Show*Overlay` setting is NOT mutated
+  — moving to a server where the system IS enabled brings the overlay
+  back at its original visibility.
+- **Combined overlay sections** — XP / Familiar / Weapon / Blood /
+  Professions / Quests sections collapse when their backing system is
+  Disabled, so the panel shrinks to exactly the enabled systems.
+
+Detection signals per system (each is a "system enabled iff this is
+nonzero/non-empty at any point" check):
+- Leveling: `Experience.Level > 0`
+- Legacy: `Legacy.Level > 0` OR Prestige > 0 OR non-empty BonusStatsRaw
+- Expertise: same shape as Legacy
+- Familiar: `Familiar.HasActive` (non-empty Name field)
+- Class: `Experience.Class != None`
+- Profession: any of the 8 profession levels > 0
+- Quest: `DailyQuest.Goal > 0` OR `WeeklyQuest.Goal > 0`
+- ShiftSlot: `ShiftSpell.SpellIndex > 0`
+
+### Fixed: tab strip overflow — Bloodcraft Admin button hidden by Kindred menu
+
+Friend-test 0.14.0: with all three groups (BLOODCRAFT 12 tabs / KINDRED
+6 / SETTINGS-AND-HELP 6) simultaneously expanded, the BLOODCRAFT group's
+content GameObject was collapsing to its `minHeight: 0` because
+Unity's VLG ran out of vertical space and fell back to minHeight when
+total preferredHeight exceeded the strip's available height. With
+zero height, the BLOODCRAFT sub-tab buttons rendered overlapping the
+KINDRED group header, hiding the Admin button at the bottom of the
+Bloodcraft list.
+
+Two-part fix in `BuildTabStrip` + `BuildTabGroup`:
+
+- `minHeight = preferredHeight` (`Tabs.Length * 30 + 4`) on each
+  group's content GameObject. Children can no longer collapse below
+  their natural height.
+- ScrollRect wrapping the entire tab strip via `UIFactory.CreateScrollView`.
+  When the strip's content exceeds the panel's left-rail height, the
+  rail scrolls vertically instead of clipping. Belt-and-braces: the
+  minHeight clamp handles the typical case while the ScrollRect handles
+  any edge case where the panel is unusually short (Steam Deck, etc.).
+
+### New: README heads-up additions
+
+Added two new "Heads-up before you install" entries:
+
+- **Controller / gamepad input under investigation** — calls out that
+  V Rising controller input intersects with BCH UI in ways still being
+  hardened (see "Fixed: controller A-press" below for the v0.15.0
+  first-pass fix). Asks controller users to report repros via Discord.
+- **Server-side Bloodcraft compatibility** — covers the five-core-systems
+  gate plus a note on the modern `Eclipsed` config-key semantics
+  (frequency knob on current Bloodcraft; potentially a hard kill on
+  older builds). Pairs with the in-rail diagnostic added above.
+
+Both bundled into the Thunderstore zip via `package-release.ps1`.
+
+Also updated the existing Eclipse compatibility-table row to call out
+the current conflict (previously listed Eclipse as "coexists, doesn't
+conflict" — outdated since the client-crash issue was discovered).
+
+### Improved: toggle / checkbox visibility on dark panels
+
+Friend-test surfaced that the toggle checkboxes were literally
+invisible on some laptop monitors — pre-0.15.0 the checkbox
+background was pure `(0,0,0,Opacity)` sitting on a `(0.07,0.07,0.07)`
+panel, which several screens couldn't differentiate. Two changes
+in `UIFactory.CreateToggle` + `Theme`:
+
+- `Theme.ToggleNormal` lifted from pure black to a dark slate
+  `(0.18, 0.18, 0.21, Opacity)` so the checkbox reads as a tangible
+  button rather than a void hole.
+- **Anchored-stretch Frame border** (`Theme.ToggleOutline` painted at
+  near-white `(0.92, 0.92, 0.95, 1.0)`) — 2-pixel ring on all four
+  sides of every checkbox. Five iterations got here: (v1) Unity
+  Outline component — invisible at 20×20 (four corner specks).
+  (v2) 1-px HLG Frame — too subtle. (v3) 2-px HLG Frame — user
+  reported still invisible. (v4) 3-px anchored-stretch Frame —
+  finally visible but too thick. (v5 — shipped) 2-px anchored-stretch
+  Frame: the Background is pinned to the Frame's edges with
+  `offsetMin/Max = 2 px`, mathematically guaranteed to leave a 2-px
+  ring of Frame visible regardless of any parent layout-group
+  behavior. Outer footprint = inner checkbox size + 4 px total
+  (e.g. 24×24 for the default 20×20 callers).
+- **Custom toggle ColorBlock** (`(0.30, 0.30, 0.34, 1.0)` normal,
+  `(0.45, 0.45, 0.50, 1.0)` highlighted). v0.14-and-earlier toggles
+  inherited `Theme.SelectableNormal` which carries the panel's
+  opacity — at 60% panel opacity the fill rendered at 60% alpha,
+  ghosting the entire toggle into the dark panel chrome. v0.15.0's
+  override keeps the toggle's fill opaque at every opacity setting
+  while preserving the hover/press transitions (just from a brighter
+  floor).
+
+Affects every Toggle in BCH — form `BoolField`s, overlay-visibility
+footer toggles, settings toggles, etc. — because they all flow
+through the same `UIFactory.CreateToggle` factory.
+
+### Fixed: "Reset all familiar entities" framing was misleading
+
+`.fam reset` server-side (`Bloodcraft/Commands/FamiliarCommands.cs:962`)
+clears stuck `FollowerBuffer` entities + active-familiar state, but
+the box record and unlock data are completely untouched — familiars
+can be re-summoned via `.fam b N` after running it. Pre-0.15.0 the
+form's section title was `"Reset all familiar entities (.fam reset)
+— DESTRUCTIVE"` and the confirm checkbox label was `"Yes, destroy
+active follower entities"`. Friend reported testing it and being
+surprised that the familiar came right back when re-summoned. Updated
+to:
+
+- Section title: `"Force-unbind stuck familiar (.fam reset)"`.
+- Tooltip: emphasizes box records + unlocks are preserved, frames
+  the command as a cleanup utility for stuck familiars, notes the
+  server-side handler refuses to run while the active familiar is
+  still alive (`.fam ub` first).
+- Confirm checkbox: `"Yes, clear stuck familiar bind"`.
+
+Also corrected the misleading `BCCOM_FAM_UNBIND` and `BCCOM_FAM_RESET`
+comments in `MessageService_Processing.cs` that previously claimed
+both commands were "DESTRUCTIVE: permanently destroys" — neither
+actually destroys collection data.
+
+### Fixed: controller A-press re-opens main panel after teleport
+
+Friend-test 0.14.0 on Steam Deck / gamepad: pressing A on the
+controller after using an in-world teleport waypoint would re-open
+the BCH main panel because Unity's EventSystem retained focus on the
+floating BCH button from the user's previous mouse click. The next A
+press routed through the navigation graph to that focused Selectable
+and re-clicked it.
+
+Two-part fix on the floating BCH / OV buttons:
+
+- `Navigation.Mode.None` on the floating button's `Selectable` so the
+  buttons are excluded from the UI navigation graph entirely — A
+  presses no longer route to them via controller navigation. Mouse
+  clicks still work because they go through the pointer-event path,
+  not the navigation path.
+- `EventSystem.current.SetSelectedGameObject(null)` called in the
+  click handler's `finally` block as belt-and-braces, mirroring the
+  same pattern `FormBuilder` uses after form submit. Clears any
+  stale selection so a transient focus elsewhere can't ghost-activate
+  the floating buttons on the next A press.
+
+Bug only manifested with controller input — keyboard `.teleport`
+chat command was always fine because it doesn't route through Unity
+UI navigation.
+
+### New: opt-in configurable hotkeys for floating-button actions
+
+Two new entries under Settings → Display → Hotkeys & diagnostics:
+
+- **Open main panel** — keyboard shortcut to toggle the BCH main panel
+  (same effect as clicking the floating BCH button).
+- **Toggle all overlays** — keyboard shortcut for the master overlay
+  hide/show (same effect as clicking the floating OV button).
+
+Both unbound by default — the user clicks "Set..." in the rebind row,
+then presses any key (or modifier+key combo) to bind. "Clear" removes
+the binding. Modifier keys are automatically captured from whatever's
+held during the bind keypress: Ctrl / Alt / Shift / Win all work,
+either alone or combined. Examples that work:
+
+- `Insert` (single key)
+- `F3`
+- `LeftControl+H` (combo)
+- `LeftShift+F5`
+
+Bindings persist via the .cfg file (`HotkeyToggleMainPanel` /
+`HotkeyToggleAllOverlays` in `kdpen.BloodCraftHub.cfg`) and can also
+be edited directly there if the user prefers — values are stored as
+human-readable strings ("Insert", "Ctrl+H", etc.). The .cfg accepts
+short modifier aliases (`ctrl`, `alt`, `shift`, `win`) in addition
+to the full enum names.
+
+Motivation: streamers and users with low-transparency floating
+buttons sometimes lose the cursor target for the BCH/OV strip;
+hotkeys give a guaranteed entry point that doesn't depend on
+visibility or pointer focus. Also useful as a fallback if Unity's
+UI navigation ever gets into a weird state (see the Item 4
+controller-A fix in this same release).
+
+Custom `BCHotkey` struct used in place of the older BepInEx 5
+`KeyboardShortcut` — BepInEx 6 (V Rising's IL2CPP build) dropped
+that type from its public surface, so a minimal in-namespace
+replacement covers the parse / IsDown / serialize-to-cfg semantics
+without depending on the upstream type.
+
+### New: Diagnostic mode (three-state)
+
+Three radio buttons under Settings → Display → Hotkeys & diagnostics:
+
+- **Off** — no logging. Default.
+- **This session** — verbose logging until the game restarts. The
+  .cfg stays at Off so an experimental run doesn't accidentally
+  leave logging on forever. The runtime override silently clears
+  on next launch.
+- **Always** — verbose logging every session until the user turns
+  it off. Persists to .cfg.
+
+The persisted value (`DiagnosticMode` in the .cfg) is always either
+`Off` or `Always` — never `Session`, which is implemented as a
+runtime-only override.
+
+When active in any state other than Off, BCH emits `[DIAG]`-tagged
+trace logs to BepInEx for:
+
+- Floating BCH / OV button clicks (with prior EventSystem selection
+  for diagnosing controller-input edge cases).
+- Hotkey fires.
+- `ToggleMainPanel` / `ToggleOverlay` transitions.
+- Eclipse protocol registration state transitions (handshake-acked,
+  give-up).
+- Per-feature flag transitions (which Bloodcraft systems were detected
+  enabled / disabled by 1B's heuristics).
+
+The toggle lives in Settings → Display → Hotkeys & diagnostics. Off
+by default. Cheap when off (one bool check + early return per log
+point), so sprinkling at user-action paths is safe. Per-frame paths
+are intentionally NOT instrumented to avoid log spam.
+
+Workflow: user hits an issue → toggles diagnostic on → reproduces
+the issue → shares the relevant section of `LogOutput.log` with the
+maintainer. Replaces ad-hoc "add some LogInfos and ship a debug
+build" cycles.
+
+### Fixed: Familiar Browser overlay couldn't shrink past 440 px
+
+`MinHeight` lowered from 440 to 220. Sum of the toolbar (28 px),
+box-name row (20 px), status row (18 px), scroll-list minimum (80
+px), and footer (26 px) only adds to 172 px even at default font
+sizes, so 440 was very conservative. Shrinking the overlay now
+takes ALL of the saved height out of the central scrollable familiar
+list, because the toolbar / box-name / status / footer rows are
+`flexibleHeight: 0` while the scroll view is `flexibleHeight: 1`.
+Header buttons, box-name display, sort/view buttons, and the
+Unbind/Toggle footer all stay at their natural heights at every
+overlay size. Friend-test 0.14.0: users with Large text settings on
+small monitors couldn't shrink the overlay tightly enough to fit
+into a corner without overlapping other HUD elements.
+
+### Fixed: main panel could end up locked in place from stale save data
+
+Friend-test 0.15.0: user defaulted the main-panel size and reported
+"the panel feels locked in place — I click on the borders and it
+doesn't move." Root cause: `ResizablePanelBase.ApplySaveData` was
+restoring the persisted `IsPinned` bit from the panel's serialized
+save string regardless of which panel was loading. For overlays that
+opt into `RespectsLockOverlays = true`, the Lock-overlays settings
+toggle provides a clear path to un-pin. The main panel has
+`RespectsLockOverlays = false`, so once `IsPinned=True` made it into
+its save string (e.g. from a pre-0.11.2 fullscreen session that
+triggered a save before the "fullscreen state is transient" logic
+landed), there was no UI affordance to clear it — the main panel
+loaded pinned every session and `PanelDragger.Update` early-returned
+on the `IsPinned` check, blocking drag and resize.
+
+Two-part fix:
+
+- `ApplySaveData` now only restores `IsPinned` for panels that opt
+  into `RespectsLockOverlays`. The main panel's stale `IsPinned=True`
+  is ignored on load, and on the next save (any drag / resize / etc.)
+  the current `IsPinned=false` overwrites the persisted `True`, so
+  the .cfg self-heals after one session.
+- The Settings → Display → Size & Positioning **Default** button on
+  the main panel now defensively force-clears `IsPinned`, calls
+  `EnsureValidPosition`, and saves — so users currently in the broken
+  state can recover in their current session by clicking Default
+  instead of needing to restart the game.
+
+The button's tooltip was also reworded to flag the recovery behavior:
+"Reset the main panel to its default size + unpin and re-center it.
+Recovers from any 'panel feels stuck' state."
+
+
+
 ## 0.14.0 — Combined info overlay + main panel default-size bump + cleanup
 
 The marquee v0.14.0 feature: a single combined info overlay that
@@ -103,7 +493,7 @@ immediately without waiting for the next 10s data event.
 
 ### New: removed dead Bloodcraft battle-group commands
 
-Per Anton Krüger (Bloodcraft server admin): the `.fam abg` /
+A Bloodcraft server admin confirmed in chat: the `.fam abg` /
 `.fam cbg` / `.fam sbg` / `.fam dbg` / `.fam bgs` / `.fam bg` /
 `.fam challenge` commands appear in the Bloodcraft README but were
 never implemented in v1.1+. The entire "Battle Groups" card on the
