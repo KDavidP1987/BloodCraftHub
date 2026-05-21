@@ -31,7 +31,7 @@ If you want full BCH functionality on a Quests-only / Professions-only server, a
 ---
 
 **Repo:** https://github.com/KDavidP1987/BloodCraftHub
-**Status:** v0.15.0 — public on Thunderstore. **Pre-1.0 public beta** — actively developed; APIs and UI may still shift before 1.0. 24 tabs across BLOODCRAFT / KINDRED / SETTINGS-AND-HELP, 7 secondary overlays (including the combined info overlay), every chat command from the 3 backing server mods surfaced as forms + buttons (~250+ commands). v0.12.x added a two-zone panel color theme + Game Guide tab + Bloodcraft handshake retry; v0.13.x added per-profession overlay toggles, a comprehensive Mod Help reference, and inline class-synergy hint cards; v0.14.0 shipped the combined info overlay. **v0.15.0** is a UX-polish + reliability release: an in-rail diagnostic panel that explains a failed Bloodcraft handshake (and offers a one-click "Force-enable" override so users on partial servers can still drive the chat-regex pipeline); a per-feature availability tracker (infrastructure for v0.16's chat-regex probes); a tab-strip ScrollRect + minHeight clamp so the Bloodcraft Admin button never hides behind the Kindred header; toggle/checkbox borders that are now genuinely visible on every monitor (anchored-stretch Frame + opaque ColorBlock); a "Reset familiar" relabel to clarify it's non-destructive; a familiar-browser min-height drop (440 → 220) so users with large text settings can fit it into small monitor corners; a first-pass controller-A-press regression fix on the floating BCH/OV buttons (controller testing is ongoing — see the controller heads-up at the top of this README); opt-in keyboard hotkeys for the floating-button actions (bind via Settings → Display → Hotkeys); a three-state diagnostic logging mode (Off / Session / Always); and a main-panel save-data fix that prevents a stale `IsPinned=True` from locking the panel against drag/resize.
+**Status:** v0.15.1 (hotfix on top of v0.15.0 — fixed a hotkey double-toggle and added a "Quests disabled on this server" detection). **Pre-1.0 public beta** — actively developed; APIs and UI may still shift before 1.0. 24 tabs across BLOODCRAFT / KINDRED / SETTINGS-AND-HELP, 7 secondary overlays (including the combined info overlay), every chat command from the 3 backing server mods surfaced as forms + buttons (~250+ commands). v0.12.x added a two-zone panel color theme + Game Guide tab + Bloodcraft handshake retry; v0.13.x added per-profession overlay toggles, a comprehensive Mod Help reference, and inline class-synergy hint cards; v0.14.0 shipped the combined info overlay. **v0.15.0** is a UX-polish + reliability release: an in-rail diagnostic panel that explains a failed Bloodcraft handshake (and offers a one-click "Force-enable" override so users on partial servers can still drive the chat-regex pipeline); a per-feature availability tracker (infrastructure for v0.16's chat-regex probes); a tab-strip ScrollRect + minHeight clamp so the Bloodcraft Admin button never hides behind the Kindred header; toggle/checkbox borders that are now genuinely visible on every monitor (anchored-stretch Frame + opaque ColorBlock); a "Reset familiar" relabel to clarify it's non-destructive; a familiar-browser min-height drop (440 → 220) so users with large text settings can fit it into small monitor corners; a first-pass controller-A-press regression fix on the floating BCH/OV buttons (controller testing is ongoing — see the controller heads-up at the top of this README); opt-in keyboard hotkeys for the floating-button actions (bind via Settings → Display → Hotkeys); a three-state diagnostic logging mode (Off / Session / Always); and a main-panel save-data fix that prevents a stale `IsPinned=True` from locking the panel against drag/resize.
 
 ## Screenshots
 
@@ -166,6 +166,23 @@ by Chaos. If you want to support BCH development directly:
 - Server Discord: https://discord.gg/usC9QgBrXK
 - PayPal: https://www.paypal.com/paypalme/KrisPenland
 - SkillEra.IO: https://SkillEra.IO
+
+### Special thanks — testing & feedback
+
+The post-v0.14 release cycle (v0.15.0 + the v0.15.1 hotfix arc) was
+shaped almost entirely by hands-on playtesting and detailed reports
+from these friends. Every false-positive, every "this looks wrong"
+screenshot, and every controller / partial-server / disabled-system
+scenario in the release notes traces back to their patience and
+careful repro work:
+
+- **Moonie**
+- **Xavarie**
+- **Exotic Mystique**
+- **Shiyrva**
+- **Imperivm Draconis**
+
+Thank you all. The mod is meaningfully better because of you.
 
 BloodCraftHub is open source (MIT). Bug reports, feature ideas, and pull
 requests welcome at https://github.com/KDavidP1987/BloodCraftHub.

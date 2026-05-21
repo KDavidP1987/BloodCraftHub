@@ -122,9 +122,24 @@ public class DailyQuestOverlayPanel : ResizeablePanelBase
         bool hasQuest = !string.IsNullOrEmpty(s.TargetName) || s.Goal > 0;
         if (!hasQuest)
         {
-            target.TextMesh.text   = "(none yet)";
-            progress.TextMesh.text = "Check back after refresh.";
-            progress.TextMesh.color = Color.white;
+            // 0.15.1: distinguish "no quest yet" (system enabled, server
+            // hasn't assigned one) from "Quests disabled server-side"
+            // (every other Bloodcraft system reports data but Quest stays
+            // empty). Friend-test 0.15.0: server had every system enabled
+            // EXCEPT Quests; users saw "(none yet)" indefinitely with no
+            // signal that the feature was actually off on this server.
+            if (PlayerStateService.IsSystemReliablyDisabled(PlayerStateService.SystemKind.Quest))
+            {
+                target.TextMesh.text   = "(Quests disabled on this server)";
+                progress.TextMesh.text = "The server admin has Bloodcraft's QuestSystem turned off.";
+                progress.TextMesh.color = Theme.MutedBody;
+            }
+            else
+            {
+                target.TextMesh.text   = "(none yet)";
+                progress.TextMesh.text = "Check back after refresh.";
+                progress.TextMesh.color = Color.white;
+            }
             return;
         }
 

@@ -496,6 +496,20 @@ public class ExperienceOverlayPanel : ResizeablePanelBase
     {
         if (_weaponLabel == null) return;
         ApplyBarChrome();
+        // 0.15.2: when Weapon Expertise is reliably disabled server-side,
+        // show that explicitly. Pre-0.15.2 hit the unarmed-or-pre-handshake
+        // placeholder ("Weapon —") which gave no signal about the cause.
+        // Friend-test report: "the weapon here I'm actually unarmed but
+        // it doesn't register because unarmed is part of weapon expertise
+        // which is off" — that user's overlay said "Weapon —" indefinitely.
+        if (PlayerStateService.IsSystemReliablyDisabled(PlayerStateService.SystemKind.Expertise))
+        {
+            _weaponLabel.TextMesh.text = "Weapon (disabled on this server)";
+            if (_weaponBar != null && _weaponBar.activeSelf) _weaponBar.SetActive(false);
+            if (_weaponStatsLabel != null) _weaponStatsLabel.GameObject.SetActive(false);
+            if (_weaponCounterLabel != null) _weaponCounterLabel.GameObject.SetActive(false);
+            return;
+        }
         // Bloodcraft writes Type=0 (Unarmed) + Level=0 when nothing is
         // equipped at startup. Show "—" placeholder rather than "Unarmed
         // Lv 0" which reads as broken data.
@@ -532,6 +546,15 @@ public class ExperienceOverlayPanel : ResizeablePanelBase
     {
         if (_legacyLabel == null) return;
         ApplyBarChrome();
+        // 0.15.2: same disabled-detection as Weapon above.
+        if (PlayerStateService.IsSystemReliablyDisabled(PlayerStateService.SystemKind.Legacy))
+        {
+            _legacyLabel.TextMesh.text = "Legacy (disabled on this server)";
+            if (_legacyBar != null && _legacyBar.activeSelf) _legacyBar.SetActive(false);
+            if (_legacyStatsLabel != null) _legacyStatsLabel.GameObject.SetActive(false);
+            if (_legacyCounterLabel != null) _legacyCounterLabel.GameObject.SetActive(false);
+            return;
+        }
         // Pre-handshake or no blood selected: Bloodcraft streams Type=0 +
         // Level=0. Same placeholder treatment as the Weapon row.
         bool armed = l.Level > 0 || (int)l.Type != 0;
@@ -816,6 +839,21 @@ public class ExperienceOverlayPanel : ResizeablePanelBase
         // Some labels may be null if the panel hasn't been built yet (race during first SetActive).
         if (_levelLabel == null) return;
         ApplyBarChrome();
+
+        // 0.15.2: when Leveling is reliably detected disabled server-side,
+        // swap the misleading "Level 0   XP 0.0%" rendering for a single
+        // clear hint line. Friend-test 0.15.1: server with only Quest
+        // enabled showed all other systems as functional (zero data
+        // looked like brand-new-character data). Mirrors the Quest
+        // disabled treatment v0.15.1 added.
+        if (PlayerStateService.IsSystemReliablyDisabled(PlayerStateService.SystemKind.Leveling))
+        {
+            _levelLabel.TextMesh.text    = "(Leveling disabled)";
+            _progressLabel.TextMesh.text = "—";
+            _classLabel.TextMesh.text    = "";
+            if (_xpBar != null && _xpBar.activeSelf) _xpBar.SetActive(false);
+            return;
+        }
 
         string levelText = s.Prestige > 0
             ? $"Level {s.Level}   Prestige {s.Prestige}"

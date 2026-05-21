@@ -533,6 +533,16 @@ public class CombinedOverlayPanel : ResizeablePanelBase
     private void RenderXP()
     {
         if (_xpLine == null) return;
+        // 0.15.2: same disabled-detection pattern Quest got in v0.15.1.
+        // When the cross-system corroboration confirms Leveling is off
+        // server-side, show a clear hint instead of misleading "Lv 0 (0%)"
+        // (which looks identical to "brand-new level-1 character").
+        if (PlayerStateService.IsSystemReliablyDisabled(PlayerStateService.SystemKind.Leveling))
+        {
+            _xpLine.text = "(Leveling disabled on this server)";
+            SyncBar(_xpBar, _xpBarFill, 0f, false);
+            return;
+        }
         var s = PlayerStateService.Experience;
         string cls = s.Class == PlayerStateService.PlayerClass.None ? "(no class)" : s.Class.ToString();
         string prestige = s.Prestige > 0 ? $"  P{s.Prestige}" : "";
@@ -543,6 +553,17 @@ public class CombinedOverlayPanel : ResizeablePanelBase
     private void RenderFamiliar()
     {
         if (_famNameLine == null) return;
+        // 0.15.2: distinguish "Familiar system disabled" from "user just
+        // hasn't bound a familiar yet". Both look like HasActive=false in
+        // the broadcast data, but the disabled case is reliably detected
+        // when other systems are reporting data and Familiar never has.
+        if (PlayerStateService.IsSystemReliablyDisabled(PlayerStateService.SystemKind.Familiar))
+        {
+            _famNameLine.text  = "(Familiars disabled on this server)";
+            _famStatsLine.text = "—";
+            SyncBar(_famBar, _famBarFill, 0f, false);
+            return;
+        }
         var s = PlayerStateService.Familiar;
         if (!s.HasActive)
         {
@@ -560,6 +581,21 @@ public class CombinedOverlayPanel : ResizeablePanelBase
     private void RenderExpertise()
     {
         if (_wepLine == null) return;
+        // 0.15.2: when Weapon Expertise is disabled server-side, the
+        // protocol reports all-zero (Type=Sword default, Level=0, etc.).
+        // Pre-0.15.2 this rendered as "Sword Lv 0" which is actively
+        // misleading — friend-test: "I'm actually unarmed but it doesn't
+        // register because unarmed is part of weapon expertise which is
+        // off." Surface the disabled state instead.
+        if (PlayerStateService.IsSystemReliablyDisabled(PlayerStateService.SystemKind.Expertise))
+        {
+            _wepLine.text      = "(Weapon Expertise disabled on this server)";
+            _wepStatsLine.text = "—";
+            SyncBar(_wepBar, _wepBarFill, 0f, false);
+            if (_wepBonusValuesLine != null) _wepBonusValuesLine.gameObject.SetActive(false);
+            if (_wepCounterLine     != null) _wepCounterLine.gameObject.SetActive(false);
+            return;
+        }
         var s = PlayerStateService.Expertise;
         string prestige = s.Prestige > 0 ? $"  P{s.Prestige}" : "";
         _wepLine.text = $"{s.Type}   Lv {s.Level} ({s.Progress * 100f:0.#}%){prestige}";
@@ -583,6 +619,18 @@ public class CombinedOverlayPanel : ResizeablePanelBase
     private void RenderLegacy()
     {
         if (_blLine == null) return;
+        // 0.15.2: same disabled-detection as Expertise above. When Blood
+        // Legacy is off server-side, Type stays at default (Worker) with
+        // Level=0 which looks like a brand-new character's actual data.
+        if (PlayerStateService.IsSystemReliablyDisabled(PlayerStateService.SystemKind.Legacy))
+        {
+            _blLine.text      = "(Blood Legacy disabled on this server)";
+            _blStatsLine.text = "—";
+            SyncBar(_blBar, _blBarFill, 0f, false);
+            if (_blBonusValuesLine != null) _blBonusValuesLine.gameObject.SetActive(false);
+            if (_blCounterLine     != null) _blCounterLine.gameObject.SetActive(false);
+            return;
+        }
         var s = PlayerStateService.Legacy;
         string prestige = s.Prestige > 0 ? $"  P{s.Prestige}" : "";
         _blLine.text = $"{s.Type}   Lv {s.Level} ({s.Progress * 100f:0.#}%){prestige}";
@@ -678,6 +726,20 @@ public class CombinedOverlayPanel : ResizeablePanelBase
     private void RenderProfessions()
     {
         if (_profLine == null) return;
+        // 0.15.2: when Professions are disabled server-side, swap the
+        // wrap-text / per-row layouts for a single "disabled" line. Both
+        // sub-modes are hidden + the single _profLine carries the message.
+        if (PlayerStateService.IsSystemReliablyDisabled(PlayerStateService.SystemKind.Profession))
+        {
+            if (_profWrapMode != null && _profWrapMode.activeSelf) _profWrapMode.SetActive(false);
+            if (_profRowMode  != null && _profRowMode.activeSelf)  _profRowMode.SetActive(false);
+            // Show the disabled message via the wrap-mode label (it's the
+            // single-line surface that always exists). Re-activate just
+            // _profLine inside the wrap container.
+            if (_profWrapMode != null) _profWrapMode.SetActive(true);
+            _profLine.text = "(Professions disabled on this server)";
+            return;
+        }
         var s = PlayerStateService.Profession;
 
         // 0.14.0 friend-test v3: render mode driven by the bar flag.
@@ -733,8 +795,12 @@ public class CombinedOverlayPanel : ResizeablePanelBase
         if (_dailyLine == null) return;
         var daily  = PlayerStateService.DailyQuest;
         var weekly = PlayerStateService.WeeklyQuest;
-        _dailyLine.text  = FormatQuest("Daily",  daily);
-        _weeklyLine.text = FormatQuest("Weekly", weekly);
+        // 0.15.1: when Quest is reliably detected as disabled server-side,
+        // surface that on the combined overlay's QUEST section too rather
+        // than rendering an indefinite "—" placeholder.
+        bool questDisabled = PlayerStateService.IsSystemReliablyDisabled(PlayerStateService.SystemKind.Quest);
+        _dailyLine.text  = questDisabled ? "Daily: (disabled on this server)"  : FormatQuest("Daily",  daily);
+        _weeklyLine.text = questDisabled ? "Weekly: (disabled on this server)" : FormatQuest("Weekly", weekly);
     }
 
     private static string FormatQuest(string label, PlayerStateService.QuestState q)

@@ -7,6 +7,125 @@
 > bundled copy summarizes earlier versions and reproduces the most
 > recent release in full.
 
+## 0.15.1 — Hotfix: hotkey double-toggle + per-system disabled detection + familiar auto-probe
+
+Hotfix on top of v0.15.0 covering four friend-test reports.
+
+### Fixed: hotkey appears to work first time then stops responding
+
+After binding a hotkey to "Open main panel", pressing it once
+visibly closed the panel — but every press afterwards looked like
+nothing happened. The `[DIAG]` log lines showed the state
+correctly alternating between True and False, so the hotkey was
+firing — just somehow not visibly opening the panel.
+
+Root cause: a long-standing latent double-Setup of BCH's per-frame
+host MonoBehaviour. `CoreUpdateBehavior.Setup()` was being called
+twice (once from `Plugin.Load`, once from `UniversalUI.Init`), so
+every registered per-frame action was running 2× per frame.
+Pre-v0.15 actions were idempotent so this was invisible; v0.15.0's
+hotkey listener calls `Input.GetKeyDown`, which returns true for
+the entire frame after a key transitions Up→Down — so running it
+twice per frame double-toggled the panel (open→close→open in one
+frame, net visible effect = nothing). Setup now uses a static
+host-object guard so the MonoBehaviour is created exactly once
+regardless of how many places allocate a `CoreUpdateBehavior`
+instance.
+
+### Improved: Quest detection — "(none yet)" → "Quests disabled on this server"
+
+Friend-test 0.15.0: server had every Bloodcraft system enabled
+**except** Quests. The Daily Quest overlay + the Daily Quests tab
+both showed the empty-state placeholder ("(none yet)")
+indefinitely, with no signal that the feature was actually off on
+that server.
+
+v0.15.1 adds a stronger per-system "reliably disabled" check that
+uses **cross-system corroboration**: if the settling window has
+elapsed AND the target system has shown zero data the whole time
+AND at least one OTHER Bloodcraft system has shown non-zero data,
+the target system is reliably disabled. Condition (c) proves the
+structured protocol is up — so an empty signal for the target
+system reflects real server-side state rather than "data hasn't
+arrived yet."
+
+Three render sites updated to consult the helper:
+
+- **Daily Quest overlay** — empty rows now show "(Quests disabled
+  on this server)" + a muted sub-line ("The server admin has
+  Bloodcraft's QuestSystem turned off") when reliably detected.
+- **Daily Quests tab** — empty placeholder strings swap to the
+  same message.
+- **Combined info overlay** — QUEST section's empty rows show
+  "Daily: (disabled on this server)" / "Weekly: (disabled on this
+  server)" so users in combined-mode get the same signal.
+
+The cross-corroboration approach is conservative: it only fires
+when we have proof the protocol is working. New players who haven't
+engaged with Quests yet on a Quest-enabled server still see the
+neutral "(none yet)" placeholder until other systems prove the
+broadcast is flowing.
+
+### Improved: per-system disabled detection extended to XP / Familiar / Weapon / Blood / Professions
+
+Follow-up friend report on the inverse scenario — a server with
+**only** QuestSystem enabled and every other Bloodcraft feature
+off. Quest itself worked (v0.15.0's diagnostic was the right call),
+but every OTHER system rendered as "functional" with zeroed data
+and no signal the feature was off server-side. Friend-test quote:
+"the weapon here I'm actually unarmed but it doesn't register
+because unarmed is part of weapon expertise which is off."
+
+`IsSystemReliablyDisabled` is now consulted at every per-system
+render site:
+
+- **Combined info overlay** — XP / Familiar / Weapon / Blood /
+  Professions sections each show "(<system> disabled on this
+  server)" when reliably detected, with bars + sub-rows hidden.
+- **Standalone XP overlay** — main XP line plus Weapon and Legacy
+  rows each get the disabled treatment (replaces the misleading
+  "Weapon —" / "Legacy —" placeholders).
+- **Standalone Familiar overlay** — single "(Familiars disabled
+  on this server)" line replaces name / progress / stats / bar
+  when disabled.
+- **Familiar Browser overlay** — header swaps to "(Familiars
+  disabled on this server)" with a muted sub-line; Toggle and
+  Unbind footer buttons disabled; list cleared.
+- **Standalone Profession overlay** — all 8 per-profession rows
+  hide; single "(Professions disabled on this server)" line
+  takes their place.
+
+Intentionally not touched in 0.15.1: the Shift Spell overlay
+(reads V Rising's ability slot directly, not the Eclipse
+broadcast, so a disabled signal here would be misleading) and the
+inside of each Bloodcraft tab (forms still work for issuing
+commands manually — per-tab "(disabled)" banners are deferred to
+v0.16 to keep scope manageable).
+
+### Fixed: Familiar overlay false-positive "disabled" at login
+
+Follow-up report on the same Quest-only-disabled server: at login
+without a familiar bound, the Familiar overlay incorrectly flagged
+Familiars as "disabled" until the user summoned a familiar.
+
+Root cause: the Familiar detection signal was `HasActive` (familiar
+currently bound + summoned). A player who hasn't summoned since
+login looks identical to "FamiliarSystem disabled" via that
+signal. Bloodcraft's Quest signal had the same shape but doesn't
+hit this in practice because the server auto-assigns quests within
+minutes; Familiar has no such auto-trigger.
+
+Fix: BCH now auto-issues a silent `.fam boxes` probe on the first
+ConfigsToClient ACK. The probe is one-shot per session. The
+server's response is unambiguous proof: a "Familiar Boxes" header
+means FamiliarSystem is enabled (regardless of how many boxes the
+user has), and the absence of a response (because Bloodcraft's
+handler emits "Familiars are not enabled." instead, which doesn't
+match BCH's box-list regex) means it's disabled. The Familiar
+overlay also now subscribes to `FeatureFlagsChanged` so it updates
+immediately when the probe response lands instead of waiting for
+the next ProgressToClient broadcast tick.
+
 ## 0.15.0 — Bloodcraft availability diagnostic + visible toggle borders + opt-in hotkeys + diagnostic mode + drag-fix
 
 Friend-test feedback bundle on top of v0.14.0. Eleven items across UX

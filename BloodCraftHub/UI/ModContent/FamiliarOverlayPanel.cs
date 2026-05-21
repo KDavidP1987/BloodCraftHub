@@ -64,6 +64,12 @@ public class FamiliarOverlayPanel : ResizeablePanelBase
         if (!_subscribed)
         {
             PlayerStateService.FamiliarChanged += OnFamiliarChanged;
+            // 0.15.1: re-render when the FeatureFlags state changes so a
+            // late-arriving `.fam boxes` reply (auto-probe in
+            // EclipseProtocolService) flips Familiar from "disabled" to
+            // a normal "(no familiar bound)" placeholder without waiting
+            // for the user to summon something.
+            PlayerStateService.FeatureFlagsChanged += OnFamiliarChanged;
             _subscribed = true;
         }
     }
@@ -87,6 +93,19 @@ public class FamiliarOverlayPanel : ResizeablePanelBase
     private void Render(PlayerStateService.FamiliarState s)
     {
         if (_nameLabel == null) return;
+
+        // 0.15.2: distinguish "Familiar system disabled" from "no
+        // familiar bound right now". Cross-system corroboration: if
+        // other Bloodcraft systems are reporting data but Familiar
+        // never has, FamiliarSystem is off on this server.
+        if (PlayerStateService.IsSystemReliablyDisabled(PlayerStateService.SystemKind.Familiar))
+        {
+            _nameLabel.TextMesh.text     = "(Familiars disabled on this server)";
+            _progressLabel.TextMesh.text = "—";
+            _statsLabel.TextMesh.text    = "";
+            if (_xpBar != null && _xpBar.activeSelf) _xpBar.SetActive(false);
+            return;
+        }
 
         // 0.10.8: HasActive is the raw Eclipse-protocol "is bound" signal.
         // The display Name is masked to "Familiar" placeholder when nothing
@@ -116,6 +135,7 @@ public class FamiliarOverlayPanel : ResizeablePanelBase
         if (_subscribed)
         {
             PlayerStateService.FamiliarChanged -= OnFamiliarChanged;
+            PlayerStateService.FeatureFlagsChanged -= OnFamiliarChanged;
             _subscribed = false;
         }
     }

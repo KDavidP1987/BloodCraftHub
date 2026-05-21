@@ -527,6 +527,24 @@ public static class PlayerStateService
     private const float FEATURE_DETECTION_SETTLING_SECONDS = 30f;
     private static float _firstProgressAt = -1f;
 
+    // 0.15.1 friend-test follow-up: extra positive signal for Familiar.
+    // The structured-protocol HasActive flag only flips true when the
+    // user has a familiar BOUND AND SUMMONED at the moment of broadcast.
+    // A player on a Familiars-enabled server who simply hasn't summoned
+    // since login looks identical to "FamiliarSystem disabled" via that
+    // signal — false positive. Friend-test reported the Familiar overlay
+    // showing "Familiars disabled" at login on a fully-Familiars-enabled
+    // server until they summoned something, then it self-corrected.
+    //
+    // Workaround: any "Familiar Boxes" reply Bloodcraft sends back (in
+    // response to `.fam boxes` issued by BCH or the user) is proof the
+    // server's FamiliarSystem is enabled — the server-side handler
+    // refuses to even emit the BOX_LIST_HEADER line when disabled.
+    // EclipseProtocolService auto-probes `.fam boxes` once after the
+    // first ConfigsToClient ACK so this signal lands even if the user
+    // never opens the Familiar Browser overlay or Boxes tab.
+    private static bool _everReceivedFamiliarBoxList;
+
     // Box-browser state fed by the legacy regex pipeline (MessageService_Processing.HandleInboundChat).
     public static System.Collections.Generic.List<string> BoxList { get; private set; }
         = new System.Collections.Generic.List<string>();
@@ -756,7 +774,11 @@ public static class PlayerStateService
         if (!f.Expertise  && (Expertise.Level > 0 || Expertise.Prestige > 0
                               || !string.IsNullOrEmpty(Expertise.BonusStatsRaw)))
                                                                           { f.Expertise  = true; anyChange = true; }
-        if (!f.Familiar   && Familiar.HasActive)                          { f.Familiar   = true; anyChange = true; }
+        // 0.15.1 friend-test follow-up: ALSO accept "user has ever
+        // received a Familiar Boxes reply this session" as proof the
+        // FamiliarSystem is enabled. See _everReceivedFamiliarBoxList
+        // comment at the top of this file for the rationale.
+        if (!f.Familiar   && (Familiar.HasActive || _everReceivedFamiliarBoxList)) { f.Familiar   = true; anyChange = true; }
         if (!f.Profession && (Profession.EnchantingLevel    > 0
                               || Profession.AlchemyLevel       > 0
                               || Profession.HarvestingLevel    > 0
@@ -795,6 +817,10 @@ public static class PlayerStateService
     {
         FeatureFlags = DefaultFeatureFlags();
         _firstProgressAt = -1f;
+        // 0.15.1: also clear the chat-regex-derived signals so a
+        // re-login on a different server starts fresh. The probe in
+        // EclipseProtocolService will re-fire after the next ACK.
+        _everReceivedFamiliarBoxList = false;
         Fire(FeatureFlagsChanged);
     }
 
@@ -854,9 +880,80 @@ public static class PlayerStateService
         ShiftSlot,
     }
 
+    /// <summary>0.15.1: stronger per-system "reliably disabled" check that
+    /// uses cross-system corroboration to avoid the false-negative case
+    /// where the user just hasn't engaged with that system yet.
+    ///
+    /// The generic IsSystemEnabled check returns true while settling, then
+    /// returns FeatureFlags.{System} (which is sticky-Enabled, but only
+    /// flips to true when the system's signal fires — and for Quest /
+    /// Familiar / ShiftSlot, the signal only fires when the user is
+    /// actively engaged). So a player on a fully-enabled Quest server who
+    /// just hasn't been assigned today's quest yet would falsely read as
+    /// "Quest disabled."
+    ///
+    /// This stronger check ADDS a cross-system corroboration requirement:
+    /// at LEAST one OTHER Bloodcraft system must have shown non-zero data
+    /// across the settling window. That proves the structured protocol is
+    /// flowing — so an empty signal for the target system reflects real
+    /// server-side state rather than "data hasn't arrived yet" or "user
+    /// hasn't engaged yet."
+    ///
+    /// Friend-test 0.15.0: server had every Bloodcraft system enabled
+    /// EXCEPT Quests; the Daily Quest overlay kept showing "(none yet)"
+    /// indefinitely because Quest.Goal stayed 0. Now we can detect this
+    /// situation reliably and surface a "Quests disabled on this server"
+    /// hint instead of the generic "(none yet)" message.</summary>
+    public static bool IsSystemReliablyDisabled(SystemKind kind)
+    {
+        var f = FeatureFlags;
+        if (!f.SettlingComplete) return false; // still observing — don't claim disabled
+
+        // System itself showed data at any point → not disabled.
+        bool systemHasData = kind switch
+        {
+            SystemKind.Leveling   => f.Leveling,
+            SystemKind.Legacy     => f.Legacy,
+            SystemKind.Expertise  => f.Expertise,
+            SystemKind.Familiar   => f.Familiar,
+            SystemKind.Class      => f.Class,
+            SystemKind.Profession => f.Profession,
+            SystemKind.Quest      => f.Quest,
+            SystemKind.ShiftSlot  => f.ShiftSlot,
+            _ => true,
+        };
+        if (systemHasData) return false;
+
+        // Some OTHER system must have shown data (proves the protocol is
+        // up and broadcasts are flowing). Without this corroboration we
+        // can't distinguish "this system is disabled" from "no Bloodcraft
+        // data has arrived yet at all."
+        bool anyOtherSystemActive =
+            (kind != SystemKind.Leveling   && f.Leveling)
+         || (kind != SystemKind.Legacy     && f.Legacy)
+         || (kind != SystemKind.Expertise  && f.Expertise)
+         || (kind != SystemKind.Familiar   && f.Familiar)
+         || (kind != SystemKind.Class      && f.Class)
+         || (kind != SystemKind.Profession && f.Profession)
+         || (kind != SystemKind.Quest      && f.Quest)
+         || (kind != SystemKind.ShiftSlot  && f.ShiftSlot);
+
+        return anyOtherSystemActive;
+    }
+
     internal static void UpdateBoxList(System.Collections.Generic.List<string> boxes)
     {
         BoxList = boxes ?? new System.Collections.Generic.List<string>();
+        // 0.15.1 friend-test follow-up: arriving here means the server's
+        // `.fam boxes` handler accepted our request (it only emits the
+        // BOX_LIST_HEADER line that this code-path captures when
+        // ConfigService.FamiliarSystem=true). Use that as a positive
+        // signal for Familiar enabled detection, then re-evaluate the
+        // flags so UIs that were showing "Familiars disabled" can flip
+        // back. Even an empty box list counts — the server replied with
+        // "Familiar Boxes (no boxes yet)" which proves the system is on.
+        _everReceivedFamiliarBoxList = true;
+        RecomputeFeatureFlagsFromLatest();
         Fire(BoxListChanged);
     }
 

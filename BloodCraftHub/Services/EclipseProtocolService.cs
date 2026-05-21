@@ -112,10 +112,49 @@ public static class EclipseProtocolService
         RegistrationGaveUp = false;
         _registrationSentAt = 0f;
         _registrationAttemptCount = 0;
+        // 0.15.1: also clear the one-shot probe flag so the next session's
+        // ACK re-fires `.fam boxes` to redetect FamiliarSystem availability
+        // on the new server.
+        _familiarProbeScheduled = false;
         // 0.15.0: per-feature detection is per-session. Resetting registration
         // (e.g. world exit / re-login) also clears the sticky-Enabled flags
         // and the settling timer so the next session starts fresh.
         PlayerStateService.ResetFeatureFlags();
+    }
+
+    // 0.15.1 friend-test follow-up: one-shot `.fam boxes` probe scheduled
+    // after registration ACK. The probe runs silently (BchAuto category,
+    // not shown in chat) and the existing chat-regex pipeline parses the
+    // reply: a "Familiar Boxes" header lands → PlayerStateService.
+    // UpdateBoxList fires → _everReceivedFamiliarBoxList flips true →
+    // RecomputeFeatureFlagsFromLatest marks Familiar as enabled, which
+    // un-flags the false-positive disabled detection that fires when
+    // the user hasn't summoned a familiar in the 30 s settling window.
+    private static bool _familiarProbeScheduled;
+    private static System.Action _familiarProbeAction;
+    private static void ScheduleFamiliarSystemProbe()
+    {
+        if (_familiarProbeScheduled) return;
+        _familiarProbeScheduled = true;
+        _familiarProbeAction = () =>
+        {
+            try
+            {
+                if (!MessageService.IsInitialized) return; // wait until next frame
+                MessageService.EnqueueMessageSilent(MessageService.BCCOM_FAM_BOXES);
+                LogUtils.LogDiagnostic("Eclipse: dispatched silent `.fam boxes` familiar-system probe after registration ACK.");
+                BloodCraftHub.Behaviors.CoreUpdateBehavior.Actions.Remove(_familiarProbeAction);
+                _familiarProbeAction = null;
+            }
+            catch (Exception ex)
+            {
+                LogUtils.LogError($"Eclipse: familiar-system probe failed: {ex}");
+                // Unregister even on error so we don't spin every frame.
+                BloodCraftHub.Behaviors.CoreUpdateBehavior.Actions.Remove(_familiarProbeAction);
+                _familiarProbeAction = null;
+            }
+        };
+        BloodCraftHub.Behaviors.CoreUpdateBehavior.Actions.Add(_familiarProbeAction);
     }
 
     /// <summary>
@@ -207,6 +246,12 @@ public static class EclipseProtocolService
                         LogUtils.LogDiagnostic($"Eclipse state transition: UserRegistered false -> true (attempt #{_registrationAttemptCount}). Config payload length={payload?.Length ?? 0}.");
                         try { AvailabilityChanged?.Invoke(); }
                         catch (Exception ex) { LogUtils.LogWarning($"Eclipse: AvailabilityChanged subscriber threw: {ex.Message}"); }
+                        // 0.15.1 friend-test follow-up: schedule a silent
+                        // `.fam boxes` probe so PlayerStateService can detect
+                        // FamiliarSystem-enabled even when the user hasn't
+                        // summoned a familiar yet. See PlayerStateService.
+                        // _everReceivedFamiliarBoxList for the rationale.
+                        ScheduleFamiliarSystemProbe();
                     }
                     break;
                 default:

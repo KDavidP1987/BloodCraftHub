@@ -1,5 +1,201 @@
 # Changelog
 
+## 0.15.1 — Hotfix: hotkey double-toggle + per-system disabled detection + familiar auto-probe
+
+Hotfix on top of v0.15.0 covering four friend-test reports.
+
+### Fixed: hotkey appears to work first time then stops responding
+
+Friend-test 0.15.0: after binding Shift+Alpha1 to the "Open main panel"
+hotkey, pressing it once visibly closed the panel — but every press
+afterwards looked like nothing happened, even though the
+`[DIAG] Hotkey fired ... ToggleMainPanel: False -> True / True -> False`
+log lines showed the state correctly alternating.
+
+Root cause: a long-standing latent bug in `CoreUpdateBehavior.Setup`
+that v0.15.0's new hotkey listener exposed. `Setup()` was being called
+twice — once from `Plugin.Load()` and once from `UniversalUI.Init()`
+— each call constructing its own GameObject + `CoreUpdateBehavior`
+MonoBehaviour. Both MonoBehaviours ran `Update()` every frame
+iterating the **same** static `Actions` list, so every registered
+action was invoked **2× per frame**.
+
+Pre-v0.15 callers (`ProcessAllMessages`, `TickInterceptTimeouts`,
+`VBloodScannerService.Tick`, etc.) are all idempotent so the
+double-call was invisible. `TickHotkeys` is NOT idempotent —
+`Input.GetKeyDown` returns true for the *entire frame* after the key
+transitions Up→Down, so calling it twice per frame double-toggled the
+panel (open→close→open in one frame, net visible effect = nothing).
+The diagnostic logs caught it perfectly: each user keypress generated
+two `Hotkey fired` lines with alternating `False → True` / `True →
+False` transitions.
+
+Fix: `CoreUpdateBehavior.Setup()` now uses a static `_hostObject`
+guard so the GameObject + MonoBehaviour are created exactly once
+regardless of how many places allocate a `CoreUpdateBehavior`
+instance. The `_obj` instance field was promoted to a static field
+and the `Dispose()` cleanup also targets the static.
+
+### Improved: Quest detection — "(none yet)" → "Quests disabled on this server"
+
+Friend-test 0.15.0: server had every Bloodcraft system enabled
+**except** Quests. The Daily Quest overlay + the Daily Quests tab
+both showed the empty-state placeholder ("(none yet)") indefinitely,
+with no signal that the feature was actually off on that server.
+
+v0.15.0's generic `IsSystemEnabled` heuristic couldn't catch this
+because the Quest signal (`DailyQuest.Goal > 0 OR WeeklyQuest.Goal > 0`)
+only fires when the user has an *active* quest — empty quest data is
+ambiguous between "Quest system disabled" and "Quest system enabled
+but no quest assigned yet."
+
+Fix: new `PlayerStateService.IsSystemReliablyDisabled(SystemKind)`
+helper adds a **cross-system corroboration** requirement. A system is
+reliably disabled when (a) the settling window has elapsed, (b) the
+system itself has shown zero data the entire time, AND (c) at least
+one OTHER Bloodcraft system has shown non-zero data during the
+window. Condition (c) proves the structured protocol is up and
+broadcasts are flowing, which means an empty signal for the target
+system reflects real server-side state rather than "data hasn't
+arrived yet."
+
+Three render sites updated to consult the helper:
+
+- **Daily Quest overlay** — empty rows now show "(Quests disabled
+  on this server)" + a muted sub-line ("The server admin has
+  Bloodcraft's QuestSystem turned off") when reliably detected.
+- **Daily Quests tab** — empty placeholder strings swap to the
+  same message.
+- **Combined info overlay** — `QUEST` section's empty rows show
+  "Daily: (disabled on this server)" / "Weekly: (disabled on this
+  server)" so users in combined-mode get the same signal.
+
+The cross-corroboration approach is conservative: it only fires when
+we have proof the protocol is working. New players who haven't
+engaged with Quests yet on a Quest-enabled server still see the
+neutral "(none yet)" placeholder until other systems prove the
+broadcast is flowing.
+
+### Improved: per-system disabled detection extended to XP / Familiar / Weapon / Blood / Professions
+
+The Quest treatment above intentionally shipped first as a targeted
+fix. Friend follow-up on the inverse scenario — server with **only**
+QuestSystem enabled, every other Bloodcraft feature off — confirmed
+the same gap existed for every other system: the cross-corroboration
+heuristic detected them correctly under the hood, but the render
+sites kept showing zeroed data as "functional" with no signal that
+the feature was off server-side. Notable friend-test quote: "the
+weapon here I'm actually unarmed but it doesn't register because
+unarmed is part of weapon expertise which is off."
+
+The `IsSystemReliablyDisabled` helper from earlier in this release
+is now consulted at every per-system render site:
+
+**Combined info overlay sections**
+
+- **XP section** → "(Leveling disabled on this server)" + bar
+  hidden when Leveling reliably disabled.
+- **Familiar section** → "(Familiars disabled on this server)" +
+  stats line "—" + bar hidden when Familiar reliably disabled.
+- **Weapon section** → "(Weapon Expertise disabled on this server)"
+  + stats / bonus-values / counter sub-rows hidden when Expertise
+  reliably disabled.
+- **Blood section** → "(Blood Legacy disabled on this server)" +
+  stats / bonus-values / counter sub-rows hidden when Legacy
+  reliably disabled.
+- **Professions section** → "(Professions disabled on this server)"
+  + both wrap-text and per-row layouts hidden when Profession
+  reliably disabled.
+
+**Standalone overlays**
+
+- **XP overlay** → "(Leveling disabled)" + bar hidden when
+  Leveling reliably disabled.
+  - Weapon row → "Weapon (disabled on this server)" + stats /
+    counter sub-rows hidden when Expertise reliably disabled.
+  - Legacy row → "Legacy (disabled on this server)" + stats /
+    counter sub-rows hidden when Legacy reliably disabled.
+- **Familiar overlay** → "(Familiars disabled on this server)" +
+  progress / stats / bar all neutralized when Familiar reliably
+  disabled.
+- **Familiar Browser overlay** → "(Familiars disabled on this
+  server)" header + muted sub-line + Toggle/Unbind footer buttons
+  disabled + list cleared when Familiar reliably disabled.
+- **Professions overlay** → 8 per-profession rows hidden; the
+  Enchanting row is reused as a single "(Professions disabled on
+  this server)" hint line when Profession reliably disabled.
+
+**Intentionally not touched in 0.15.1**
+
+- **Shift Spell overlay** — reads from V Rising's ability-slot
+  state directly (not from the Eclipse protocol broadcast), so a
+  disabled-detection signal here would be misleading. The overlay
+  will just show whichever ability is in the slot, regardless of
+  Bloodcraft's ShiftSlot config.
+- **Tab content** — the inside of each BLOODCRAFT tab (Familiars,
+  Boxes, Class, Weapon Expertise, Blood Legacy, Levels, Prestige,
+  etc.) still renders forms and form fields normally. The forms
+  remain usable for issuing chat commands manually even when the
+  backing system is disabled (the server-side handler will respond
+  with a "not enabled" message that lands in the **Last server
+  response** panel). Adding per-tab "(this system is disabled on
+  the server)" banners is deferred to v0.16 to keep the v0.15.1
+  hotfix scope manageable.
+
+### Fixed: Familiar overlay false-positive "disabled" at login
+
+Follow-up friend-test on the inverse scenario above: server with
+Familiars **enabled** but Quests **disabled**, user logs in without
+a familiar bound. The Familiar overlay incorrectly flagged the
+system as "disabled" until the user summoned a familiar, at which
+point it self-corrected.
+
+Root cause: the Familiar detection signal was `Familiar.HasActive`
+— which only fires when a familiar is **currently bound + summoned**
+at the moment of the protocol broadcast. A player on a Familiars-
+enabled server who simply hasn't summoned since login looks
+identical to "FamiliarSystem disabled" via that signal. Cross-
+corroboration kicks in after the 30-second settling window (other
+systems are flowing data, Familiar hasn't shown anything yet) and
+triggers the false-positive disabled UI.
+
+Bloodcraft's Quest signal had a similar shape but doesn't hit this
+in practice because the server auto-assigns daily/weekly quests
+within minutes of login (`Quest.Goal > 0` fires). Familiar has no
+such auto-trigger.
+
+Two-part fix:
+
+1. **`PlayerStateService._everReceivedFamiliarBoxList`** — new
+   per-session flag set in `UpdateBoxList`. Arriving in
+   `UpdateBoxList` at all is proof the server's `.fam boxes`
+   handler accepted our request, which only happens when
+   `ConfigService.FamiliarSystem=true`. The signal joins
+   `Familiar.HasActive` as an "enabled" trigger in
+   `RecomputeFeatureFlagsFromLatest`, and `UpdateBoxList` now
+   re-runs the detection inline so UIs flip back from disabled
+   immediately.
+
+2. **`EclipseProtocolService.ScheduleFamiliarSystemProbe`** —
+   schedules a silent `.fam boxes` probe via
+   `MessageService.EnqueueMessageSilent` on the first ConfigsToClient
+   ACK so the signal lands even when the user never opens the
+   Familiar Browser overlay or the Boxes tab. The probe is one-shot
+   per session — `EclipseProtocolService.Reset` clears the flag so
+   the next world entry probes again on the new server.
+
+`FamiliarOverlayPanel` now also subscribes to `FeatureFlagsChanged`
+in addition to `FamiliarChanged` so the overlay re-renders the
+moment the probe response flips the flag, without waiting for the
+next ProgressToClient broadcast tick.
+
+Friend confirmed in chat: once the probe lands, the Familiar
+overlay updates from "(Familiars disabled on this server)" back to
+"(no familiar bound)" — the correct empty-state placeholder for a
+Familiars-enabled server with no current binding.
+
+
+
 ## 0.15.0 — Bloodcraft availability diagnostic + per-feature degradation + tab strip overflow + checkbox visibility + controller-A fix + familiar overlay min-height + .fam reset relabel + opt-in hotkeys + diagnostic mode + main-panel drag fix
 
 Friend-test feedback bundle on top of v0.14.0. Eleven fixes spanning UX

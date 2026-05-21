@@ -4185,8 +4185,21 @@ public partial class MainPanel : ResizeablePanelBase
         if (_dqDailyTargetLabel == null) return;
         var d = PlayerStateService.DailyQuest;
         var w = PlayerStateService.WeeklyQuest;
-        FormatQuestRow(_dqDailyTargetLabel,  _dqDailyProgressLabel,  d, "(no daily quest yet — check back after the next refresh)");
-        FormatQuestRow(_dqWeeklyTargetLabel, _dqWeeklyProgressLabel, w, "(no weekly quest yet — check back after the next refresh)");
+        // 0.15.1: when Quest is reliably detected as disabled server-side
+        // (other Bloodcraft systems are flowing data but Quest stays
+        // empty across the settling window), show a clearer hint than
+        // "no quest yet — check back". Friend-test 0.15.0 surfaced users
+        // staring at the placeholder indefinitely on a Quests-disabled
+        // server with no signal that the feature was actually off.
+        bool questDisabled = PlayerStateService.IsSystemReliablyDisabled(PlayerStateService.SystemKind.Quest);
+        string dailyEmpty  = questDisabled
+            ? "(Quests disabled on this server — the admin has Bloodcraft's QuestSystem turned off)"
+            : "(no daily quest yet — check back after the next refresh)";
+        string weeklyEmpty = questDisabled
+            ? "(Quests disabled on this server — see daily row above)"
+            : "(no weekly quest yet — check back after the next refresh)";
+        FormatQuestRow(_dqDailyTargetLabel,  _dqDailyProgressLabel,  d, dailyEmpty);
+        FormatQuestRow(_dqWeeklyTargetLabel, _dqWeeklyProgressLabel, w, weeklyEmpty);
     }
 
     private static void FormatQuestRow(TextMeshProUGUI target, TextMeshProUGUI progress,

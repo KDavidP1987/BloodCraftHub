@@ -145,6 +145,32 @@ public class ProfessionOverlayPanel : ResizeablePanelBase
     {
         if (_enchantingLabel == null) return;
 
+        // 0.15.2: when Professions are reliably detected disabled
+        // server-side, hide all 8 per-profession rows + bars and reuse
+        // the Enchanting row as a single "(disabled)" hint line. Same
+        // cross-corroboration pattern Quest/Familiar/etc. use.
+        if (PlayerStateService.IsSystemReliablyDisabled(PlayerStateService.SystemKind.Profession))
+        {
+            SetRowActive(_enchantingLabel,    true);
+            SetRowActive(_alchemyLabel,       false);
+            SetRowActive(_harvestingLabel,    false);
+            SetRowActive(_blacksmithingLabel, false);
+            SetRowActive(_tailoringLabel,     false);
+            SetRowActive(_woodcuttingLabel,   false);
+            SetRowActive(_miningLabel,        false);
+            SetRowActive(_fishingLabel,       false);
+            _enchantingLabel.TextMesh.text = "(Professions disabled on this server)";
+            SyncBar(_enchantingBar,    _enchantingFill,    0f, false);
+            SyncBar(_alchemyBar,       _alchemyFill,       0f, false);
+            SyncBar(_harvestingBar,    _harvestingFill,    0f, false);
+            SyncBar(_blacksmithingBar, _blacksmithingFill, 0f, false);
+            SyncBar(_tailoringBar,     _tailoringFill,     0f, false);
+            SyncBar(_woodcuttingBar,   _woodcuttingFill,   0f, false);
+            SyncBar(_miningBar,        _miningFill,        0f, false);
+            SyncBar(_fishingBar,       _fishingFill,       0f, false);
+            return;
+        }
+
         // 0.13.0: per-profession row visibility. Each row (label + bar pair)
         // hides via SetActive when its Settings flag is off. Default true
         // preserves the v0.12.x layout. Friend-test motivation: most players

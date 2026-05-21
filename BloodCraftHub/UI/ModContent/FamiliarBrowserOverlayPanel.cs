@@ -490,6 +490,22 @@ public class FamiliarBrowserOverlayPanel : ResizeablePanelBase
     {
         if (_boxNameLabel == null) return;
 
+        // 0.15.2: when Familiar system is reliably detected disabled
+        // server-side, short-circuit both view modes and show a single
+        // hint line instead of "no boxes loaded — click Reload" (which
+        // would just spam empty replies). The list area is cleared and
+        // the toggle/unbind footer buttons are disabled because there's
+        // nothing meaningful to act on.
+        if (PlayerStateService.IsSystemReliablyDisabled(PlayerStateService.SystemKind.Familiar))
+        {
+            _boxNameLabel.text   = "(Familiars disabled on this server)";
+            _activeFamLabel.text = "The server admin has Bloodcraft's FamiliarSystem turned off.";
+            if (_toggleBtn != null) _toggleBtn.Component.interactable = false;
+            if (_unbindBtn != null) _unbindBtn.Component.interactable = false;
+            ClearChildren(_famListContainer);
+            return;
+        }
+
         // 0.10.5: branch on view mode. V-Blood view bypasses the box-cycling
         // header rendering and shows the collection grid instead. Box view
         // (default) runs the existing box-by-box render path.
