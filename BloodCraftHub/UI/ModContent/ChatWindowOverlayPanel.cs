@@ -8,6 +8,7 @@ using BloodCraftHub.UI.Framework.UniverseLib.UI;
 using BloodCraftHub.UI.Framework.UniverseLib.UI.Models;
 using BloodCraftHub.UI.Framework.UniverseLib.UI.Panels;
 using BloodCraftHub.UI.ModContent.Data;
+using ProjectM.Network;
 using TMPro;
 using UnityEngine;
 using UIBase = BloodCraftHub.UI.Framework.UniverseLib.UI.UIBase;
@@ -60,6 +61,7 @@ public class ChatWindowOverlayPanel : ResizeablePanelBase
     private TextMeshProUGUI _log;
     private bool _subscribed;
     private readonly List<ButtonRef> _tabButtons = new();
+    private InputFieldRef _input;
 
     public ChatWindowOverlayPanel(UIBase owner) : base(owner) { }
 
@@ -102,6 +104,20 @@ public class ChatWindowOverlayPanel : ResizeablePanelBase
         _log.color = Theme.DefaultText;
         UIFactory.SetLayoutElement(_log.gameObject, flexibleWidth: 1, flexibleHeight: 1);
 
+        // Input row — type + Enter to send on the active tab's channel. While the
+        // field is focused, gameplay input is suppressed (you don't move/attack
+        // while typing) via InputSuppression.ChatInputActive.
+        var inputRow = UIFactory.CreateHorizontalGroup(ContentRoot, "ChatInputRow",
+            true, false, true, true, 2, new Vector4(2, 2, 2, 2));
+        UIFactory.SetLayoutElement(inputRow, minHeight: 26, preferredHeight: 26, flexibleWidth: 1);
+        _input = UIFactory.CreateInputField(inputRow, "ChatInput", "Type a message, Enter to send…");
+        UIFactory.SetLayoutElement(_input.GameObject,
+            minWidth: 200, preferredWidth: 320, flexibleWidth: 1,
+            minHeight: 24, preferredHeight: 24, flexibleHeight: 0);
+        _input.Component.onSubmit.AddListener(OnChatSubmit);
+        _input.Component.onSelect.AddListener(OnChatSelect);
+        _input.Component.onDeselect.AddListener(OnChatDeselect);
+
         if (!_subscribed)
         {
             ChatRelayService.LineCaptured += OnLineCaptured;
@@ -121,6 +137,45 @@ public class ChatWindowOverlayPanel : ResizeablePanelBase
     {
         try { UpdateTabHighlight(); Render(); } catch { }
     }
+
+    // ---- input / send (increment 2) ----
+
+    private void OnChatSelect(string _)   => Patches.InputSuppression.ChatInputActive = true;
+    private void OnChatDeselect(string _) => Patches.InputSuppression.ChatInputActive = false;
+
+    private void OnChatSubmit(string text)
+    {
+        try
+        {
+            var msg = text?.Trim();
+            if (!string.IsNullOrEmpty(msg))
+                MessageService.SendChat(msg, ActiveSendChannel());
+        }
+        catch (System.Exception ex)
+        {
+            Utils.LogUtils.LogError($"Chat send failed: {ex}");
+        }
+        finally
+        {
+            if (_input != null)
+            {
+                _input.Text = string.Empty;
+                _input.Component.DeactivateInputField();
+            }
+            Patches.InputSuppression.ChatInputActive = false;
+        }
+    }
+
+    // The active tab decides the outgoing channel. All / System / Whispers fall
+    // back to Local (System isn't player-sendable; whisper send needs a target,
+    // which comes with the per-person whisper tabs in a later increment).
+    private ChatMessageType ActiveSendChannel() => TabDefs[_activeTab].Filter switch
+    {
+        ChatRelayService.Channel.Global => ChatMessageType.Global,
+        ChatRelayService.Channel.Clan   => ChatMessageType.Team,
+        ChatRelayService.Channel.Local  => ChatMessageType.Local,
+        _                               => ChatMessageType.Local,
+    };
 
     private void UpdateTabHighlight()
     {
@@ -173,7 +228,9 @@ public class ChatWindowOverlayPanel : ResizeablePanelBase
     internal override void Reset()
     {
         if (_subscribed) { ChatRelayService.LineCaptured -= OnLineCaptured; _subscribed = false; }
+        Patches.InputSuppression.ChatInputActive = false;
         _tabButtons.Clear();
+        _input = null;
         _log = null;
     }
 }

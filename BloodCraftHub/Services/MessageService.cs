@@ -219,4 +219,30 @@ public static partial class MessageService
             LogUtils.LogError($"MessageService.SendMessage failed: {ex}");
         }
     }
+
+    // 0.17: send a chat message on a specific channel (Global / Local / Team).
+    // Used by the tabbed chat window's input box. No intercept arming — this is
+    // real player chat, not a command awaiting a parsed reply.
+    public static void SendChat(string text, ChatMessageType type)
+    {
+        if (!_isInitialized || string.IsNullOrEmpty(text)) return;
+        try
+        {
+            var chatMessageEvent = new ChatMessageEvent
+            {
+                MessageText    = text,
+                MessageType    = type,
+                ReceiverEntity = _localUser.Read<NetworkId>(),
+            };
+
+            Entity networkEntity = EntityManager.CreateEntity(NetworkEventComponents);
+            networkEntity.Write(new FromCharacter { Character = _localCharacter, User = _localUser });
+            networkEntity.Write(NetworkEventType);
+            networkEntity.Write(chatMessageEvent);
+        }
+        catch (Exception ex)
+        {
+            LogUtils.LogError($"MessageService.SendChat failed: {ex}");
+        }
+    }
 }

@@ -42,10 +42,17 @@ internal static class InputSuppression
 {
     private static double _lastDiagAt;
 
+    // 0.17: set true by the tabbed chat window's input field while it has focus,
+    // so gameplay input (movement / abilities / menu hotkeys) is suppressed while
+    // you type — independent of the SuppressGameInputWhileUIOpen setting, since
+    // you never want to move mid-type.
+    internal static bool ChatInputActive;
+
     internal static bool ShouldBlock()
     {
         try
         {
+            if (ChatInputActive) return true;
             if (!Config.Settings.SuppressGameInputWhileUIOpen) return false;
             return Plugin.UIManager?.IsMainPanelOpen ?? false;
         }
