@@ -571,6 +571,7 @@ public class Settings
     public static bool ShowChatWindowOverlay => (ConfigEntries[nameof(ShowChatWindowOverlay)] as ConfigEntry<bool>)?.Value ?? false;
     public static bool ChatShowTimestamps => (ConfigEntries[nameof(ChatShowTimestamps)] as ConfigEntry<bool>)?.Value ?? true;
     public static bool ChatShowChannelTags => (ConfigEntries[nameof(ChatShowChannelTags)] as ConfigEntry<bool>)?.Value ?? true;
+    public static bool HideNativeChat => (ConfigEntries[nameof(HideNativeChat)] as ConfigEntry<bool>)?.Value ?? false;
     public static bool ShiftSpellOverlayShowDiagnostics => (ConfigEntries[nameof(ShiftSpellOverlayShowDiagnostics)] as ConfigEntry<bool>)?.Value ?? false;
     public static bool ShowShiftSpellIcon      => (ConfigEntries[nameof(ShowShiftSpellIcon)]      as ConfigEntry<bool>)?.Value ?? true;
     public static bool OverlaysBehindGameMenus => (ConfigEntries[nameof(OverlaysBehindGameMenus)] as ConfigEntry<bool>)?.Value ?? true;
@@ -587,6 +588,7 @@ public class Settings
     public static void SetShowChatWindowOverlay(bool v) => SetBool(nameof(ShowChatWindowOverlay), v);
     public static void SetChatShowTimestamps(bool v) => SetBool(nameof(ChatShowTimestamps), v);
     public static void SetChatShowChannelTags(bool v) => SetBool(nameof(ChatShowChannelTags), v);
+    public static void SetHideNativeChat(bool v) => SetBool(nameof(HideNativeChat), v);
     public static void SetOverlaysBehindGameMenus(bool v) => SetBool(nameof(OverlaysBehindGameMenus), v);
     public static void SetSuppressGameInputWhileUIOpen(bool v) => SetBool(nameof(SuppressGameInputWhileUIOpen), v);
 
@@ -805,6 +807,7 @@ public class Settings
         InitConfigEntry(OVERLAY_SETTINGS_GROUP, nameof(ShowChatWindowOverlay),       false, "Whether the standalone tabbed chat window (Game UI) was visible at last logout.");
         InitConfigEntry(OVERLAY_SETTINGS_GROUP, nameof(ChatShowTimestamps),          true,  "Show the [HH:mm] timestamp on each line in the tabbed chat window.");
         InitConfigEntry(OVERLAY_SETTINGS_GROUP, nameof(ChatShowChannelTags),         true,  "Show the channel label ([G]/[L]/[Clan]/[Sys]/[W]) on each line in the tabbed chat window.");
+        InitConfigEntry(OVERLAY_SETTINGS_GROUP, nameof(HideNativeChat),              false, "Replace the game's default chat with the tabbed chat window: hide the native chat (invisible + non-interactive) while the tabbed window is open. Default off. The native chat returns when the tabbed window is closed.");
         InitConfigEntry(OVERLAY_SETTINGS_GROUP, nameof(ShiftSpellOverlayShowDiagnostics), false, "Show the small italic 'pf/cg/si/end/srv' debug line under the Shift overlay's SHIFT label. Off by default; flip on if you need to debug why the cooldown isn't updating.");
         InitConfigEntry(OVERLAY_SETTINGS_GROUP, nameof(ShowShiftSpellIcon),               true,  "Show the slotted spell's actual icon on the Shift-spell overlay tile (like Eclipse). When off, the overlay shows the plain colored cooldown tile instead.");
         InitConfigEntry(OVERLAY_SETTINGS_GROUP, nameof(OverlaysBehindGameMenus),          true,  "When an in-game menu (inventory, character sheet, map, etc.) is open, drop BCH's overlays/panels BEHIND it instead of floating over the top. Set false to keep them always on top (the pre-0.16 behavior).");

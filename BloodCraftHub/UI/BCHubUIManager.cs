@@ -36,6 +36,7 @@ public class BCHubUIManager : UIManagerBase
     private ShiftSpellOverlayPanel _shiftSpellOverlay;
     private QuickActionsOverlayPanel _quickActionsOverlay; // 0.16: one-click Kindred action buttons (Stash All)
     private ChatWindowOverlayPanel _chatWindowOverlay; // 0.17: standalone tabbed chat window
+    private ProjectM.UI.HUDChatWindow _nativeChat; // 0.17: cached native chat window (for the takeover)
     // 0.14.0: single combined info overlay. Mutually exclusive with the 4
     // standalone info overlays (XP / Familiar / Daily Quest / Profession);
     // when ShowCombinedOverlay is true, those are hidden regardless of
@@ -232,6 +233,7 @@ public class BCHubUIManager : UIManagerBase
                 EnsureChatWindowOverlay();
                 _chatWindowOverlay.SetActive(!_chatWindowOverlay.Enabled);
                 BloodCraftHub.Config.Settings.SetShowChatWindowOverlay(_chatWindowOverlay.Enabled);
+                ApplyNativeChatVisibility();
                 break;
             case PanelType.CombinedOverlay:
                 // 0.14.0: toggling combined-mode swaps which set of overlays
@@ -433,6 +435,7 @@ public class BCHubUIManager : UIManagerBase
             EnsureChatWindowOverlay();
             _chatWindowOverlay.SetActive(true);
         }
+        ApplyNativeChatVisibility();
         // 0.14.0: re-show combined overlay last, after the un-suppress walk
         // through individual overlays — ApplyCombinedOverlayMutualExclusion
         // will hide whichever individuals it conflicts with.
@@ -528,6 +531,33 @@ public class BCHubUIManager : UIManagerBase
 
     // 0.17: let the Game UI customization toggles re-render the live chat window.
     public void RefreshChatWindowOverlay() => _chatWindowOverlay?.Refresh();
+
+    // 0.17 (2c): replace the game's chat with the tabbed window. When the tabbed
+    // chat window is open AND Settings.HideNativeChat is on, hide the native chat
+    // by zeroing its ContentCanvasGroup (alpha + raycasts + interactable). This
+    // keeps the native ClientChatSystem RUNNING — so our FormatFullChatMessage
+    // capture of other players' messages keeps working — while the native UI is
+    // invisible and non-interactive. Restored when the tabbed window closes or
+    // the setting is off, so there's always a chat available.
+    public void ApplyNativeChatVisibility()
+    {
+        try
+        {
+            bool hide = (_chatWindowOverlay?.Enabled ?? false) && BloodCraftHub.Config.Settings.HideNativeChat;
+            if (_nativeChat == null)
+                _nativeChat = UnityEngine.Object.FindObjectOfType<ProjectM.UI.HUDChatWindow>();
+            if (_nativeChat == null) return;
+            var cg = _nativeChat.ContentCanvasGroup;
+            if (cg == null) return;
+            cg.alpha          = hide ? 0f : 1f;
+            cg.blocksRaycasts = !hide;
+            cg.interactable   = !hide;
+        }
+        catch (System.Exception ex)
+        {
+            BloodCraftHub.Utils.LogUtils.LogDebug($"ApplyNativeChatVisibility: {ex.Message}");
+        }
+    }
 
     private void EnsureCombinedOverlay()
     {

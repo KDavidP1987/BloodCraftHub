@@ -1473,6 +1473,9 @@ public partial class MainPanel : ResizeablePanelBase
         AddChatOptionToggle(chatCard, "Show channel labels",
             Config.Settings.ChatShowChannelTags,
             v => Config.Settings.SetChatShowChannelTags(v));
+        AddChatOptionToggle(chatCard, "Replace the game's chat (hide it; use this window)",
+            Config.Settings.HideNativeChat,
+            v => { Config.Settings.SetHideNativeChat(v); Plugin.UIManager?.ApplyNativeChatVisibility(); });
     }
 
     // 0.17: small labeled toggle for the Game UI chat-window options. Persists
