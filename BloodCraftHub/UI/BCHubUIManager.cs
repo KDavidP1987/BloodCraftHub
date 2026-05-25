@@ -584,6 +584,7 @@ public class BCHubUIManager : UIManagerBase
         _professionOverlay?.RefreshBackgroundColor();
         _shiftSpellOverlay?.RefreshBackgroundColor();
         _quickActionsOverlay?.RefreshBackgroundColor();
+        _chatWindowOverlay?.RefreshBackgroundColor();
         _combinedOverlay?.RefreshBackgroundColor();
         // Floating button intentionally excluded — it's a single-button
         // strip without a chrome backdrop the user would want themed.

@@ -72,7 +72,7 @@ public class ChatWindowOverlayPanel : ResizeablePanelBase
 
         // Tab button row.
         var tabRow = UIFactory.CreateHorizontalGroup(ContentRoot, "ChatTabs",
-            true, false, true, true, 2, new Vector4(2, 2, 2, 2));
+            true, false, true, true, 2, new Vector4(2, 2, 2, 2), bgColor: new Color(0f, 0f, 0f, 0f));
         UIFactory.SetLayoutElement(tabRow, minHeight: 24, preferredHeight: 24, flexibleWidth: 1);
 
         _tabButtons.Clear();
@@ -93,6 +93,11 @@ public class ChatWindowOverlayPanel : ResizeablePanelBase
         UIFactory.SetLayoutElement(scroll,
             minWidth: 300, preferredWidth: 360, flexibleWidth: 1,
             minHeight: 120, preferredHeight: 220, flexibleHeight: 1);
+        // CreateScrollView paints its background Theme.Level1 (red) when the passed
+        // color == default; force it transparent so the panel's themed background
+        // shows through, matching the other overlays.
+        var scrollBg = scroll.GetComponent<UnityEngine.UI.Image>();
+        if (scrollBg != null) scrollBg.color = new Color(0f, 0f, 0f, 0f);
 
         var lbl = UIFactory.CreateLabel(scrollContent, "ChatLog", string.Empty, TextAlignmentOptions.TopLeft);
         _log = lbl.TextMesh;
@@ -104,19 +109,26 @@ public class ChatWindowOverlayPanel : ResizeablePanelBase
         _log.color = Theme.DefaultText;
         UIFactory.SetLayoutElement(_log.gameObject, flexibleWidth: 1, flexibleHeight: 1);
 
-        // Input row — type + Enter to send on the active tab's channel. While the
-        // field is focused, gameplay input is suppressed (you don't move/attack
-        // while typing) via InputSuppression.ChatInputActive.
+        // Input row — type + Enter or the Send button to send on the active tab's
+        // channel. While the field is focused, gameplay input is suppressed (you
+        // don't move/attack while typing) via InputSuppression.ChatInputActive.
         var inputRow = UIFactory.CreateHorizontalGroup(ContentRoot, "ChatInputRow",
-            true, false, true, true, 2, new Vector4(2, 2, 2, 2));
+            true, false, true, true, 2, new Vector4(2, 2, 2, 2), bgColor: new Color(0f, 0f, 0f, 0f));
         UIFactory.SetLayoutElement(inputRow, minHeight: 26, preferredHeight: 26, flexibleWidth: 1);
-        _input = UIFactory.CreateInputField(inputRow, "ChatInput", "Type a message, Enter to send…");
+        _input = UIFactory.CreateInputField(inputRow, "ChatInput", "Type a message…");
         UIFactory.SetLayoutElement(_input.GameObject,
-            minWidth: 200, preferredWidth: 320, flexibleWidth: 1,
+            minWidth: 160, preferredWidth: 280, flexibleWidth: 1,
             minHeight: 24, preferredHeight: 24, flexibleHeight: 0);
         _input.Component.onSubmit.AddListener(OnChatSubmit);
         _input.Component.onSelect.AddListener(OnChatSelect);
         _input.Component.onDeselect.AddListener(OnChatDeselect);
+        // Explicit Send button — reliable even if Enter is intercepted by the
+        // still-visible native chat (until the native-takeover increment).
+        var sendBtn = UIFactory.CreateButton(inputRow, "ChatSendButton", "Send");
+        UIFactory.SetLayoutElement(sendBtn.GameObject,
+            minWidth: 52, preferredWidth: 60, flexibleWidth: 0,
+            minHeight: 24, preferredHeight: 24, flexibleHeight: 0);
+        sendBtn.OnClick = () => SubmitText(keepFocus: true);
 
         if (!_subscribed)
         {
@@ -142,12 +154,17 @@ public class ChatWindowOverlayPanel : ResizeablePanelBase
 
     private void OnChatSelect(string _)   => Patches.InputSuppression.ChatInputActive = true;
     private void OnChatDeselect(string _) => Patches.InputSuppression.ChatInputActive = false;
+    private void OnChatSubmit(string _)   => SubmitText(keepFocus: false); // Enter
 
-    private void OnChatSubmit(string text)
+    // Sends the current input on the active tab's channel, then clears. keepFocus
+    // (Send button) re-activates the field so you can keep chatting; Enter
+    // releases focus so movement resumes (game-like).
+    private void SubmitText(bool keepFocus)
     {
+        if (_input == null) return;
         try
         {
-            var msg = text?.Trim();
+            var msg = _input.Text?.Trim();
             if (!string.IsNullOrEmpty(msg))
                 MessageService.SendChat(msg, ActiveSendChannel());
         }
@@ -157,12 +174,16 @@ public class ChatWindowOverlayPanel : ResizeablePanelBase
         }
         finally
         {
-            if (_input != null)
+            _input.Text = string.Empty;
+            if (keepFocus)
             {
-                _input.Text = string.Empty;
-                _input.Component.DeactivateInputField();
+                _input.Component.ActivateInputField();
             }
-            Patches.InputSuppression.ChatInputActive = false;
+            else
+            {
+                _input.Component.DeactivateInputField();
+                Patches.InputSuppression.ChatInputActive = false;
+            }
         }
     }
 
