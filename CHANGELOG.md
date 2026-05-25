@@ -1,82 +1,64 @@
 # Changelog
 
-## 0.16.1 — Crash hotfix: hardened custom-recipe + SHIFT-icon code against cross-server incompatibilities
+## 0.16.1 — Crash hotfix: stop triggering the Il2CppInterop GC-finalizer crash at login
 
-A stability hotfix. Several players reported that **0.16.0 crashed the game a
-few seconds after joining certain servers** — while working fine on others. The
-crash surfaced as an Il2CppInterop GC finalizer fault:
+A stability hotfix for an **intermittent crash a few seconds after loading into
+a game** that some players hit on 0.16.0 (and which others, on the same build,
+never saw). It surfaced as a fault deep inside Il2CppInterop's garbage collector:
 
 ```
 Unhandled exception. System.NullReferenceException
    at Il2CppInterop.Runtime.Injection.Hooks.GarbageCollector_RunFinalizer_Patch.Hook(...)
 ```
 
-That stack has no BCH frame because it fires asynchronously, on the IL2CPP
-finalizer thread, *after* the offending call has already returned — the
-signature of bad ECS / managed-object state created earlier on the main thread.
-Because it only happened on some servers, the cause had to be code that depends
-on **server-sent data**. Two features added in 0.16.0 fit, and both touch
-IL2CPP in ways that can leave a dangling object behind on a server whose data
-shape differs from what BCH assumed. This release hardens both.
+### What it actually was
 
-### Hardened: Bloodcraft custom-recipe application (`RecipeService`)
+That stack is entirely inside **Il2CppInterop**, not BCH — `GarbageCollector_RunFinalizer_Patch`
+is a known-unstable piece of the interop layer (since removed upstream) that can
+fault under GC pressure during load. The crash is **non-deterministic**: same
+build, different outcome per machine; it "came and went" for testers with no
+code change; no BCH exception is ever logged. BCH wasn't *failing* — it was
+**triggering** that latent interop bug by doing too much GC-pressuring work in
+the busy login window. The chief offender: `RecipeService` ran a burst of ECS
+structural changes synchronously, right as registration + the familiar probe +
+the chat flood all landed, forcing GC sync points at the worst moment.
 
-The custom-recipe feature mutates the local crafting-station ECS data using a
-recipe/prefab table **pinned to Bloodcraft v1.13.x**. On a server running a
-different Bloodcraft build, those GUIDs can resolve to entities with a different
-buffer/component shape — and the old code indexed requirement/output buffers at
-slot `[0]` and mutated entities unconditionally, which could corrupt structural
-ECS state.
+### Changes
 
-Now every mutation block is:
+**Custom recipes now default OFF and apply on a deferred, quiet frame.** The
+custom-recipe feature is the single new-0.16.0 element most correlated with the
+crash window, so `EnableCustomRecipes` now defaults to **false** — turn it on to
+opt in. When on, application is **deferred a few seconds after login** to a quiet
+frame (instead of running inline in the Eclipse config handler), keeping its
+structural-change burst out of the volatile load window. (Existing configs that
+already set `EnableCustomRecipes = true` keep their value — see Notes.)
 
-- **Isolated** in its own try/catch — one version-mismatched prefab can no
-  longer abort the remaining recipes or leave a half-applied state, and each
-  failure logs exactly which step was skipped.
-- **Shape-checked** before any buffer access — entities are confirmed to exist
-  and to actually be recipes (`RecipeData` present), buffers are confirmed
-  present and non-empty before slot `[0]` is touched.
+**Recipe mutation hardened.** Even when enabled, every mutation block is now
+isolated in its own try/catch (a version-mismatched prefab can't abort the rest
+or half-apply, and logs which step it skipped) and shape-checked before any
+buffer access (entity exists + is really a recipe; buffers present and non-empty
+before slot `[0]` is touched).
 
-Kill-switch unchanged: set **`EnableCustomRecipes = false`** (General section of
-the config) to skip recipe application entirely.
+**SHIFT-spell icon resolution gated + guarded.** The managed `AbilityTooltipData`
+read (`GetComponentObject`) added in 0.16.0 now only runs when the SHIFT overlay
+is actually shown, `ShowShiftSpellIcon` is a real kill-switch (it previously only
+hid an already-resolved icon), stale entities are skipped, and a circuit-breaker
+latches it off after repeated faults. Cooldown readout is unaffected.
 
-### Hardened: SHIFT-spell slotted-icon resolution (`ShiftCooldownService`)
-
-The 0.16.0 SHIFT-icon code reads a **managed** `AbilityTooltipData` component
-(via `GetComponentObject`) off the slotted ability — including off the prefab
-template entity. It ran every poll, unconditionally, for every player, and is
-the other strong candidate for a dangling-managed-wrapper finalizer crash on
-servers whose class/spell setup differs.
-
-Changes:
-
-- **`ShowShiftSpellIcon` is now a true kill-switch.** Previously it only hid an
-  already-resolved icon; the managed read happened regardless. It now gates the
-  resolution itself, and resolution only runs when the **SHIFT overlay is
-  actually shown** (the icon has no other consumer — no reason to touch managed
-  components otherwise). Set `ShowShiftSpellIcon = false` to disable it.
-- **Stale-entity guard.** The managed read now bails if the entity no longer
-  exists, so it never touches a recycled entity.
-- **Circuit-breaker.** After repeated faults it latches icon resolution off for
-  the session (logged once). The cooldown readout — the overlay's actual job —
-  is unaffected.
-
-### Also: smaller, shrinkable Quick Actions overlay
-
-Friend-test feedback: the Quick Actions "Stash All" button was oversized and
-wouldn't shrink. The overlay's minimum footprint (160×80) and the button's own
-minimums kept it large even when resized. Lowered both — the overlay now starts
-smaller and can be dragged down to a compact size.
+**Smaller, shrinkable Quick Actions overlay.** Friend-test: the "Stash All"
+button was oversized and wouldn't shrink. Lowered the overlay's minimum footprint
+and the button's minimums so it starts smaller and resizes down.
 
 ### Notes
 
-- No functional change for players on servers where 0.16.0 already worked; the
-  recipes and SHIFT icon behave exactly as before.
-- If you were crashing on a particular server, this build should let you join.
-  If a crash somehow persists, the two kill-switches above (`EnableCustomRecipes`
-  and `ShowShiftSpellIcon`) isolate each feature, and the new per-step log lines
-  in `BepInEx/LogOutput.log` pinpoint what to look at.
-- No change to the supported Bloodcraft range; this is purely defensive.
+- This is a **probability reduction for a non-deterministic interop-layer race**,
+  not a guaranteed fix — but it removes the login-time trigger for the default
+  configuration. The underlying fault lives in Il2CppInterop; keeping your
+  BepInEx (V Rising) pack up to date is recommended.
+- **Existing installs** that already have `EnableCustomRecipes = true` in their
+  config keep that value (the new default only affects fresh configs). If a user
+  is still crashing, set `EnableCustomRecipes = false` — the deferral also
+  reduces the risk for those who leave it on.
 
 ## 0.16.0 — Input suppression, custom recipes, SHIFT-spell icon, exoform fix, Quick Actions overlay, overlay layering + resize discoverability
 

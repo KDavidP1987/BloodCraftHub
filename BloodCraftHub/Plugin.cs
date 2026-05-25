@@ -94,6 +94,12 @@ public class Plugin : BasePlugin
         // never reads the values).
         CoreUpdateBehavior.Actions.Add(ShiftCooldownService.Tick);
 
+        // 0.16.1: custom-recipe application is scheduled (not run inline in the
+        // Eclipse config handler) and applied here a few seconds after login, on a
+        // quiet frame — keeps its ECS structural-change burst out of the volatile
+        // login window. No-op until ScheduleApply arms it; self-disarms after apply.
+        CoreUpdateBehavior.Actions.Add(RecipeService.Tick);
+
         // Tooltip hover loop. TickAll no-ops until the MainPanel sets
         // TooltipHover.Sink (during BuildTooltipFooter), so this is safe at
         // Load time. Registering here (not lazily on first MainPanel build)

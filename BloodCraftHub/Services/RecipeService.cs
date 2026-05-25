@@ -41,6 +41,18 @@ public static class RecipeService
 {
     private static bool _applied;
 
+    // 0.16.1: defer application off the login-critical frame. ApplyOnce used to
+    // run synchronously inside the Eclipse config-broadcast handler — i.e. during
+    // the busiest login moment (registration ACK + familiar probe + chat flood),
+    // where its burst of ECS structural changes forces GC sync points and can tip
+    // a borderline machine into the known Il2CppInterop GC-finalizer crash. We now
+    // SCHEDULE it and apply a few seconds later on a quiet frame (driven by Tick,
+    // registered on CoreUpdateBehavior at Plugin.Load).
+    private static bool _scheduled;
+    private static double _applyAtTime;
+    private static PrefabGUID _pendingPrimalCost;
+    private const double APPLY_DELAY_SECONDS = 5.0;
+
     // Stations.
     static readonly PrefabGUID _advancedGrinder = new(-178579946); // vampiric dust
     static readonly PrefabGUID _fabricator      = new(-465055967); // copper wires, iron body
@@ -108,6 +120,29 @@ public static class RecipeService
         if (recipe.Equals(_monsterShardRecipe))   return _monsterShard;
         if (recipe.Equals(_manticoreShardRecipe)) return _manticoreShard;
         return _draculaShard;
+    }
+
+    /// <summary>0.16.1: schedule recipe application for a quiet frame a few
+    /// seconds after login instead of running it inline during the login burst.
+    /// Caller is responsible for the extraRecipes / Eclipse-coexistence / setting
+    /// gates (same as ApplyOnce). No-op once applied or already scheduled.</summary>
+    public static void ScheduleApply(PrefabGUID primalCost)
+    {
+        if (_applied || _scheduled) return;
+        _pendingPrimalCost = primalCost;
+        _applyAtTime = UnityEngine.Time.realtimeSinceStartupAsDouble + APPLY_DELAY_SECONDS;
+        _scheduled = true;
+        LogUtils.LogInfo($"RecipeService: custom recipes scheduled to apply in {APPLY_DELAY_SECONDS:F0}s (deferred off the login frame).");
+    }
+
+    /// <summary>Per-frame ticker (registered on CoreUpdateBehavior at Plugin.Load).
+    /// Applies the scheduled recipes once the post-login quiet window is reached.</summary>
+    public static void Tick()
+    {
+        if (!_scheduled || _applied) return;
+        if (UnityEngine.Time.realtimeSinceStartupAsDouble < _applyAtTime) return;
+        _scheduled = false;
+        ApplyOnce(_pendingPrimalCost);
     }
 
     /// <summary>Apply the custom-recipe modifications once. Safe to call
