@@ -52,6 +52,14 @@ internal static class ClientChatPatch
         // for the freeze-safety rationale.
         Plugin.UIManager?.ApplyNativeChatVisibility();
 
+        // 0.17.0: AUTHORITATIVE suppression flag. Drive ChatInputActive from our
+        // chat input's real focus state every frame, instead of trusting the
+        // onSelect/onDeselect events (DeactivateInputField doesn't reliably raise
+        // onDeselect, so the event-set flag stuck true and left gameplay input
+        // suppressed after chatting — the post-chat freeze). If the field isn't
+        // focused, suppression can't stick on.
+        InputSuppression.ChatInputActive = Plugin.UIManager?.IsChatInputFocused() ?? false;
+
         // 0.17.0 takeover input handling. (Replaces an earlier _FocusChat divert
         // that re-focused our input EVERY frame the game set _FocusChat — which the
         // coffin/rest state keeps set — pinning ChatInputActive on and trapping the

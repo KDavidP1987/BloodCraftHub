@@ -560,6 +560,11 @@ public class BCHubUIManager : UIManagerBase
         catch { return false; }
     }
 
+    // 0.17.0: is OUR tabbed-chat input currently focused? Polled each frame to
+    // drive InputSuppression.ChatInputActive, so suppression reflects reality.
+    public bool IsChatInputFocused()
+        => (_chatWindowOverlay?.Enabled ?? false) && (_chatWindowOverlay?.IsInputFocused() ?? false);
+
     public void ApplyNativeChatVisibility()
     {
         try

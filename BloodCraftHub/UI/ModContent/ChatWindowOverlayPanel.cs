@@ -175,6 +175,17 @@ public class ChatWindowOverlayPanel : ResizeablePanelBase
         Patches.InputSuppression.ChatInputActive = false;
     }
 
+    // 0.17.0: authoritative focus state, polled each frame to drive ChatInputActive.
+    // onSelect/onDeselect aren't reliable — DeactivateInputField doesn't always raise
+    // onDeselect — so the event-set flag could stick true and leave gameplay input
+    // suppressed after you finished chatting (the post-chat freeze). Reading the
+    // field's real focus each frame means suppression can never stick on.
+    internal bool IsInputFocused()
+    {
+        try { return _input?.Component != null && _input.Component.isFocused; }
+        catch { return false; }
+    }
+
     private void OnChatSelect(string _)   => Patches.InputSuppression.ChatInputActive = true;
     private void OnChatDeselect(string _) => Patches.InputSuppression.ChatInputActive = false;
     private void OnChatSubmit(string _)   => SubmitText(keepFocus: false); // Enter
