@@ -46,6 +46,24 @@ internal static class ClientChatPatch
         // for the freeze-safety rationale.
         Plugin.UIManager?.ApplyNativeChatVisibility();
 
+        // 0.17.0: divert Enter at the SOURCE. Pressing the chat-open key sets
+        // ClientChatSystem._FocusChat, which OnUpdate then turns into a native
+        // input-field focus (via FocusInputField/SetFocused) — and because the
+        // native window is hidden during takeover, that focus sets V Rising's
+        // ChatInputFocused gate with no visible way to close it => total input
+        // freeze. Patching SetFocused alone missed this because the focus also
+        // flows through FocusInputField. Here we neutralize the open-intent flag
+        // before OnUpdate consumes it and focus OUR input instead.
+        try
+        {
+            if ((Plugin.UIManager?.IsNativeChatHideActive() ?? false) && __instance._FocusChat)
+            {
+                __instance._FocusChat = false;
+                Plugin.UIManager.FocusChatInput();
+            }
+        }
+        catch (Exception ex) { LogUtils.LogDebug($"OnUpdate_Prefix _FocusChat divert: {ex.Message}"); }
+
         // Send the registration handshake once. Eclipse-main delays a couple of
         // seconds with a coroutine; we just fire on the first tick after the
         // entity bindings come up - the server is fine with that.
@@ -150,6 +168,26 @@ internal static class ClientChatPatch
             }
         }
         catch (Exception ex) { LogUtils.LogDebug($"SetFocused_Prefix: {ex.Message}"); }
+        return true;
+    }
+
+    // 0.17.0: the OTHER native focus entry point. The Enter key reaches the chat
+    // input field through FocusInputField (not only SetFocused), so blocking just
+    // SetFocused left the freeze in place. While the takeover is active, block the
+    // native focus outright and focus OUR input instead.
+    [HarmonyPatch(typeof(HUDChatWindow), nameof(HUDChatWindow.FocusInputField))]
+    [HarmonyPrefix]
+    private static bool FocusInputField_Prefix()
+    {
+        try
+        {
+            if (Plugin.UIManager?.IsNativeChatHideActive() ?? false)
+            {
+                Plugin.UIManager.FocusChatInput();
+                return false; // skip native focus
+            }
+        }
+        catch (Exception ex) { LogUtils.LogDebug($"FocusInputField_Prefix: {ex.Message}"); }
         return true;
     }
 }
