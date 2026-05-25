@@ -40,6 +40,12 @@ internal static class ClientChatPatch
         // Don't try anything until MessageService has bound the local character/user.
         if (!MessageService.IsInitialized) return;
 
+        // 0.17: while the tabbed-chat takeover is active, keep the native chat
+        // hidden each tick (an incoming message can fade it back in) and
+        // force-unfocus it if it grabbed focus — see ApplyNativeChatVisibility
+        // for the freeze-safety rationale.
+        Plugin.UIManager?.ApplyNativeChatVisibility();
+
         // Send the registration handshake once. Eclipse-main delays a couple of
         // seconds with a coroutine; we just fire on the first tick after the
         // entity bindings come up - the server is fine with that.
@@ -122,5 +128,28 @@ internal static class ClientChatPatch
     {
         try { ChatRelayService.CaptureFormatted(messageType, userName, filteredText); }
         catch (Exception ex) { LogUtils.LogDebug($"FormatFullChatMessage_Postfix: {ex.Message}"); }
+    }
+
+    // 0.17 (2c): divert the chat-open key for the takeover. When the tabbed
+    // window is taking over (open + Settings.HideNativeChat), the game pressing
+    // Enter would focus the NATIVE chat — which sets V Rising's ChatInputFocused
+    // and suppresses ALL gameplay input until the chat closes. If the native chat
+    // is also hidden, it can't be closed and the game freezes. So we block the
+    // native focus and focus OUR input instead — Enter opens the tabbed chat, and
+    // the native chat never traps gameplay input.
+    [HarmonyPatch(typeof(HUDChatWindow), nameof(HUDChatWindow.SetFocused))]
+    [HarmonyPrefix]
+    private static bool SetFocused_Prefix(bool isFocused)
+    {
+        try
+        {
+            if (isFocused && (Plugin.UIManager?.IsNativeChatHideActive() ?? false))
+            {
+                Plugin.UIManager.FocusChatInput();
+                return false; // skip native focus
+            }
+        }
+        catch (Exception ex) { LogUtils.LogDebug($"SetFocused_Prefix: {ex.Message}"); }
+        return true;
     }
 }

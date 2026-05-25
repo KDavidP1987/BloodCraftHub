@@ -152,6 +152,14 @@ public class ChatWindowOverlayPanel : ResizeablePanelBase
 
     // ---- input / send (increment 2) ----
 
+    // 0.17 (2c): focus the input — the divert target when the takeover intercepts
+    // the game's chat-open key (Enter). ActivateInputField fires onSelect, which
+    // sets ChatInputActive so gameplay input is suppressed while you type.
+    internal void FocusInput()
+    {
+        try { _input?.Component?.ActivateInputField(); } catch { }
+    }
+
     private void OnChatSelect(string _)   => Patches.InputSuppression.ChatInputActive = true;
     private void OnChatDeselect(string _) => Patches.InputSuppression.ChatInputActive = false;
     private void OnChatSubmit(string _)   => SubmitText(keepFocus: false); // Enter

@@ -539,19 +539,44 @@ public class BCHubUIManager : UIManagerBase
     // capture of other players' messages keeps working — while the native UI is
     // invisible and non-interactive. Restored when the tabbed window closes or
     // the setting is off, so there's always a chat available.
+    private bool _nativeHidden;
+
+    // True while the tabbed chat window is taking over (open + HideNativeChat on).
+    public bool IsNativeChatHideActive()
+        => (_chatWindowOverlay?.Enabled ?? false) && BloodCraftHub.Config.Settings.HideNativeChat;
+
+    // Focus the tabbed chat window's input — the divert target for the chat-open key.
+    public void FocusChatInput() => _chatWindowOverlay?.FocusInput();
+
     public void ApplyNativeChatVisibility()
     {
         try
         {
-            bool hide = (_chatWindowOverlay?.Enabled ?? false) && BloodCraftHub.Config.Settings.HideNativeChat;
+            bool hide = IsNativeChatHideActive();
+            if (!hide && !_nativeHidden) return; // not hiding and wasn't — nothing to do
+
             if (_nativeChat == null)
                 _nativeChat = UnityEngine.Object.FindObjectOfType<ProjectM.UI.HUDChatWindow>();
             if (_nativeChat == null) return;
+
             var cg = _nativeChat.ContentCanvasGroup;
-            if (cg == null) return;
-            cg.alpha          = hide ? 0f : 1f;
-            cg.blocksRaycasts = !hide;
-            cg.interactable   = !hide;
+            if (cg != null)
+            {
+                cg.alpha          = hide ? 0f : 1f;
+                cg.blocksRaycasts = !hide;
+                // NEVER set interactable=false here: doing so trapped the native
+                // chat in a focused-but-uncloseable state and froze ALL game input.
+                // Focus is prevented via the SetFocused prefix + the force-unfocus
+                // safety net below instead.
+            }
+
+            // Freeze-safety net: if the native chat is somehow focused while we're
+            // taking over, force it unfocused so V Rising's ChatInputFocused flag
+            // can't stay stuck (the cause of the movement/actions/menus freeze).
+            if (hide && _nativeChat.IsChatFocused)
+                _nativeChat.SetFocused(false);
+
+            _nativeHidden = hide;
         }
         catch (System.Exception ex)
         {
