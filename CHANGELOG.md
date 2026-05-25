@@ -1,4 +1,8 @@
 # Changelog
+## 0.17.0 — TODO
+
+- TODO: describe what changed.
+
 
 ## 0.16.1 — Crash hotfix: stop triggering the Il2CppInterop GC-finalizer crash at login
 
