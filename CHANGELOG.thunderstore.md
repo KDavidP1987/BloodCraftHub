@@ -7,6 +7,32 @@
 > bundled copy summarizes earlier versions and reproduces the most
 > recent release in full.
 
+## 0.16.1 — Crash hotfix (cross-server compatibility)
+
+Fixes a crash where **0.16.0 could crash the game a few seconds after joining
+some servers** while working fine on others. It showed up as an Il2CppInterop
+`GarbageCollector_RunFinalizer_Patch` NullReferenceException. The cause was two
+0.16.0 features that touch IL2CPP based on **server-sent data** and could leave
+a dangling object behind when a server's data shape differed from what BCH
+assumed. Both are now hardened:
+
+- **Custom recipes (`RecipeService`).** Recipe/prefab mutations are pinned to
+  Bloodcraft v1.13.x; on a different Bloodcraft build those could index the
+  wrong buffer or mutate the wrong entity. Every mutation block is now isolated
+  (a mismatched prefab can't abort the rest or half-apply) and shape-checked
+  (entity exists + is a real recipe; buffers present + non-empty) before it
+  touches anything. Kill-switch: `EnableCustomRecipes = false`.
+- **SHIFT-spell icon (`ShiftCooldownService`).** The managed icon lookup is now
+  gated behind the SHIFT overlay actually being shown, `ShowShiftSpellIcon` is a
+  real kill-switch, stale entities are skipped, and a circuit-breaker latches it
+  off after repeated faults (cooldown readout unaffected).
+
+No change for players on servers where 0.16.0 already worked — recipes and the
+SHIFT icon behave exactly as before. If a crash somehow persists on a server,
+`EnableCustomRecipes = false` and `ShowShiftSpellIcon = false` isolate each
+feature, and new per-step log lines in `BepInEx/LogOutput.log` pinpoint the
+cause.
+
 ## 0.16.0 — Input suppression, custom recipes, SHIFT-spell icon, exoform fix, Quick Actions overlay, overlay layering + resize discoverability
 
 A player-feedback release. Marquee addition: an optional setting that freezes

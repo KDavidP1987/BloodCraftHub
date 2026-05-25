@@ -1,5 +1,76 @@
 # Changelog
 
+## 0.16.1 — Crash hotfix: hardened custom-recipe + SHIFT-icon code against cross-server incompatibilities
+
+A stability hotfix. Several players reported that **0.16.0 crashed the game a
+few seconds after joining certain servers** — while working fine on others. The
+crash surfaced as an Il2CppInterop GC finalizer fault:
+
+```
+Unhandled exception. System.NullReferenceException
+   at Il2CppInterop.Runtime.Injection.Hooks.GarbageCollector_RunFinalizer_Patch.Hook(...)
+```
+
+That stack has no BCH frame because it fires asynchronously, on the IL2CPP
+finalizer thread, *after* the offending call has already returned — the
+signature of bad ECS / managed-object state created earlier on the main thread.
+Because it only happened on some servers, the cause had to be code that depends
+on **server-sent data**. Two features added in 0.16.0 fit, and both touch
+IL2CPP in ways that can leave a dangling object behind on a server whose data
+shape differs from what BCH assumed. This release hardens both.
+
+### Hardened: Bloodcraft custom-recipe application (`RecipeService`)
+
+The custom-recipe feature mutates the local crafting-station ECS data using a
+recipe/prefab table **pinned to Bloodcraft v1.13.x**. On a server running a
+different Bloodcraft build, those GUIDs can resolve to entities with a different
+buffer/component shape — and the old code indexed requirement/output buffers at
+slot `[0]` and mutated entities unconditionally, which could corrupt structural
+ECS state.
+
+Now every mutation block is:
+
+- **Isolated** in its own try/catch — one version-mismatched prefab can no
+  longer abort the remaining recipes or leave a half-applied state, and each
+  failure logs exactly which step was skipped.
+- **Shape-checked** before any buffer access — entities are confirmed to exist
+  and to actually be recipes (`RecipeData` present), buffers are confirmed
+  present and non-empty before slot `[0]` is touched.
+
+Kill-switch unchanged: set **`EnableCustomRecipes = false`** (General section of
+the config) to skip recipe application entirely.
+
+### Hardened: SHIFT-spell slotted-icon resolution (`ShiftCooldownService`)
+
+The 0.16.0 SHIFT-icon code reads a **managed** `AbilityTooltipData` component
+(via `GetComponentObject`) off the slotted ability — including off the prefab
+template entity. It ran every poll, unconditionally, for every player, and is
+the other strong candidate for a dangling-managed-wrapper finalizer crash on
+servers whose class/spell setup differs.
+
+Changes:
+
+- **`ShowShiftSpellIcon` is now a true kill-switch.** Previously it only hid an
+  already-resolved icon; the managed read happened regardless. It now gates the
+  resolution itself, and resolution only runs when the **SHIFT overlay is
+  actually shown** (the icon has no other consumer — no reason to touch managed
+  components otherwise). Set `ShowShiftSpellIcon = false` to disable it.
+- **Stale-entity guard.** The managed read now bails if the entity no longer
+  exists, so it never touches a recycled entity.
+- **Circuit-breaker.** After repeated faults it latches icon resolution off for
+  the session (logged once). The cooldown readout — the overlay's actual job —
+  is unaffected.
+
+### Notes
+
+- No functional change for players on servers where 0.16.0 already worked; the
+  recipes and SHIFT icon behave exactly as before.
+- If you were crashing on a particular server, this build should let you join.
+  If a crash somehow persists, the two kill-switches above (`EnableCustomRecipes`
+  and `ShowShiftSpellIcon`) isolate each feature, and the new per-step log lines
+  in `BepInEx/LogOutput.log` pinpoint what to look at.
+- No change to the supported Bloodcraft range; this is purely defensive.
+
 ## 0.16.0 — Input suppression, custom recipes, SHIFT-spell icon, exoform fix, Quick Actions overlay, overlay layering + resize discoverability
 
 A player-feedback release. The marquee addition is an optional setting that
