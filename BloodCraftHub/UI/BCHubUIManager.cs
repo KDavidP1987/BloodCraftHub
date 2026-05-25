@@ -87,6 +87,7 @@ public class BCHubUIManager : UIManagerBase
         ApplyPinnedTo(_professionOverlay, pinned);
         ApplyPinnedTo(_shiftSpellOverlay, pinned);
         ApplyPinnedTo(_quickActionsOverlay, pinned);
+        ApplyPinnedTo(_chatWindowOverlay, pinned);
         ApplyPinnedTo(_combinedOverlay, pinned);
     }
 
@@ -524,6 +525,9 @@ public class BCHubUIManager : UIManagerBase
         _panels.Add(_chatWindowOverlay);
         _chatWindowOverlay.SetActive(false);
     }
+
+    // 0.17: let the Game UI customization toggles re-render the live chat window.
+    public void RefreshChatWindowOverlay() => _chatWindowOverlay?.Refresh();
 
     private void EnsureCombinedOverlay()
     {

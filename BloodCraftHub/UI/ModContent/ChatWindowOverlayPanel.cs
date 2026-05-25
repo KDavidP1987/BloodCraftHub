@@ -1,9 +1,11 @@
+using System.Collections.Generic;
 using System.Text;
 using BloodCraftHub.Config;
 using BloodCraftHub.Services;
 using BloodCraftHub.UI.Framework.CustomLib.Panel;
 using BloodCraftHub.UI.Framework.CustomLib.Util;
 using BloodCraftHub.UI.Framework.UniverseLib.UI;
+using BloodCraftHub.UI.Framework.UniverseLib.UI.Models;
 using BloodCraftHub.UI.Framework.UniverseLib.UI.Panels;
 using BloodCraftHub.UI.ModContent.Data;
 using TMPro;
@@ -15,9 +17,13 @@ namespace BloodCraftHub.UI.ModContent;
 // 0.17 (feature/v0.17-standalone-ui): standalone tabbed chat window.
 //
 // INCREMENT 1 = read-only display. Mirrors every inbound chat message into a
-// persistent, channel-tabbed, scrollable view; the native chat window is left
-// untouched (so you never lose chat input while we validate capture/render).
-// Later increments add input/send, per-person whisper tabs, sender names, and
+// persistent, channel-tabbed, scrollable view; native chat left untouched.
+// Drag/resize follow the standard overlay rules — subject to the "Lock overlays"
+// toggle like every other overlay (turn it off to move/resize). Formatting +
+// per-window customization (timestamps, channel labels, transparency) are wired
+// through Settings so the primary UI can drive them.
+//
+// Later increments add input/send, sender names, per-person whisper tabs, and
 // the option to REPLACE the native chat (hide it) for a single powerful window.
 public class ChatWindowOverlayPanel : ResizeablePanelBase
 {
@@ -53,6 +59,7 @@ public class ChatWindowOverlayPanel : ResizeablePanelBase
     private int _activeTab;
     private TextMeshProUGUI _log;
     private bool _subscribed;
+    private readonly List<ButtonRef> _tabButtons = new();
 
     public ChatWindowOverlayPanel(UIBase owner) : base(owner) { }
 
@@ -63,11 +70,10 @@ public class ChatWindowOverlayPanel : ResizeablePanelBase
 
         // Tab button row.
         var tabRow = UIFactory.CreateHorizontalGroup(ContentRoot, "ChatTabs",
-            forceExpandWidth: true, forceExpandHeight: false,
-            childControlWidth: true, childControlHeight: true,
-            spacing: 2, padding: new Vector4(2, 2, 2, 2));
+            true, false, true, true, 2, new Vector4(2, 2, 2, 2));
         UIFactory.SetLayoutElement(tabRow, minHeight: 24, preferredHeight: 24, flexibleWidth: 1);
 
+        _tabButtons.Clear();
         for (int i = 0; i < TabDefs.Length; i++)
         {
             int idx = i;
@@ -75,7 +81,8 @@ public class ChatWindowOverlayPanel : ResizeablePanelBase
             UIFactory.SetLayoutElement(btn.GameObject,
                 minWidth: 36, preferredWidth: 60, flexibleWidth: 1,
                 minHeight: 22, preferredHeight: 22, flexibleHeight: 0);
-            btn.OnClick = () => { _activeTab = idx; Render(); };
+            btn.OnClick = () => { _activeTab = idx; UpdateTabHighlight(); Render(); };
+            _tabButtons.Add(btn);
         }
 
         // Scrollable message log: one multi-line label rebuilt on update.
@@ -87,8 +94,12 @@ public class ChatWindowOverlayPanel : ResizeablePanelBase
 
         var lbl = UIFactory.CreateLabel(scrollContent, "ChatLog", string.Empty, TextAlignmentOptions.TopLeft);
         _log = lbl.TextMesh;
+        _log.richText = true;
         _log.enableWordWrapping = true;
         _log.fontSize = Theme.ScaledOverlay(12);
+        _log.lineSpacing = 4f;
+        _log.margin = new Vector4(6, 4, 6, 4);
+        _log.color = Theme.DefaultText;
         UIFactory.SetLayoutElement(_log.gameObject, flexibleWidth: 1, flexibleHeight: 1);
 
         if (!_subscribed)
@@ -96,6 +107,7 @@ public class ChatWindowOverlayPanel : ResizeablePanelBase
             ChatRelayService.LineCaptured += OnLineCaptured;
             _subscribed = true;
         }
+        UpdateTabHighlight();
         Render();
     }
 
@@ -104,19 +116,46 @@ public class ChatWindowOverlayPanel : ResizeablePanelBase
         try { Render(); } catch { /* never let chat rendering throw into the inbound pump */ }
     }
 
+    // Re-render with current Settings (called by the Game UI customization toggles).
+    internal void Refresh()
+    {
+        try { UpdateTabHighlight(); Render(); } catch { }
+    }
+
+    private void UpdateTabHighlight()
+    {
+        var activeColor = Theme.SliderFill;
+        var inactiveColor = activeColor * 0.5f; inactiveColor.a = activeColor.a;
+        for (int i = 0; i < _tabButtons.Count; i++)
+        {
+            var btn = _tabButtons[i];
+            if (btn?.Component == null) continue;
+            var baseC = (i == _activeTab) ? activeColor : inactiveColor;
+            var cb = btn.Component.colors;
+            cb.normalColor      = baseC;
+            cb.highlightedColor = baseC * 1.2f;
+            cb.selectedColor    = baseC * 1.1f;
+            cb.pressedColor     = baseC * 0.7f;
+            btn.Component.colors = cb;
+        }
+    }
+
     private void Render()
     {
         if (_log == null) return;
+        bool showTime = Settings.ChatShowTimestamps;
+        bool showTag  = Settings.ChatShowChannelTags;
         var filter = TabDefs[_activeTab].Filter;
+
         var sb = new StringBuilder(2048);
         var buf = ChatRelayService.Buffer;
         for (int i = 0; i < buf.Count; i++)
         {
             var ln = buf[i];
             if (filter.HasValue && ln.Channel != filter.Value) continue;
-            sb.Append("<color=#888888>").Append(ln.Received.ToString("HH:mm")).Append("</color> ")
-              .Append(ChannelTag(ln.Channel)).Append(' ')
-              .Append(ln.Text).Append('\n');
+            if (showTime) sb.Append("<color=#808080>").Append(ln.Received.ToString("HH:mm")).Append("</color> ");
+            if (showTag)  sb.Append(ChannelTag(ln.Channel)).Append(' ');
+            sb.Append(ln.Text).Append('\n');
         }
         _log.text = sb.ToString();
     }
@@ -134,6 +173,7 @@ public class ChatWindowOverlayPanel : ResizeablePanelBase
     internal override void Reset()
     {
         if (_subscribed) { ChatRelayService.LineCaptured -= OnLineCaptured; _subscribed = false; }
+        _tabButtons.Clear();
         _log = null;
     }
 }

@@ -1462,6 +1462,37 @@ public partial class MainPanel : ResizeablePanelBase
         };
         TooltipHover.Attach(chatBtn.GameObject,
             "Show or hide the standalone tabbed chat window. Early preview (read-only); input + sending arrive in a later update.");
+        AddBodyText(chatCard,
+            "Tip: if the window won't move or resize, turn off \"Lock overlays\" " +
+            "(main panel footer, beside Auto-resize) — it locks every overlay.");
+
+        // Per-window customization (re-renders the live window immediately).
+        AddChatOptionToggle(chatCard, "Show timestamps",
+            Config.Settings.ChatShowTimestamps,
+            v => Config.Settings.SetChatShowTimestamps(v));
+        AddChatOptionToggle(chatCard, "Show channel labels",
+            Config.Settings.ChatShowChannelTags,
+            v => Config.Settings.SetChatShowChannelTags(v));
+    }
+
+    // 0.17: small labeled toggle for the Game UI chat-window options. Persists
+    // via the supplied setter, then re-renders the live chat overlay so the
+    // change is visible immediately.
+    private void AddChatOptionToggle(GameObject parent, string label, bool initial, System.Action<bool> setter)
+    {
+        var t = UIFactory.CreateToggle(parent, label + "Toggle");
+        UIFactory.SetLayoutElement(t.GameObject,
+            minWidth: 200, preferredWidth: 280, flexibleWidth: 1,
+            minHeight: 24, preferredHeight: 24, flexibleHeight: 0);
+        t.Text.text = label;
+        t.Text.fontSize = Theme.ScaledUI(13);
+        t.Text.alignment = TextAlignmentOptions.MidlineLeft;
+        t.Toggle.isOn = initial;
+        t.OnValueChanged += v =>
+        {
+            setter(v);
+            Plugin.UIManager?.RefreshChatWindowOverlay();
+        };
     }
 
     private static void AddTabHeading(GameObject page, string text)
