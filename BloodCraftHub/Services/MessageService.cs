@@ -223,6 +223,11 @@ public static partial class MessageService
     // 0.17: send a chat message on a specific channel (Global / Local / Team).
     // Used by the tabbed chat window's input box. No intercept arming — this is
     // real player chat, not a command awaiting a parsed reply.
+    // 0.17: send broadcast chat on a channel (Global / Local / Team). Unlike a
+    // command (consumed by the server's command framework regardless of receiver),
+    // broadcast chat has NO specific recipient — ReceiverEntity must be EMPTY, or
+    // the server treats it like a directed/whisper-to-self message and drops it
+    // instead of broadcasting. (A whisper would set ReceiverEntity = the target.)
     public static void SendChat(string text, ChatMessageType type)
     {
         if (!_isInitialized || string.IsNullOrEmpty(text)) return;
@@ -232,7 +237,7 @@ public static partial class MessageService
             {
                 MessageText    = text,
                 MessageType    = type,
-                ReceiverEntity = _localUser.Read<NetworkId>(),
+                ReceiverEntity = NetworkId.Empty,
             };
 
             Entity networkEntity = EntityManager.CreateEntity(NetworkEventComponents);
