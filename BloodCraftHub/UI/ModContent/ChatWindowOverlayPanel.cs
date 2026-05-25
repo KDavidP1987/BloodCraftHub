@@ -231,13 +231,10 @@ public class ChatWindowOverlayPanel : ResizeablePanelBase
             if (filter.HasValue && ln.Channel != filter.Value) continue;
             if (showTime) sb.Append("<color=#808080>").Append(ln.Received.ToString("HH:mm")).Append("</color> ");
             if (showTag)  sb.Append(ChannelTag(ln.Channel)).Append(' ');
-            // Sender name (best-effort) for player channels; System/Lore have no player sender.
-            if (ln.Channel != ChatRelayService.Channel.System)
-            {
-                var sender = ChatRelayService.ResolveName(ln.FromUser, ln.FromCharacter);
-                if (!string.IsNullOrEmpty(sender))
-                    sb.Append("<color=#C8C8FF>").Append(sender).Append("</color>: ");
-            }
+            // Game-resolved sender name (empty for system messages). The native
+            // userName may already carry color tags — render as-is.
+            if (!string.IsNullOrEmpty(ln.Sender))
+                sb.Append(ln.Sender).Append(": ");
             sb.Append(ln.Text).Append('\n');
         }
         _log.text = sb.ToString();
