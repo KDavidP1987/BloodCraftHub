@@ -64,11 +64,14 @@ internal static class ChatRelayService
             var sender = userName ?? string.Empty;
 
             // Skip an immediate exact duplicate — the native formatter can re-run
-            // for the same message (e.g. on a channel/mode re-filter).
+            // for the same message (channel/mode re-filter). TIME-BOUNDED so a
+            // genuinely repeated message (someone says "lol" twice) still shows;
+            // only the formatter's near-instant re-run is dropped.
             if (_buffer.Count > 0)
             {
                 var last = _buffer[_buffer.Count - 1];
-                if (last.Channel == channel && last.Sender == sender && last.Text == text)
+                if (last.Channel == channel && last.Sender == sender && last.Text == text
+                    && (DateTime.Now - last.Received).TotalSeconds < 1.0)
                     return;
             }
 
@@ -94,11 +97,10 @@ internal static class ChatRelayService
         {
             if (string.IsNullOrEmpty(text)) return;
             var sender = LocalPlayerName();
-            if (_buffer.Count > 0)
-            {
-                var last = _buffer[_buffer.Count - 1];
-                if (last.Channel == channel && last.Sender == sender && last.Text == text) return;
-            }
+            // NO dedup here: this fires exactly once per message YOU send (via
+            // SubmitText), so sending the same text twice on purpose ("lol", "lol")
+            // must show both. (The earlier dedup is why repeated identical sends
+            // appeared to "stop working".)
             var line = new ChatLine(channel, sender, text, DateTime.Now);
             _buffer.Add(line);
             if (_buffer.Count > MaxLines) _buffer.RemoveRange(0, _buffer.Count - MaxLines);

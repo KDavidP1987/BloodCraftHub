@@ -106,19 +106,6 @@ internal static class ClientChatPatch
                     Plugin.UIManager.FocusChatInput();
                 }
 
-                // DIAG (read-only, rate-limited to ~1/sec): comprehensive state so a
-                // log captured DURING the freeze pins the exact cause — our flag
-                // (chatActive), V Rising's chat gate (chatOpen/nativeFocused/focusChat),
-                // or the EventSystem selection (sel). Logged unconditionally while the
-                // takeover is active so a "frozen but all-our-flags-false" state is
-                // still captured.
-                string sel = "null";
-                try { sel = UnityEngine.EventSystems.EventSystem.current?.currentSelectedGameObject?.name ?? "null"; } catch { }
-                InputSuppression.Diag(
-                    $"focusChat={__instance._FocusChat} chatOpen={__instance.IsChatOpen} " +
-                    $"ourFocused={Plugin.UIManager?.IsChatInputFocused()} chatActive={chatActive} " +
-                    $"nativeFocused={Plugin.UIManager?.IsNativeChatFocused()} block={InputSuppression.ShouldBlock()} sel={sel}");
-
                 _wasChatActiveLastFrame = InputSuppression.ChatInputActive;
             }
         }
