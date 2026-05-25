@@ -26,6 +26,12 @@ namespace BloodCraftHub.Patches;
 [HarmonyPatch]
 internal static class ClientChatPatch
 {
+    // 0.17.0: tracks whether our chat input was focused last frame, so the Enter
+    // key that SENDS a message (which defocuses our input the same frame) can't be
+    // mistaken for an "open chat" press and re-focus it — the loop that trapped the
+    // user in chat with no way out.
+    private static bool _wasChatActiveLastFrame;
+
     [HarmonyPatch(typeof(ClientChatSystem), nameof(ClientChatSystem.OnUpdate))]
     [HarmonyPrefix]
     // Run before Eclipse-main's same-target prefix (which is Priority.Normal).
@@ -54,18 +60,22 @@ internal static class ClientChatPatch
         {
             if (Plugin.UIManager?.IsNativeChatHideActive() ?? false)
             {
+                bool chatActive = InputSuppression.ChatInputActive;
+
                 // ESCAPE HATCH: Escape always releases our chat input. Escape is
                 // never suppressed (ShouldBlockMenus ignores ChatInputActive), so
                 // this always reaches us and breaks any "stuck focused" trap.
-                if (InputSuppression.ChatInputActive
-                    && UnityEngine.Input.GetKeyDown(UnityEngine.KeyCode.Escape))
+                if (chatActive && UnityEngine.Input.GetKeyDown(UnityEngine.KeyCode.Escape))
                 {
                     Plugin.UIManager.ReleaseChatInput();
                 }
-                // ENTER → focus OUR input, detected directly off the key (NOT via
-                // _FocusChat). Only when our input isn't already focused, so a
-                // held/stuck flag can't re-grab focus every frame.
-                else if (!InputSuppression.ChatInputActive
+                // ENTER → focus OUR input, detected directly off the key. The
+                // last-frame guard is essential: pressing Enter to SEND defocuses
+                // our input the same frame (chatActive -> false) while GetKeyDown
+                // stays true all frame — without it we'd instantly re-focus and the
+                // user could never leave chat. Require chat to have been inactive
+                // BOTH this frame and last frame before treating Enter as "open".
+                else if (!chatActive && !_wasChatActiveLastFrame
                     && (UnityEngine.Input.GetKeyDown(UnityEngine.KeyCode.Return)
                         || UnityEngine.Input.GetKeyDown(UnityEngine.KeyCode.KeypadEnter)))
                 {
@@ -74,8 +84,10 @@ internal static class ClientChatPatch
 
                 // DIAG (read-only, rate-limited): reveals the real Enter path and
                 // whether the game auto-sets _FocusChat (e.g. in the coffin).
-                if (__instance._FocusChat || InputSuppression.ChatInputActive)
-                    InputSuppression.Diag($"takeover: _FocusChat={__instance._FocusChat} chatActive={InputSuppression.ChatInputActive} nativeFocused={(Plugin.UIManager?.IsNativeChatFocused() ?? false)}");
+                if (__instance._FocusChat || chatActive)
+                    InputSuppression.Diag($"takeover: _FocusChat={__instance._FocusChat} chatActive={chatActive} nativeFocused={(Plugin.UIManager?.IsNativeChatFocused() ?? false)}");
+
+                _wasChatActiveLastFrame = InputSuppression.ChatInputActive;
             }
         }
         catch (Exception ex) { LogUtils.LogDebug($"OnUpdate_Prefix takeover: {ex.Message}"); }
@@ -164,13 +176,14 @@ internal static class ClientChatPatch
         catch (Exception ex) { LogUtils.LogDebug($"FormatFullChatMessage_Postfix: {ex.Message}"); }
     }
 
-    // 0.17 (2c): divert the chat-open key for the takeover. When the tabbed
-    // window is taking over (open + Settings.HideNativeChat), the game pressing
-    // Enter would focus the NATIVE chat — which sets V Rising's ChatInputFocused
-    // and suppresses ALL gameplay input until the chat closes. If the native chat
-    // is also hidden, it can't be closed and the game freezes. So we block the
-    // native focus and focus OUR input instead — Enter opens the tabbed chat, and
-    // the native chat never traps gameplay input.
+    // 0.17.0: BLOCK native chat focus during takeover. Both native focus entry
+    // points (SetFocused and FocusInputField) are blocked so the hidden native
+    // chat never grabs focus / sets V Rising's ChatInputFocused gate. These are
+    // block-ONLY — they must NOT pull focus to our input. Focusing our window is
+    // done solely by the direct Enter-key detection in OnUpdate_Prefix; if these
+    // also focused our input, the Enter that SENDS a message (which defocuses our
+    // input mid-frame) would be seen by native as an open-request, re-focusing our
+    // input and trapping the user in chat with no way out (observed loop).
     [HarmonyPatch(typeof(HUDChatWindow), nameof(HUDChatWindow.SetFocused))]
     [HarmonyPrefix]
     private static bool SetFocused_Prefix(bool isFocused)
@@ -178,19 +191,12 @@ internal static class ClientChatPatch
         try
         {
             if (isFocused && (Plugin.UIManager?.IsNativeChatHideActive() ?? false))
-            {
-                Plugin.UIManager.FocusChatInput();
-                return false; // skip native focus
-            }
+                return false; // skip native focus (do NOT focus ours here)
         }
         catch (Exception ex) { LogUtils.LogDebug($"SetFocused_Prefix: {ex.Message}"); }
         return true;
     }
 
-    // 0.17.0: the OTHER native focus entry point. The Enter key reaches the chat
-    // input field through FocusInputField (not only SetFocused), so blocking just
-    // SetFocused left the freeze in place. While the takeover is active, block the
-    // native focus outright and focus OUR input instead.
     [HarmonyPatch(typeof(HUDChatWindow), nameof(HUDChatWindow.FocusInputField))]
     [HarmonyPrefix]
     private static bool FocusInputField_Prefix()
@@ -198,10 +204,7 @@ internal static class ClientChatPatch
         try
         {
             if (Plugin.UIManager?.IsNativeChatHideActive() ?? false)
-            {
-                Plugin.UIManager.FocusChatInput();
-                return false; // skip native focus
-            }
+                return false; // skip native focus (do NOT focus ours here)
         }
         catch (Exception ex) { LogUtils.LogDebug($"FocusInputField_Prefix: {ex.Message}"); }
         return true;
