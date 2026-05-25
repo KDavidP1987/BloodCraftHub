@@ -159,6 +159,8 @@ public class ChatWindowOverlayPanel : ResizeablePanelBase
     {
         try
         {
+            bool was = _input?.Component?.isFocused ?? false;
+            Utils.LogUtils.LogInfo($"[Chat] FocusInput wasFocused={was}");
             // 0.17.0: don't re-activate an already-focused field — re-activating
             // every frame is what pinned ChatInputActive on and trapped the player.
             if (_input?.Component != null && !_input.Component.isFocused)
@@ -208,6 +210,7 @@ public class ChatWindowOverlayPanel : ResizeablePanelBase
     private void SubmitText(bool keepFocus)
     {
         if (_input == null) return;
+        Utils.LogUtils.LogInfo($"[Chat] SubmitText keepFocus={keepFocus} text='{_input.Text}'");
         try
         {
             var msg = _input.Text?.Trim();
