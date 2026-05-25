@@ -62,24 +62,14 @@ internal static class InputSuppression
         }
     }
 
-    // 0.17.0 SAFETY: menu/escape gate. Chat typing (ChatInputActive) suppresses
-    // movement + casts so you don't act while typing, but it must NEVER block the
-    // menu/escape systems — otherwise focusing the chat (e.g. in the coffin, where
-    // the game keeps chat focusable) traps the player with no way to open the game
-    // menu or leave. So MenuInputSystem + OpenHUDMenuSystem use THIS, which only
-    // honours the explicit main-panel suppression — never ChatInputActive.
-    internal static bool ShouldBlockMenus()
-    {
-        try
-        {
-            if (!Config.Settings.SuppressGameInputWhileUIOpen) return false;
-            return Plugin.UIManager?.IsMainPanelOpen ?? false;
-        }
-        catch
-        {
-            return false;
-        }
-    }
+    // 0.17.0: menu-hotkey gate for MenuInputSystem + OpenHUDMenuSystem. While
+    // typing in chat we DO block the menu hotkeys (map = M, build = B, inventory,
+    // …) so keystrokes don't open menus behind the chat. That can't trap the
+    // player: ChatInputActive only stays true while our input is actually focused
+    // (polled from isFocused), and pressing Escape force-releases the chat input
+    // (ClientChatPatch.OnUpdate_Prefix) regardless of which systems are blocked,
+    // since it reads the raw Escape key. So this is just ShouldBlock.
+    internal static bool ShouldBlockMenus() => ShouldBlock();
 
     internal static void Diag(string msg)
     {

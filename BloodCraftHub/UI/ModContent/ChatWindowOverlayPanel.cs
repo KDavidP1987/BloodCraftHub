@@ -62,10 +62,20 @@ public class ChatWindowOverlayPanel : ResizeablePanelBase
     private bool _subscribed;
     private readonly List<ButtonRef> _tabButtons = new();
     private InputFieldRef _input;
+
+    // 0.17.0 whisper sub-tabs. When the Whispers top-tab is active, a second row
+    // appears: "All" (every whisper) + one sub-tab per conversation partner.
+    private GameObject _whisperSubRow;
+    private readonly List<ButtonRef> _whisperSubButtons = new();
+    private readonly List<string> _whisperSubPartners = new(); // parallel to _whisperSubButtons; null = All
+    private string _activeWhisperPartner; // null = All Whispers
+    private static readonly int WhispersTabIndex = System.Array.FindIndex(TabDefs, t => t.Filter == ChatRelayService.Channel.Whisper);
     // 0.17.0: per-tab unread counts. A message for a channel you're NOT currently
     // viewing bumps that tab's count; selecting the tab resets it. The All tab
     // (index 0) shows everything, so it never carries a badge.
     private readonly int[] _unread = new int[TabDefs.Length];
+    // Max chars per chat message — under the FixedString512Bytes wire cap.
+    private const int MaxChatChars = 500;
 
     public ChatWindowOverlayPanel(UIBase owner) : base(owner) { }
 
@@ -100,11 +110,18 @@ public class ChatWindowOverlayPanel : ResizeablePanelBase
                 _activeTab = idx;
                 _unread[idx] = 0;                       // viewing this tab clears its badge
                 if (idx == 0) for (int k = 0; k < _unread.Length; k++) _unread[k] = 0; // All sees everything
+                UpdateWhisperSubRow();                  // show/hide + rebuild the whisper sub-tabs
                 UpdateTabHighlight();
                 Render();
             };
             _tabButtons.Add(btn);
         }
+
+        // 0.17.0: whisper sub-tab row — hidden unless the Whispers tab is active.
+        _whisperSubRow = UIFactory.CreateHorizontalGroup(ContentRoot, "ChatWhisperSubTabs",
+            false, false, true, true, 2, new Vector4(2, 0, 2, 0), bgColor: new Color(0f, 0f, 0f, 0f));
+        UIFactory.SetLayoutElement(_whisperSubRow, minHeight: 22, preferredHeight: 22, flexibleWidth: 1);
+        _whisperSubRow.SetActive(false);
 
         // Scrollable message log: one multi-line label rebuilt on update.
         var scroll = UIFactory.CreateScrollView(ContentRoot, "ChatLogScroll",
@@ -141,6 +158,10 @@ public class ChatWindowOverlayPanel : ResizeablePanelBase
         UIFactory.SetLayoutElement(_input.GameObject,
             minWidth: 160, preferredWidth: 280, flexibleWidth: 1,
             minHeight: 24, preferredHeight: 24, flexibleHeight: 0);
+        // Respect the game's chat length: ChatMessageEvent.MessageText is a
+        // FixedString512Bytes, so cap input well under 512 bytes (500 chars leaves
+        // headroom for multi-byte characters). SubmitText also truncates as a backstop.
+        _input.Component.characterLimit = MaxChatChars;
         _input.Component.onSubmit.AddListener(OnChatSubmit);
         _input.Component.onSelect.AddListener(OnChatSelect);
         _input.Component.onDeselect.AddListener(OnChatDeselect);
@@ -173,6 +194,10 @@ public class ChatWindowOverlayPanel : ResizeablePanelBase
                 _unread[t]++;
                 UpdateTabHighlight(); // refresh the (N) labels
             }
+            // A whisper from a new partner adds a sub-tab while the Whispers tab is open.
+            if (line.Channel == ChatRelayService.Channel.Whisper
+                && WhispersTabIndex >= 0 && _activeTab == WhispersTabIndex)
+                RebuildWhisperSubTabs();
             Render();
         }
         catch { /* never let chat rendering throw into the inbound pump */ }
@@ -253,6 +278,7 @@ public class ChatWindowOverlayPanel : ResizeablePanelBase
         try
         {
             var msg = _input.Text?.Trim();
+            if (msg != null && msg.Length > MaxChatChars) msg = msg.Substring(0, MaxChatChars); // backstop
             if (!string.IsNullOrEmpty(msg))
             {
                 MessageService.SendChat(msg, ActiveSendChannel());
@@ -311,12 +337,82 @@ public class ChatWindowOverlayPanel : ResizeablePanelBase
         }
     }
 
+    // Show/hide the whisper sub-tab row and rebuild it when the Whispers tab is active.
+    private void UpdateWhisperSubRow()
+    {
+        if (_whisperSubRow == null) return;
+        bool show = WhispersTabIndex >= 0 && _activeTab == WhispersTabIndex;
+        _whisperSubRow.SetActive(show);
+        if (show) RebuildWhisperSubTabs();
+    }
+
+    // Rebuild the whisper sub-tab buttons: "All" + one per distinct partner.
+    private void RebuildWhisperSubTabs()
+    {
+        if (_whisperSubRow == null) return;
+        foreach (var b in _whisperSubButtons)
+            if (b?.GameObject != null) UnityEngine.Object.Destroy(b.GameObject);
+        _whisperSubButtons.Clear();
+        _whisperSubPartners.Clear();
+
+        var partners = WhisperPartners();
+        if (_activeWhisperPartner != null && !partners.Contains(_activeWhisperPartner))
+            _activeWhisperPartner = null; // partner gone — fall back to All
+
+        AddWhisperSubButton(null, "All");
+        foreach (var p in partners) AddWhisperSubButton(p, p);
+        HighlightWhisperSubTabs();
+    }
+
+    private void AddWhisperSubButton(string partner, string label)
+    {
+        var btn = UIFactory.CreateButton(_whisperSubRow, $"WhisperSub_{label}", label);
+        UIFactory.SetLayoutElement(btn.GameObject,
+            minWidth: 40, preferredWidth: 70, flexibleWidth: 1, minHeight: 20, preferredHeight: 20, flexibleHeight: 0);
+        btn.OnClick = () => { _activeWhisperPartner = partner; HighlightWhisperSubTabs(); Render(); };
+        _whisperSubButtons.Add(btn);
+        _whisperSubPartners.Add(partner);
+    }
+
+    // Distinct whisper conversation partners (the Sender of each whisper line).
+    private static List<string> WhisperPartners()
+    {
+        var list = new List<string>();
+        var buf = ChatRelayService.Buffer;
+        for (int i = 0; i < buf.Count; i++)
+        {
+            var ln = buf[i];
+            if (ln.Channel != ChatRelayService.Channel.Whisper || string.IsNullOrEmpty(ln.Sender)) continue;
+            if (!list.Contains(ln.Sender)) list.Add(ln.Sender);
+        }
+        return list;
+    }
+
+    private void HighlightWhisperSubTabs()
+    {
+        var activeColor = Theme.SliderFill;
+        var inactiveColor = activeColor * 0.5f; inactiveColor.a = activeColor.a;
+        for (int i = 0; i < _whisperSubButtons.Count; i++)
+        {
+            var btn = _whisperSubButtons[i];
+            if (btn?.Component == null) continue;
+            bool isActive = i < _whisperSubPartners.Count && _whisperSubPartners[i] == _activeWhisperPartner;
+            var baseC = isActive ? activeColor : inactiveColor;
+            var cb = btn.Component.colors;
+            cb.normalColor = baseC; cb.highlightedColor = baseC * 1.2f;
+            cb.selectedColor = baseC * 1.1f; cb.pressedColor = baseC * 0.7f;
+            btn.Component.colors = cb;
+        }
+    }
+
     private void Render()
     {
         if (_log == null) return;
         bool showTime = Settings.ChatShowTimestamps;
         bool showTag  = Settings.ChatShowChannelTags;
         var filter = TabDefs[_activeTab].Filter;
+        // On the Whispers tab, an active partner sub-tab narrows to that conversation.
+        bool whisperPartnerFilter = WhispersTabIndex >= 0 && _activeTab == WhispersTabIndex && _activeWhisperPartner != null;
 
         var sb = new StringBuilder(2048);
         var buf = ChatRelayService.Buffer;
@@ -324,6 +420,7 @@ public class ChatWindowOverlayPanel : ResizeablePanelBase
         {
             var ln = buf[i];
             if (filter.HasValue && ln.Channel != filter.Value) continue;
+            if (whisperPartnerFilter && ln.Sender != _activeWhisperPartner) continue;
             if (showTime) sb.Append("<color=#808080>").Append(ln.Received.ToString("HH:mm")).Append("</color> ");
             if (showTag)  sb.Append(ChannelTag(ln.Channel)).Append(' ');
             // Game-resolved sender name (empty for system messages). The native
@@ -350,6 +447,9 @@ public class ChatWindowOverlayPanel : ResizeablePanelBase
         if (_subscribed) { ChatRelayService.LineCaptured -= OnLineCaptured; _subscribed = false; }
         Patches.InputSuppression.ChatInputActive = false;
         _tabButtons.Clear();
+        _whisperSubButtons.Clear();
+        _whisperSubPartners.Clear();
+        _whisperSubRow = null;
         _input = null;
         _log = null;
     }

@@ -60,25 +60,30 @@ internal static class ClientChatPatch
         // focused, suppression can't stick on.
         InputSuppression.ChatInputActive = Plugin.UIManager?.IsChatInputFocused() ?? false;
 
-        // 0.17.0 takeover input handling. (Replaces an earlier _FocusChat divert
-        // that re-focused our input EVERY frame the game set _FocusChat — which the
-        // coffin/rest state keeps set — pinning ChatInputActive on and trapping the
-        // player with no escape. Now decoupled from _FocusChat entirely.)
+        // ESCAPE HATCH (always, takeover or not): Escape releases our chat input
+        // whenever it's focused, so any blocked gameplay/menu input resumes the next
+        // frame. GetKeyDown reads the raw key, so this works even while the menu
+        // systems are suppressed during typing — there is no way to get trapped.
+        try
+        {
+            if (InputSuppression.ChatInputActive
+                && UnityEngine.Input.GetKeyDown(UnityEngine.KeyCode.Escape))
+                Plugin.UIManager?.ReleaseChatInput();
+        }
+        catch (Exception ex) { LogUtils.LogDebug($"OnUpdate_Prefix escape: {ex.Message}"); }
+
+        // 0.17.0 takeover input handling (Enter → our input; keep native chat closed).
         try
         {
             if (Plugin.UIManager?.IsNativeChatHideActive() ?? false)
             {
                 bool chatActive = InputSuppression.ChatInputActive;
 
-                // 0.17.0 THE FREEZE FIX. Pressing Enter makes V Rising OPEN its native
-                // chat (IsChatOpen=true), which gates gameplay input — and we only
-                // block the native FOCUS, not the open, while hiding the window. So the
-                // native chat is "open" forever and the gameplay gate never clears =>
-                // frozen after chatting (diagnostics showed chatOpen stuck True with all
-                // our own suppression off). Force the native chat closed whenever it's
-                // open and we're NOT actively typing in our input. While you type, our
-                // ChatInputActive provides type-without-moving; the instant you're done
-                // (send/Escape), this clears V Rising's chat-open gate.
+                // THE FREEZE FIX: pressing Enter makes V Rising OPEN its native chat
+                // (IsChatOpen=true), which gates gameplay input. We hide native but
+                // only block its FOCUS, so it never closes and the gate sticks =>
+                // frozen after chatting. Force it closed whenever it's open and we're
+                // not actively typing in our input.
                 try
                 {
                     if (!chatActive && __instance.IsChatOpen)
@@ -86,20 +91,11 @@ internal static class ClientChatPatch
                 }
                 catch (Exception ex) { LogUtils.LogDebug($"ForceClose: {ex.Message}"); }
 
-                // ESCAPE HATCH: Escape always releases our chat input. Escape is
-                // never suppressed (ShouldBlockMenus ignores ChatInputActive), so
-                // this always reaches us and breaks any "stuck focused" trap.
-                if (chatActive && UnityEngine.Input.GetKeyDown(UnityEngine.KeyCode.Escape))
-                {
-                    Plugin.UIManager.ReleaseChatInput();
-                }
                 // ENTER → focus OUR input, detected directly off the key. The
-                // last-frame guard is essential: pressing Enter to SEND defocuses
-                // our input the same frame (chatActive -> false) while GetKeyDown
-                // stays true all frame — without it we'd instantly re-focus and the
-                // user could never leave chat. Require chat to have been inactive
-                // BOTH this frame and last frame before treating Enter as "open".
-                else if (!chatActive && !_wasChatActiveLastFrame
+                // last-frame guard is essential: pressing Enter to SEND defocuses our
+                // input the same frame while GetKeyDown stays true all frame — without
+                // it we'd instantly re-focus and never leave chat.
+                if (!chatActive && !_wasChatActiveLastFrame
                     && (UnityEngine.Input.GetKeyDown(UnityEngine.KeyCode.Return)
                         || UnityEngine.Input.GetKeyDown(UnityEngine.KeyCode.KeypadEnter)))
                 {
