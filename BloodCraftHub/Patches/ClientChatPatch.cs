@@ -134,6 +134,11 @@ internal static class ClientChatPatch
                 if (!entity.Has<ChatMessageServerEvent>()) continue;
 
                 var ev = entity.Read<ChatMessageServerEvent>();
+                // 0.17.0: capture the whisper partner's NetworkId (in arrival order)
+                // so the tabbed window can reply. CaptureFormatted pairs the next id
+                // with the resolved sender name.
+                if (ev.MessageType == ServerChatMessageType.WhisperFrom)
+                    ChatRelayService.EnqueueWhisperFrom(ev.FromUser);
                 // Only system-type messages carry the Eclipse protocol. Player chat is type Local/Global/etc.
                 if (ev.MessageType != ServerChatMessageType.System) continue;
 

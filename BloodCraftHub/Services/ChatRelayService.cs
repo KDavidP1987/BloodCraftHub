@@ -25,10 +25,14 @@ internal static class ChatRelayService
         public readonly string Sender;   // game-resolved; empty for system messages
         public readonly string Text;
         public readonly DateTime Received;
+        // 0.17.0: whisper conversation partner (the OTHER person). For a received
+        // whisper this is the sender; for one WE send it's the recipient. Empty for
+        // non-whisper lines. Lets the per-person whisper sub-tabs show both sides.
+        public readonly string Partner;
 
-        public ChatLine(Channel channel, string sender, string text, DateTime received)
+        public ChatLine(Channel channel, string sender, string text, DateTime received, string partner = "")
         {
-            Channel = channel; Sender = sender; Text = text; Received = received;
+            Channel = channel; Sender = sender; Text = text; Received = received; Partner = partner ?? string.Empty;
         }
     }
 
@@ -37,6 +41,23 @@ internal static class ChatRelayService
 
     internal static event Action<ChatLine> LineCaptured;
     internal static IReadOnlyList<ChatLine> Buffer => _buffer;
+
+    // 0.17.0 whisper targeting. Incoming whispers carry the partner's NetworkId
+    // (ChatMessageServerEvent.FromUser); ClientChatPatch enqueues it in order as it
+    // pumps the inbound query, and CaptureFormatted (which has the resolved name)
+    // pairs the next id with that name. Reply-send then looks the target up by name.
+    private static readonly Queue<NetworkId> _pendingWhisperIds = new();
+    private static readonly Dictionary<string, NetworkId> _whisperTargets = new();
+
+    internal static void EnqueueWhisperFrom(NetworkId fromUser)
+    {
+        // Cap to avoid unbounded growth if the pairing ever desyncs.
+        if (_pendingWhisperIds.Count > 32) _pendingWhisperIds.Clear();
+        _pendingWhisperIds.Enqueue(fromUser);
+    }
+
+    internal static bool TryGetWhisperTarget(string partner, out NetworkId id)
+        => _whisperTargets.TryGetValue(partner ?? string.Empty, out id);
 
     internal static Channel MapChannel(ServerChatMessageType t) => t switch
     {
@@ -75,7 +96,17 @@ internal static class ChatRelayService
                     return;
             }
 
-            var line = new ChatLine(channel, sender, text, DateTime.Now);
+            // Whisper: the partner is the sender, and pair the matching NetworkId
+            // (enqueued in order by ClientChatPatch) so we can reply to them.
+            string partner = string.Empty;
+            if (channel == Channel.Whisper && !string.IsNullOrEmpty(sender))
+            {
+                partner = sender;
+                if (_pendingWhisperIds.Count > 0)
+                    _whisperTargets[sender] = _pendingWhisperIds.Dequeue();
+            }
+
+            var line = new ChatLine(channel, sender, text, DateTime.Now, partner);
             _buffer.Add(line);
             if (_buffer.Count > MaxLines) _buffer.RemoveRange(0, _buffer.Count - MaxLines);
             LineCaptured?.Invoke(line);
@@ -91,7 +122,9 @@ internal static class ChatRelayService
     // message via its send path, which our direct injection bypasses). So we add
     // it to the buffer here, with the local player's name, so the sender sees
     // their own message in the tabbed window.
-    internal static void CaptureLocalEcho(Channel channel, string text)
+    // partner: for a whisper WE send, the recipient's name (so the echo lands in
+    // their sub-tab). Empty for normal channel messages.
+    internal static void CaptureLocalEcho(Channel channel, string text, string partner = "")
     {
         try
         {
@@ -101,7 +134,7 @@ internal static class ChatRelayService
             // SubmitText), so sending the same text twice on purpose ("lol", "lol")
             // must show both. (The earlier dedup is why repeated identical sends
             // appeared to "stop working".)
-            var line = new ChatLine(channel, sender, text, DateTime.Now);
+            var line = new ChatLine(channel, sender, text, DateTime.Now, partner);
             _buffer.Add(line);
             if (_buffer.Count > MaxLines) _buffer.RemoveRange(0, _buffer.Count - MaxLines);
             LineCaptured?.Invoke(line);

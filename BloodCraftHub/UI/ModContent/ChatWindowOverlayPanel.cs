@@ -281,10 +281,25 @@ public class ChatWindowOverlayPanel : ResizeablePanelBase
             if (msg != null && msg.Length > MaxChatChars) msg = msg.Substring(0, MaxChatChars); // backstop
             if (!string.IsNullOrEmpty(msg))
             {
-                MessageService.SendChat(msg, ActiveSendChannel());
-                // The server broadcasts our message to others but doesn't echo it
-                // back to us, so add a local echo so we see our own message here.
-                ChatRelayService.CaptureLocalEcho(TabDefs[_activeTab].Filter ?? ChatRelayService.Channel.Local, msg);
+                bool onWhisperPartner = WhispersTabIndex >= 0 && _activeTab == WhispersTabIndex && _activeWhisperPartner != null;
+                if (onWhisperPartner)
+                {
+                    // Whisper reply: send to the partner's captured NetworkId.
+                    if (ChatRelayService.TryGetWhisperTarget(_activeWhisperPartner, out var target))
+                    {
+                        MessageService.SendWhisper(msg, target);
+                        ChatRelayService.CaptureLocalEcho(ChatRelayService.Channel.Whisper, msg, _activeWhisperPartner);
+                    }
+                    // else: no known target for this partner yet — nothing to send to.
+                }
+                else
+                {
+                    var type = ActiveSendChannel();
+                    MessageService.SendChat(msg, type);
+                    // The server broadcasts our message to others but doesn't echo it
+                    // back to us, so add a local echo so we see our own message here.
+                    ChatRelayService.CaptureLocalEcho(EchoChannelFor(type), msg);
+                }
             }
         }
         catch (System.Exception ex)
@@ -308,12 +323,27 @@ public class ChatWindowOverlayPanel : ResizeablePanelBase
     // The active tab decides the outgoing channel. All / System / Whispers fall
     // back to Local (System isn't player-sendable; whisper send needs a target,
     // which comes with the per-person whisper tabs in a later increment).
-    private ChatMessageType ActiveSendChannel() => TabDefs[_activeTab].Filter switch
+    private ChatMessageType ActiveSendChannel()
     {
-        ChatRelayService.Channel.Global => ChatMessageType.Global,
-        ChatRelayService.Channel.Clan   => ChatMessageType.Team,
-        ChatRelayService.Channel.Local  => ChatMessageType.Local,
-        _                               => ChatMessageType.Local,
+        var f = TabDefs[_activeTab].Filter;
+        // All tab: send on the user's chosen default (Global or Local).
+        if (f == null)
+            return Settings.ChatAllTabDefaultGlobal ? ChatMessageType.Global : ChatMessageType.Local;
+        return f switch
+        {
+            ChatRelayService.Channel.Global => ChatMessageType.Global,
+            ChatRelayService.Channel.Clan   => ChatMessageType.Team,
+            ChatRelayService.Channel.Local  => ChatMessageType.Local,
+            _                               => ChatMessageType.Local, // System not player-sendable
+        };
+    }
+
+    // Map an outgoing ChatMessageType to the buffer channel for the local echo.
+    private static ChatRelayService.Channel EchoChannelFor(ChatMessageType t) => t switch
+    {
+        ChatMessageType.Global => ChatRelayService.Channel.Global,
+        ChatMessageType.Team   => ChatRelayService.Channel.Clan,
+        _                      => ChatRelayService.Channel.Local,
     };
 
     private void UpdateTabHighlight()
@@ -382,8 +412,8 @@ public class ChatWindowOverlayPanel : ResizeablePanelBase
         for (int i = 0; i < buf.Count; i++)
         {
             var ln = buf[i];
-            if (ln.Channel != ChatRelayService.Channel.Whisper || string.IsNullOrEmpty(ln.Sender)) continue;
-            if (!list.Contains(ln.Sender)) list.Add(ln.Sender);
+            if (ln.Channel != ChatRelayService.Channel.Whisper || string.IsNullOrEmpty(ln.Partner)) continue;
+            if (!list.Contains(ln.Partner)) list.Add(ln.Partner);
         }
         return list;
     }
@@ -420,7 +450,7 @@ public class ChatWindowOverlayPanel : ResizeablePanelBase
         {
             var ln = buf[i];
             if (filter.HasValue && ln.Channel != filter.Value) continue;
-            if (whisperPartnerFilter && ln.Sender != _activeWhisperPartner) continue;
+            if (whisperPartnerFilter && ln.Partner != _activeWhisperPartner) continue;
             if (showTime) sb.Append("<color=#808080>").Append(ln.Received.ToString("HH:mm")).Append("</color> ");
             if (showTag)  sb.Append(ChannelTag(ln.Channel)).Append(' ');
             // Game-resolved sender name (empty for system messages). The native

@@ -1476,6 +1476,9 @@ public partial class MainPanel : ResizeablePanelBase
         AddChatOptionToggle(chatCard, "Replace the game's chat (hide it; use this window)",
             Config.Settings.HideNativeChat,
             v => { Config.Settings.SetHideNativeChat(v); Plugin.UIManager?.ApplyNativeChatVisibility(); });
+        AddChatOptionToggle(chatCard, "On the All tab, send to Global by default (off = Local)",
+            Config.Settings.ChatAllTabDefaultGlobal,
+            v => Config.Settings.SetChatAllTabDefaultGlobal(v));
     }
 
     // 0.17: small labeled toggle for the Game UI chat-window options. Persists

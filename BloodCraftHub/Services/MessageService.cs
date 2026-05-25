@@ -250,4 +250,30 @@ public static partial class MessageService
             LogUtils.LogError($"MessageService.SendChat failed: {ex}");
         }
     }
+
+    // 0.17.0: send a WHISPER to a specific player. target is the recipient's
+    // NetworkId (captured from an incoming whisper's FromUser). Same injection as
+    // SendChat but MessageType=Whisper and ReceiverEntity=the target, not self.
+    public static void SendWhisper(string text, NetworkId target)
+    {
+        if (!_isInitialized || string.IsNullOrEmpty(text)) return;
+        try
+        {
+            var chatMessageEvent = new ChatMessageEvent
+            {
+                MessageText    = text,
+                MessageType    = ChatMessageType.Whisper,
+                ReceiverEntity = target,
+            };
+
+            Entity networkEntity = EntityManager.CreateEntity(NetworkEventComponents);
+            networkEntity.Write(new FromCharacter { Character = _localCharacter, User = _localUser });
+            networkEntity.Write(NetworkEventType);
+            networkEntity.Write(chatMessageEvent);
+        }
+        catch (Exception ex)
+        {
+            LogUtils.LogError($"MessageService.SendWhisper failed: {ex}");
+        }
+    }
 }
