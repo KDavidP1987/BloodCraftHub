@@ -1443,6 +1443,25 @@ public partial class MainPanel : ResizeablePanelBase
             "• Resource markers — high-contrast, colorblind-friendly indicators for " +
             "nearby resource nodes.\n" +
             "• Map info — castle-heart timers and plot size / availability on the map.");
+
+        // 0.17 increment 1: early preview of the tabbed chat window (read-only).
+        var chatCard = AddCard(page, "GameUIChatCard");
+        AddSectionHeading(chatCard, "Tabbed chat (preview)");
+        AddBodyText(chatCard,
+            "Mirrors the in-game chat into a movable, persistent window with " +
+            "per-channel tabs (All / Global / Local / Clan / System / Whispers). " +
+            "Early preview — read-only for now; typing and sending come next.");
+        var chatBtn = UIFactory.CreateButton(chatCard, "ToggleTabbedChatBtn", "Open / close tabbed chat window");
+        UIFactory.SetLayoutElement(chatBtn.GameObject,
+            minWidth: 200, preferredWidth: 280, flexibleWidth: 1,
+            minHeight: 30, preferredHeight: 30, flexibleHeight: 0);
+        chatBtn.OnClick = () =>
+        {
+            try { Plugin.UIManager?.ToggleOverlay(PanelType.ChatWindowOverlay); }
+            catch (System.Exception ex) { Utils.LogUtils.LogError($"Toggle tabbed chat failed: {ex}"); }
+        };
+        TooltipHover.Attach(chatBtn.GameObject,
+            "Show or hide the standalone tabbed chat window. Early preview (read-only); input + sending arrive in a later update.");
     }
 
     private static void AddTabHeading(GameObject page, string text)

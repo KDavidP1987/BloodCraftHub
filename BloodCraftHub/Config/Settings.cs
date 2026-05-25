@@ -135,6 +135,7 @@ public class Settings
     public static float FamiliarBrowserTransparency  => GetFloat(nameof(FamiliarBrowserTransparency),  UITransparency);
     public static float ShiftSpellOverlayTransparency => GetFloat(nameof(ShiftSpellOverlayTransparency), UITransparency);
     public static float QuickActionsOverlayTransparency => GetFloat(nameof(QuickActionsOverlayTransparency), UITransparency);
+    public static float ChatWindowOverlayTransparency => GetFloat(nameof(ChatWindowOverlayTransparency), UITransparency);
     public static float DailyQuestTransparency       => GetFloat(nameof(DailyQuestTransparency),       UITransparency);
     public static float ProfessionOverlayTransparency => GetFloat(nameof(ProfessionOverlayTransparency), UITransparency);
     public static void SetXPOverlayTransparency(float v)        => SetFloat(nameof(XPOverlayTransparency), v);
@@ -142,6 +143,7 @@ public class Settings
     public static void SetFamiliarBrowserTransparency(float v)  => SetFloat(nameof(FamiliarBrowserTransparency), v);
     public static void SetShiftSpellOverlayTransparency(float v) => SetFloat(nameof(ShiftSpellOverlayTransparency), v);
     public static void SetQuickActionsOverlayTransparency(float v) => SetFloat(nameof(QuickActionsOverlayTransparency), v);
+    public static void SetChatWindowOverlayTransparency(float v) => SetFloat(nameof(ChatWindowOverlayTransparency), v);
     public static void SetDailyQuestTransparency(float v)       => SetFloat(nameof(DailyQuestTransparency), v);
     public static void SetProfessionOverlayTransparency(float v) => SetFloat(nameof(ProfessionOverlayTransparency), v);
 
@@ -566,6 +568,7 @@ public class Settings
     public static bool ShowProfessionOverlay   => (ConfigEntries[nameof(ShowProfessionOverlay)]   as ConfigEntry<bool>)?.Value ?? false;
     public static bool ShowShiftSpellOverlay   => (ConfigEntries[nameof(ShowShiftSpellOverlay)]   as ConfigEntry<bool>)?.Value ?? false;
     public static bool ShowQuickActionsOverlay => (ConfigEntries[nameof(ShowQuickActionsOverlay)] as ConfigEntry<bool>)?.Value ?? false;
+    public static bool ShowChatWindowOverlay => (ConfigEntries[nameof(ShowChatWindowOverlay)] as ConfigEntry<bool>)?.Value ?? false;
     public static bool ShiftSpellOverlayShowDiagnostics => (ConfigEntries[nameof(ShiftSpellOverlayShowDiagnostics)] as ConfigEntry<bool>)?.Value ?? false;
     public static bool ShowShiftSpellIcon      => (ConfigEntries[nameof(ShowShiftSpellIcon)]      as ConfigEntry<bool>)?.Value ?? true;
     public static bool OverlaysBehindGameMenus => (ConfigEntries[nameof(OverlaysBehindGameMenus)] as ConfigEntry<bool>)?.Value ?? true;
@@ -579,6 +582,7 @@ public class Settings
     public static void SetShowProfessionOverlay(bool v) => SetBool(nameof(ShowProfessionOverlay), v);
     public static void SetShowShiftSpellOverlay(bool v) => SetBool(nameof(ShowShiftSpellOverlay), v);
     public static void SetShowQuickActionsOverlay(bool v) => SetBool(nameof(ShowQuickActionsOverlay), v);
+    public static void SetShowChatWindowOverlay(bool v) => SetBool(nameof(ShowChatWindowOverlay), v);
     public static void SetOverlaysBehindGameMenus(bool v) => SetBool(nameof(OverlaysBehindGameMenus), v);
     public static void SetSuppressGameInputWhileUIOpen(bool v) => SetBool(nameof(SuppressGameInputWhileUIOpen), v);
 
@@ -794,6 +798,7 @@ public class Settings
         InitConfigEntry(OVERLAY_SETTINGS_GROUP, nameof(ShowProfessionOverlay),       false, "Whether the Professions overlay (Bloodcraft profession levels) was visible at last logout.");
         InitConfigEntry(OVERLAY_SETTINGS_GROUP, nameof(ShowShiftSpellOverlay),       false, "Whether the Shift-spell cooldown overlay (Eclipse-style visual readout for the slot-3 ability) was visible at last logout.");
         InitConfigEntry(OVERLAY_SETTINGS_GROUP, nameof(ShowQuickActionsOverlay),     false, "Whether the Quick Actions overlay (one-click Kindred command buttons, e.g. Stash All) was visible at last logout.");
+        InitConfigEntry(OVERLAY_SETTINGS_GROUP, nameof(ShowChatWindowOverlay),       false, "Whether the standalone tabbed chat window (Game UI) was visible at last logout.");
         InitConfigEntry(OVERLAY_SETTINGS_GROUP, nameof(ShiftSpellOverlayShowDiagnostics), false, "Show the small italic 'pf/cg/si/end/srv' debug line under the Shift overlay's SHIFT label. Off by default; flip on if you need to debug why the cooldown isn't updating.");
         InitConfigEntry(OVERLAY_SETTINGS_GROUP, nameof(ShowShiftSpellIcon),               true,  "Show the slotted spell's actual icon on the Shift-spell overlay tile (like Eclipse). When off, the overlay shows the plain colored cooldown tile instead.");
         InitConfigEntry(OVERLAY_SETTINGS_GROUP, nameof(OverlaysBehindGameMenus),          true,  "When an in-game menu (inventory, character sheet, map, etc.) is open, drop BCH's overlays/panels BEHIND it instead of floating over the top. Set false to keep them always on top (the pre-0.16 behavior).");
@@ -813,6 +818,7 @@ public class Settings
         InitConfigEntry(OVERLAY_SETTINGS_GROUP, nameof(ProfessionOverlayTransparency), 0.4f, "Profession overlay background transparency.");
         InitConfigEntry(OVERLAY_SETTINGS_GROUP, nameof(ShiftSpellOverlayTransparency), 0.4f, "Shift-spell cooldown overlay background transparency (0.0=solid, 1.0=invisible).");
         InitConfigEntry(OVERLAY_SETTINGS_GROUP, nameof(QuickActionsOverlayTransparency), 0.4f, "Quick Actions overlay background transparency (0.0=solid, 1.0=invisible).");
+        InitConfigEntry(OVERLAY_SETTINGS_GROUP, nameof(ChatWindowOverlayTransparency), 0.3f, "Tabbed chat window background transparency (0.0=solid, 1.0=invisible).");
         // 0.14.0: combined overlay registration.
         InitConfigEntry(OVERLAY_SETTINGS_GROUP, nameof(ShowCombinedOverlay),         false, "Show the combined overlay — one panel with XP / Familiar / Weapon / Blood / Professions / Quests sections. When on, the individual info overlays auto-hide. Toggle in Settings → Display.");
         InitConfigEntry(OVERLAY_SETTINGS_GROUP, nameof(CombinedOverlayShowXP),        true,  "Combined overlay: include the XP / Experience section.");

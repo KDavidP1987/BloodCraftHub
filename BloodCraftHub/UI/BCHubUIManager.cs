@@ -35,6 +35,7 @@ public class BCHubUIManager : UIManagerBase
     private ProfessionOverlayPanel _professionOverlay;
     private ShiftSpellOverlayPanel _shiftSpellOverlay;
     private QuickActionsOverlayPanel _quickActionsOverlay; // 0.16: one-click Kindred action buttons (Stash All)
+    private ChatWindowOverlayPanel _chatWindowOverlay; // 0.17: standalone tabbed chat window
     // 0.14.0: single combined info overlay. Mutually exclusive with the 4
     // standalone info overlays (XP / Familiar / Daily Quest / Profession);
     // when ShowCombinedOverlay is true, those are hidden regardless of
@@ -226,6 +227,11 @@ public class BCHubUIManager : UIManagerBase
                 _quickActionsOverlay.SetActive(!_quickActionsOverlay.Enabled);
                 BloodCraftHub.Config.Settings.SetShowQuickActionsOverlay(_quickActionsOverlay.Enabled);
                 break;
+            case PanelType.ChatWindowOverlay:
+                EnsureChatWindowOverlay();
+                _chatWindowOverlay.SetActive(!_chatWindowOverlay.Enabled);
+                BloodCraftHub.Config.Settings.SetShowChatWindowOverlay(_chatWindowOverlay.Enabled);
+                break;
             case PanelType.CombinedOverlay:
                 // 0.14.0: toggling combined-mode swaps which set of overlays
                 // is visible. ApplyCombinedOverlayMutualExclusion does the
@@ -357,6 +363,11 @@ public class BCHubUIManager : UIManagerBase
             EnsureQuickActionsOverlay();
             _quickActionsOverlay.SetActive(true);
         }
+        if (BloodCraftHub.Config.Settings.ShowChatWindowOverlay)
+        {
+            EnsureChatWindowOverlay();
+            _chatWindowOverlay.SetActive(true);
+        }
     }
 
     /// <summary>
@@ -416,6 +427,11 @@ public class BCHubUIManager : UIManagerBase
             EnsureQuickActionsOverlay();
             _quickActionsOverlay.SetActive(true);
         }
+        if (BloodCraftHub.Config.Settings.ShowChatWindowOverlay)
+        {
+            EnsureChatWindowOverlay();
+            _chatWindowOverlay.SetActive(true);
+        }
         // 0.14.0: re-show combined overlay last, after the un-suppress walk
         // through individual overlays — ApplyCombinedOverlayMutualExclusion
         // will hide whichever individuals it conflicts with.
@@ -432,6 +448,7 @@ public class BCHubUIManager : UIManagerBase
         PanelType.ProfessionOverlay      => _professionOverlay?.Enabled ?? false,
         PanelType.ShiftSpellOverlay      => _shiftSpellOverlay?.Enabled ?? false,
         PanelType.QuickActionsOverlay    => _quickActionsOverlay?.Enabled ?? false,
+        PanelType.ChatWindowOverlay      => _chatWindowOverlay?.Enabled ?? false,
         PanelType.CombinedOverlay        => _combinedOverlay?.Enabled ?? false,
         _ => false,
     };
@@ -498,6 +515,14 @@ public class BCHubUIManager : UIManagerBase
         _quickActionsOverlay = new QuickActionsOverlayPanel(UiBase);
         _panels.Add(_quickActionsOverlay);
         _quickActionsOverlay.SetActive(false);
+    }
+
+    private void EnsureChatWindowOverlay()
+    {
+        if (_chatWindowOverlay != null) return;
+        _chatWindowOverlay = new ChatWindowOverlayPanel(UiBase);
+        _panels.Add(_chatWindowOverlay);
+        _chatWindowOverlay.SetActive(false);
     }
 
     private void EnsureCombinedOverlay()
@@ -659,6 +684,7 @@ public class BCHubUIManager : UIManagerBase
         RebuildOverlay(ref _professionOverlay,      !combined && BloodCraftHub.Config.Settings.ShowProfessionOverlay, b => new ProfessionOverlayPanel(b));
         RebuildOverlay(ref _shiftSpellOverlay,      BloodCraftHub.Config.Settings.ShowShiftSpellOverlay,              b => new ShiftSpellOverlayPanel(b));
         RebuildOverlay(ref _quickActionsOverlay,    BloodCraftHub.Config.Settings.ShowQuickActionsOverlay,            b => new QuickActionsOverlayPanel(b));
+        RebuildOverlay(ref _chatWindowOverlay,      BloodCraftHub.Config.Settings.ShowChatWindowOverlay,              b => new ChatWindowOverlayPanel(b));
         // 0.14.0: combined overlay is now part of the rebuild so its text
         // scale changes when the user toggles overlay text size. Pre-fix
         // the panel's labels stayed at construct-time font size because

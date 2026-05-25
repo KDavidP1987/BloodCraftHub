@@ -67,6 +67,12 @@ internal static class ClientChatPatch
                 if (!entity.Has<ChatMessageServerEvent>()) continue;
 
                 var ev = entity.Read<ChatMessageServerEvent>();
+
+                // 0.17: mirror every inbound message (all channels) into the
+                // standalone tabbed chat window's buffer. Read-only — never
+                // consumes the entity; filters protocol noise itself.
+                ChatRelayService.Capture(ev);
+
                 // Only system-type messages carry the Eclipse protocol. Player chat is type Local/Global/etc.
                 if (ev.MessageType != ServerChatMessageType.System) continue;
 
