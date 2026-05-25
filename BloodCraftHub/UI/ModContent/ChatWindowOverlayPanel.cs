@@ -62,6 +62,10 @@ public class ChatWindowOverlayPanel : ResizeablePanelBase
     private bool _subscribed;
     private readonly List<ButtonRef> _tabButtons = new();
     private InputFieldRef _input;
+    // 0.17.0: per-tab unread counts. A message for a channel you're NOT currently
+    // viewing bumps that tab's count; selecting the tab resets it. The All tab
+    // (index 0) shows everything, so it never carries a badge.
+    private readonly int[] _unread = new int[TabDefs.Length];
 
     public ChatWindowOverlayPanel(UIBase owner) : base(owner) { }
 
@@ -69,6 +73,14 @@ public class ChatWindowOverlayPanel : ResizeablePanelBase
     {
         base.ConstructPanelContent();
         SetTitle("Chat");
+
+        // 0.17.0: only the message log should grow/shrink when the window is
+        // resized — not the tab row or the input row. The ContentRoot's vertical
+        // group force-expands children, which distributed extra height to ALL rows
+        // and left blank space in the header/footer (friend-test report). Turn it
+        // off so extra space goes only to the flexibleHeight log below.
+        var contentVlg = ContentRoot.GetComponent<UnityEngine.UI.VerticalLayoutGroup>();
+        if (contentVlg != null) { contentVlg.childForceExpandHeight = false; contentVlg.childControlHeight = true; }
 
         // Tab button row.
         var tabRow = UIFactory.CreateHorizontalGroup(ContentRoot, "ChatTabs",
@@ -83,7 +95,14 @@ public class ChatWindowOverlayPanel : ResizeablePanelBase
             UIFactory.SetLayoutElement(btn.GameObject,
                 minWidth: 36, preferredWidth: 60, flexibleWidth: 1,
                 minHeight: 22, preferredHeight: 22, flexibleHeight: 0);
-            btn.OnClick = () => { _activeTab = idx; UpdateTabHighlight(); Render(); };
+            btn.OnClick = () =>
+            {
+                _activeTab = idx;
+                _unread[idx] = 0;                       // viewing this tab clears its badge
+                if (idx == 0) for (int k = 0; k < _unread.Length; k++) _unread[k] = 0; // All sees everything
+                UpdateTabHighlight();
+                Render();
+            };
             _tabButtons.Add(btn);
         }
 
@@ -112,8 +131,11 @@ public class ChatWindowOverlayPanel : ResizeablePanelBase
         // Input row — type + Enter or the Send button to send on the active tab's
         // channel. While the field is focused, gameplay input is suppressed (you
         // don't move/attack while typing) via InputSuppression.ChatInputActive.
+        // forceExpandWidth=false: the input field (flexibleWidth=1) takes the slack
+        // and the Send button keeps its fixed width, instead of both flexing as you
+        // type (friend-test: the Send button grew/shrank while typing).
         var inputRow = UIFactory.CreateHorizontalGroup(ContentRoot, "ChatInputRow",
-            true, false, true, true, 2, new Vector4(2, 2, 2, 2), bgColor: new Color(0f, 0f, 0f, 0f));
+            false, false, true, true, 2, new Vector4(2, 2, 2, 2), bgColor: new Color(0f, 0f, 0f, 0f));
         UIFactory.SetLayoutElement(inputRow, minHeight: 26, preferredHeight: 26, flexibleWidth: 1);
         _input = UIFactory.CreateInputField(inputRow, "ChatInput", "Type a message…");
         UIFactory.SetLayoutElement(_input.GameObject,
@@ -126,7 +148,7 @@ public class ChatWindowOverlayPanel : ResizeablePanelBase
         // still-visible native chat (until the native-takeover increment).
         var sendBtn = UIFactory.CreateButton(inputRow, "ChatSendButton", "Send");
         UIFactory.SetLayoutElement(sendBtn.GameObject,
-            minWidth: 52, preferredWidth: 60, flexibleWidth: 0,
+            minWidth: 64, preferredWidth: 64, flexibleWidth: 0,  // fixed width — never flex while typing
             minHeight: 24, preferredHeight: 24, flexibleHeight: 0);
         sendBtn.OnClick = () => SubmitText(keepFocus: true);
 
@@ -141,7 +163,27 @@ public class ChatWindowOverlayPanel : ResizeablePanelBase
 
     private void OnLineCaptured(ChatRelayService.ChatLine line)
     {
-        try { Render(); } catch { /* never let chat rendering throw into the inbound pump */ }
+        try
+        {
+            // Bump the unread badge for the message's channel tab — unless you're
+            // already on that tab, or on All (which shows everything).
+            int t = TabIndexForChannel(line.Channel);
+            if (t >= 1 && _activeTab != 0 && t != _activeTab)
+            {
+                _unread[t]++;
+                UpdateTabHighlight(); // refresh the (N) labels
+            }
+            Render();
+        }
+        catch { /* never let chat rendering throw into the inbound pump */ }
+    }
+
+    // The channel tab index for a captured line's channel, or -1 (All / unmapped).
+    private static int TabIndexForChannel(ChatRelayService.Channel c)
+    {
+        for (int i = 1; i < TabDefs.Length; i++)
+            if (TabDefs[i].Filter == c) return i;
+        return -1;
     }
 
     // Re-render with current Settings (called by the Game UI customization toggles).
@@ -256,6 +298,9 @@ public class ChatWindowOverlayPanel : ResizeablePanelBase
         {
             var btn = _tabButtons[i];
             if (btn?.Component == null) continue;
+            // Unread badge in the label, e.g. "Clan (3)". All tab never badges.
+            if (btn.ButtonText != null)
+                btn.ButtonText.text = _unread[i] > 0 ? $"{TabDefs[i].Label} ({_unread[i]})" : TabDefs[i].Label;
             var baseC = (i == _activeTab) ? activeColor : inactiveColor;
             var cb = btn.Component.colors;
             cb.normalColor      = baseC;
