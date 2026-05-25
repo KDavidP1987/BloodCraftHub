@@ -70,6 +70,22 @@ internal static class ClientChatPatch
             {
                 bool chatActive = InputSuppression.ChatInputActive;
 
+                // 0.17.0 THE FREEZE FIX. Pressing Enter makes V Rising OPEN its native
+                // chat (IsChatOpen=true), which gates gameplay input — and we only
+                // block the native FOCUS, not the open, while hiding the window. So the
+                // native chat is "open" forever and the gameplay gate never clears =>
+                // frozen after chatting (diagnostics showed chatOpen stuck True with all
+                // our own suppression off). Force the native chat closed whenever it's
+                // open and we're NOT actively typing in our input. While you type, our
+                // ChatInputActive provides type-without-moving; the instant you're done
+                // (send/Escape), this clears V Rising's chat-open gate.
+                try
+                {
+                    if (!chatActive && __instance.IsChatOpen)
+                        __instance.ForceClose();
+                }
+                catch (Exception ex) { LogUtils.LogDebug($"ForceClose: {ex.Message}"); }
+
                 // ESCAPE HATCH: Escape always releases our chat input. Escape is
                 // never suppressed (ShouldBlockMenus ignores ChatInputActive), so
                 // this always reaches us and breaks any "stuck focused" trap.
