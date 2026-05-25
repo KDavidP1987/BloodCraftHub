@@ -61,6 +61,13 @@ Changes:
   the session (logged once). The cooldown readout — the overlay's actual job —
   is unaffected.
 
+### Also: smaller, shrinkable Quick Actions overlay
+
+Friend-test feedback: the Quick Actions "Stash All" button was oversized and
+wouldn't shrink. The overlay's minimum footprint (160×80) and the button's own
+minimums kept it large even when resized. Lowered both — the overlay now starts
+smaller and can be dragged down to a compact size.
+
 ### Notes
 
 - No functional change for players on servers where 0.16.0 already worked; the

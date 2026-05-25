@@ -33,6 +33,9 @@ SHIFT icon behave exactly as before. If a crash somehow persists on a server,
 feature, and new per-step log lines in `BepInEx/LogOutput.log` pinpoint the
 cause.
 
+**Also:** the Quick Actions "Stash All" overlay now starts smaller and can be
+shrunk further (was oversized and wouldn't resize).
+
 ## 0.16.0 — Input suppression, custom recipes, SHIFT-spell icon, exoform fix, Quick Actions overlay, overlay layering + resize discoverability
 
 A player-feedback release. Marquee addition: an optional setting that freezes
