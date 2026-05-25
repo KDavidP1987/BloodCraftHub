@@ -71,6 +71,7 @@ public partial class MainPanel : ResizeablePanelBase
     private Toggle _dqOverlayToggle;
     private Toggle _profOverlayToggle;
     private Toggle _shiftOverlayToggle;
+    private Toggle _quickActionsOverlayToggle;
     // 0.14.0: combined overlay toggle + per-PanelType GameObject tracker so
     // ApplyCombinedFooterVisibility can hide the 4 info toggles when combined
     // mode is on (and restore them when it flips off).
@@ -166,6 +167,11 @@ public partial class MainPanel : ResizeablePanelBase
     private TextMeshProUGUI _prestigeLegacyLabel;
     private TextMeshProUGUI _prestigeExpertiseLabel;
     private TextMeshProUGUI _prestigeFamLabel;
+    private TextMeshProUGUI _prestigeExoLabel;        // 0.16: Exo prestige (from .prestige get Exo chat reply)
+    private int  _prestigeExoLevel;
+    private int  _prestigeExoMaxLevel;
+    private bool _prestigeExoReceived;
+    private bool _prestigeExoFetchScheduled;
     private bool _prestigeSubscribed;
 
     // In-UI Prestige info display (parsed from `.prestige get` reply).
@@ -350,6 +356,20 @@ public partial class MainPanel : ResizeablePanelBase
     // the user can re-open.
     protected override void OnClosePanelClicked() => SetActive(false);
 
+    // 0.16.x: closing the panel while fullscreen must first exit fullscreen so
+    // the floating launcher (hidden during fullscreen) is restored and the next
+    // open is windowed. Covers every deactivation path (title-bar X, hotkey
+    // toggle, escape-menu hide) since they all funnel through SetActive. The
+    // launcher's actual visibility is governed by
+    // BCHubUIManager.RefreshFloatingButtonVisibility, so exiting fullscreen here
+    // during an escape-menu hide does not wrongly pop the launcher back up.
+    public override void SetActive(bool active)
+    {
+        if (!active && _isFullscreen)
+            SetFullscreen(false);
+        base.SetActive(active);
+    }
+
     // 0.9.7: fullscreen toggle state. Snapshot of pre-fullscreen Rect data so
     // we can restore exactly what the user had after toggling off. NOT
     // persisted across sessions — fullscreen is treated as transient.
@@ -434,6 +454,11 @@ public partial class MainPanel : ResizeablePanelBase
 
         Dragger?.OnEndResize();
         UpdateMaximizeBtnVisuals();
+
+        // 0.16: hide the always-on-top floating launcher while fullscreen so it
+        // can't sit over (and intercept clicks meant for) the panel's own
+        // close/restore controls on smaller monitors. Restored on exit.
+        Plugin.UIManager?.OnMainPanelFullscreenChanged(_isFullscreen);
         // 0.11.2 IMPORTANT: do NOT call OnFinishResize() here. The
         // pre-0.11.2 code did, which persisted the fullscreen-mode
         // sizeDelta to config — directly contradicting the comment at
@@ -3657,6 +3682,16 @@ public partial class MainPanel : ResizeablePanelBase
         _prestigeFamLabel = AddInfoLabel(famCard, "PrestigeFam",
             "Familiar prestige: —", FontStyles.Normal, fontSize: Theme.ScaledUI(14));
 
+        // 0.16: Exo prestige card. Exo is NOT carried by the structured Eclipse
+        // protocol like the four systems above — it comes from the parsed
+        // ".prestige get Exo" chat reply (PlayerStateService.PrestigeInfoLatest),
+        // auto-fetched once below so the card fills without the user running the
+        // command. The Experience overlay has its own EXO line; this is the
+        // in-panel counterpart, NOT a duplicate of it.
+        var exoCard = AddCard(page, "PrestigeExoCard", Theme.SystemTintXP, padding: 6, innerSpacing: 2);
+        _prestigeExoLabel = AddInfoLabel(exoCard, "PrestigeExo",
+            "Exo prestige: —", FontStyles.Normal, fontSize: Theme.ScaledUI(14));
+
         AddSpacer(page, 6);
         AddSectionHeading(page, "Quick actions");
 
@@ -3787,6 +3822,8 @@ public partial class MainPanel : ResizeablePanelBase
         AddServerDisclaimer(progressionCard);
 
         RenderPrestige();
+        RenderExoCardFromState();
+        SchedulePrestigeExoFetch();
         if (!_prestigeSubscribed)
         {
             PlayerStateService.ExperienceChanged += OnAnyForPrestige;
@@ -3847,6 +3884,7 @@ public partial class MainPanel : ResizeablePanelBase
     private void OnPrestigeInfoChanged()
     {
         RenderPrestigeInfo();
+        RenderExoCardFromState();
         AutoResizeIfEnabled();
     }
 
@@ -3891,6 +3929,50 @@ public partial class MainPanel : ResizeablePanelBase
         _prestigeLegacyLabel.text    = $"Blood legacy prestige ({PlayerStateService.Legacy.Type}): {PlayerStateService.Legacy.Prestige}";
         _prestigeExpertiseLabel.text = $"Weapon expertise prestige ({PlayerStateService.Expertise.Type}): {PlayerStateService.Expertise.Prestige}";
         _prestigeFamLabel.text       = $"Familiar prestige ({(string.IsNullOrEmpty(PlayerStateService.Familiar.Name) ? "no familiar" : PlayerStateService.Familiar.Name)}): {PlayerStateService.Familiar.Prestige}";
+    }
+
+    // 0.16: Exo prestige isn't in the structured protocol — fill the card from
+    // the parsed ".prestige get Exo" reply. PrestigeInfoLatest is shared across
+    // all .prestige get queries, so only adopt it when it's actually the Exo
+    // type; otherwise keep the last known exo values.
+    private void RenderExoCardFromState()
+    {
+        var p = PlayerStateService.PrestigeInfoLatest;
+        if (p.TypeName != null && string.Equals(p.TypeName, "Exo", System.StringComparison.OrdinalIgnoreCase))
+        {
+            _prestigeExoLevel    = p.Level;
+            _prestigeExoMaxLevel = p.MaxLevel;
+            _prestigeExoReceived = true;
+        }
+        if (_prestigeExoLabel == null) return;
+        if (!_prestigeExoReceived)
+            _prestigeExoLabel.text = "Exo prestige: —";
+        else if (_prestigeExoLevel <= 0)
+            _prestigeExoLabel.text = "Exo prestige: none yet";
+        else if (_prestigeExoMaxLevel > 0)
+            _prestigeExoLabel.text = $"Exo prestige: {_prestigeExoLevel} / {_prestigeExoMaxLevel}";
+        else
+            _prestigeExoLabel.text = $"Exo prestige: {_prestigeExoLevel}";
+    }
+
+    // 0.16: one-shot auto-fetch of ".prestige get Exo" when the Prestige tab is
+    // built, deferred until MessageService has bound to the local character/user.
+    // Mirrors ExperienceOverlayPanel.ScheduleExoFetch so the card populates with
+    // no user action. (At most two fetches if the XP overlay is also open — both
+    // are one-shot and harmless.)
+    private void SchedulePrestigeExoFetch()
+    {
+        if (_prestigeExoFetchScheduled) return;
+        _prestigeExoFetchScheduled = true;
+        System.Action ticker = null;
+        ticker = () =>
+        {
+            if (!MessageService.IsInitialized) return;
+            Behaviors.CoreUpdateBehavior.Actions.Remove(ticker);
+            try { MessageService.EnqueueMessage(".prestige get Exo"); }
+            catch (System.Exception ex) { Utils.LogUtils.LogWarning($"PrestigeTab: auto .prestige get Exo failed — {ex.Message}"); }
+        };
+        Behaviors.CoreUpdateBehavior.Actions.Add(ticker);
     }
 
     // -----------------------------------------------------------------------
@@ -5072,6 +5154,8 @@ public partial class MainPanel : ResizeablePanelBase
         AddProgressBarHeightControls(page);
         AddOverlayEdgePaddingControls(page);
         AddShowPrestigeSubLineToggle(page);
+        AddOverlaysBehindMenusToggle(page);
+        AddSuppressInputToggle(page);
         AddOverlayAlignmentToggle(page);
         AddAutoScanVBloodsToggle(page);
 
@@ -6194,6 +6278,7 @@ public partial class MainPanel : ResizeablePanelBase
         if (_dqOverlayToggle       != null) _dqOverlayToggle.SetIsOnWithoutNotify(Plugin.UIManager?.IsOverlayOpen(PanelType.DailyQuestOverlay) ?? false);
         if (_profOverlayToggle     != null) _profOverlayToggle.SetIsOnWithoutNotify(Plugin.UIManager?.IsOverlayOpen(PanelType.ProfessionOverlay) ?? false);
         if (_shiftOverlayToggle    != null) _shiftOverlayToggle.SetIsOnWithoutNotify(Plugin.UIManager?.IsOverlayOpen(PanelType.ShiftSpellOverlay) ?? false);
+        if (_quickActionsOverlayToggle != null) _quickActionsOverlayToggle.SetIsOnWithoutNotify(Plugin.UIManager?.IsOverlayOpen(PanelType.QuickActionsOverlay) ?? false);
         if (_combinedOverlayToggle != null) _combinedOverlayToggle.SetIsOnWithoutNotify(Config.Settings.ShowCombinedOverlay);
         if (_combinedMasterToggle  != null) _combinedMasterToggle.SetIsOnWithoutNotify(Config.Settings.ShowCombinedOverlay);
     }
@@ -6314,6 +6399,66 @@ public partial class MainPanel : ResizeablePanelBase
         TooltipHover.Attach(t.GameObject,
             "Adds a slim inset fill at the bottom of each progress bar reflecting how close you are to the next prestige tier (Level / MaxLevel for that system). Mirrors Eclipse's overlay style. Requires Show Progress Bars to be on.");
         t.OnValueChanged += v => Config.Settings.SetShowPrestigeSubLine(v);
+    }
+
+    // 0.16.x: Settings-page toggle for the overlays-vs-game-menus z-order
+    // (config key OverlaysBehindGameMenus). Friend-test feedback asked for a
+    // UI control instead of editing the .cfg. The UICanvasSystemPatch reads the
+    // setting every frame, so flipping it takes effect immediately.
+    private void AddOverlaysBehindMenusToggle(GameObject parent)
+    {
+        var row = UIFactory.CreateHorizontalGroup(parent, "OverlaysBehindMenusRow",
+            forceExpandWidth: true, forceExpandHeight: false,
+            childControlWidth: true, childControlHeight: true,
+            spacing: 6, padding: new Vector4(2, 2, 2, 2));
+        UIFactory.SetLayoutElement(row,
+            minWidth: 360, preferredWidth: 400, flexibleWidth: 1,
+            minHeight: 28, preferredHeight: 30, flexibleHeight: 0);
+
+        var t = UIFactory.CreateToggle(row, "OverlaysBehindMenusToggle");
+        UIFactory.SetLayoutElement(t.GameObject,
+            minWidth: 360, preferredWidth: 400, flexibleWidth: 1,
+            minHeight: 24, preferredHeight: 26, flexibleHeight: 0);
+        t.Text.text = "Send overlays behind in-game menus (inventory, character, map…)";
+        t.Text.fontSize = Theme.ScaledUI(12);
+        t.Text.alignment = TextAlignmentOptions.MidlineLeft;
+        UIFactory.SetLayoutElement(t.Text.gameObject,
+            minWidth: 320, preferredWidth: 360, flexibleWidth: 1,
+            minHeight: 22, preferredHeight: 24, flexibleHeight: 0);
+        t.Toggle.isOn = Config.Settings.OverlaysBehindGameMenus;
+        TooltipHover.Attach(t.GameObject,
+            "ON: while a game menu (inventory, character sheet, map, etc.) is open, BCH's overlays drop behind it, then return on top when you close it. OFF: overlays always stay on top of game menus (the pre-0.16 behavior). Takes effect immediately.");
+        t.OnValueChanged += v => Config.Settings.SetOverlaysBehindGameMenus(v);
+    }
+
+    // 0.16.x: Settings-page toggle for the "freeze character actions while the
+    // main panel is open" input-suppression feature (config key
+    // SuppressGameInputWhileUIOpen). Default off; the InputSuppressionPatch reads
+    // the setting every frame so flipping it takes effect immediately.
+    private void AddSuppressInputToggle(GameObject parent)
+    {
+        var row = UIFactory.CreateHorizontalGroup(parent, "SuppressInputRow",
+            forceExpandWidth: true, forceExpandHeight: false,
+            childControlWidth: true, childControlHeight: true,
+            spacing: 6, padding: new Vector4(2, 2, 2, 2));
+        UIFactory.SetLayoutElement(row,
+            minWidth: 360, preferredWidth: 400, flexibleWidth: 1,
+            minHeight: 28, preferredHeight: 30, flexibleHeight: 0);
+
+        var t = UIFactory.CreateToggle(row, "SuppressInputToggle");
+        UIFactory.SetLayoutElement(t.GameObject,
+            minWidth: 360, preferredWidth: 400, flexibleWidth: 1,
+            minHeight: 24, preferredHeight: 26, flexibleHeight: 0);
+        t.Text.text = "Freeze character actions while the main panel is open";
+        t.Text.fontSize = Theme.ScaledUI(12);
+        t.Text.alignment = TextAlignmentOptions.MidlineLeft;
+        UIFactory.SetLayoutElement(t.Text.gameObject,
+            minWidth: 320, preferredWidth: 360, flexibleWidth: 1,
+            minHeight: 22, preferredHeight: 24, flexibleHeight: 0);
+        t.Toggle.isOn = Config.Settings.SuppressGameInputWhileUIOpen;
+        TooltipHover.Attach(t.GameObject,
+            "When ON, your character won't move, attack, or cast (including hotkeyed commands) while the BCH main panel is open — so background actions don't fire while you click buttons or type into forms. Aim/camera still works. Takes effect immediately. Default OFF.");
+        t.OnValueChanged += v => Config.Settings.SetSuppressGameInputWhileUIOpen(v);
     }
 
     /// <summary>0.10.2: cycle button — text alignment for overlay rows
@@ -7868,6 +8013,7 @@ public partial class MainPanel : ResizeablePanelBase
         _dqOverlayToggle    = AddOverlayToggle(row1, "Daily quest",       PanelType.DailyQuestOverlay);
         _profOverlayToggle  = AddOverlayToggle(row1, "Professions",       PanelType.ProfessionOverlay);
         _shiftOverlayToggle = AddOverlayToggle(row1, "Shift spell",       PanelType.ShiftSpellOverlay);
+        _quickActionsOverlayToggle = AddOverlayToggle(row1, "Quick Actions",   PanelType.QuickActionsOverlay);
 
         // Initial visibility — reflects whichever mode was active at last
         // logout (Combined sticks across sessions via Settings).

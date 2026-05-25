@@ -63,6 +63,8 @@ public class ShiftSpellOverlayPanel : ResizeablePanelBase
     // Cached widgets — driven each tick from ShiftCooldownService.
     private GameObject       _tileGo;
     private Image            _tileBg;
+    private Image            _tileIcon;       // 0.16: slotted-spell icon (under radial + text)
+    private int              _tileIconHash;   // prefab hash of the icon currently shown (0 = none)
     private Image            _tileRadial;     // radial cooldown sweep overlay
     private TextMeshProUGUI  _tileText;       // centered countdown / "Ready"
     private TextMeshProUGUI  _labelText;      // "SHIFT" / "SHIFT 2/3"
@@ -135,6 +137,25 @@ public class ShiftSpellOverlayPanel : ResizeablePanelBase
         bgOutline.effectColor = new Color(0.85f, 0.85f, 0.85f, 0.9f);
         bgOutline.effectDistance = new Vector2(1.2f, -1.2f);
 
+        // ── Slotted-spell icon (0.16) ──
+        // Drawn over the flat background but UNDER the radial sweep + countdown
+        // text, so the cooldown shade darkens the icon and the digits stay
+        // readable. The sprite is assigned each tick from ShiftCooldownService
+        // once the slotted spell resolves; it stays hidden (no sprite) for the
+        // vanilla cases where no icon is available, or when ShowShiftSpellIcon is
+        // off. A small inset keeps the icon inside the colored frame + outline,
+        // so the ready/busy tile color still reads as a thin frame around it.
+        var iconGo = UIFactory.CreateUIObject("ShiftIcon", _tileGo);
+        var iconRt = iconGo.GetComponent<RectTransform>();
+        iconRt.anchorMin = Vector2.zero;
+        iconRt.anchorMax = Vector2.one;
+        iconRt.offsetMin = new Vector2(3f, 3f);
+        iconRt.offsetMax = new Vector2(-3f, -3f);
+        _tileIcon = iconGo.AddComponent<Image>();
+        _tileIcon.raycastTarget = false;
+        _tileIcon.preserveAspect = true;
+        _tileIcon.enabled = false; // no sprite yet — stays hidden until resolved
+
         // ── Radial overlay child (drawn ON TOP of the background) ──
         var radialGo = UIFactory.CreateUIObject("ShiftRadial", _tileGo);
         var radialRt = radialGo.GetComponent<RectTransform>();
@@ -195,14 +216,16 @@ public class ShiftSpellOverlayPanel : ResizeablePanelBase
         // Default OFF — only construct when the user opts in via the
         // BepInEx config file. Flipping the setting takes effect on the
         // next overlay rebuild (panel close + reopen, or game restart).
-        if (Settings.ShiftSpellOverlayShowDiagnostics)
-        {
-            _diagText = AddCenteredLabel("ShiftDiag", "",
-                FontStyles.Italic, Theme.ScaledOverlay(9));
-            var diagLe = _diagText.gameObject.GetComponent<UnityEngine.UI.LayoutElement>();
-            if (diagLe != null) { diagLe.minHeight = 14; diagLe.preferredHeight = 14; }
-            _diagText.color = new Color(0.7f, 0.7f, 0.7f, 0.95f);
-        }
+        // 0.16.x: build the diag line always-but-hidden; it shows ONLY when the
+        // dedicated ShiftSpellOverlayShowDiagnostics cfg flag is on (toggled live
+        // in OnTick — no rebuild needed). Deliberately NOT tied to the general
+        // Diagnostic mode, so it never clutters the overlay during normal play.
+        _diagText = AddCenteredLabel("ShiftDiag", "",
+            FontStyles.Italic, Theme.ScaledOverlay(9));
+        var diagLe = _diagText.gameObject.GetComponent<UnityEngine.UI.LayoutElement>();
+        if (diagLe != null) { diagLe.minHeight = 14; diagLe.preferredHeight = 14; }
+        _diagText.color = new Color(0.7f, 0.7f, 0.7f, 0.95f);
+        _diagText.gameObject.SetActive(false);
 
         if (_ticker == null)
         {
@@ -238,14 +261,23 @@ public class ShiftSpellOverlayPanel : ResizeablePanelBase
         // told us nothing about why detection was failing.
         if (_diagText != null)
         {
+            // Dedicated cfg flag only — not the general Diagnostic mode — so the
+            // line stays out of the way during normal play (default off).
+            bool showDiag = Settings.ShiftSpellOverlayShowDiagnostics;
+            if (_diagText.gameObject.activeSelf != showDiag) _diagText.gameObject.SetActive(showDiag);
+            if (showDiag)
             _diagText.text =
                   $"pf {ShiftCooldownService.DiagShiftPrefabHash}  "
+                + $"slot {ShiftCooldownService.DiagSlotGroupPrefabHash}  "
+                + $"ic {(ShiftCooldownService.ShiftIcon != null ? 1 : 0)}  "
                 + $"cg {ShiftCooldownService.DiagCastGroupPrefabHash}  "
                 + $"si {ShiftCooldownService.DiagCastGroupSlotIndex}  "
                 + $"end {ShiftCooldownService.DiagLatchedEnd:F1}  "
                 + $"srv {ShiftCooldownService.DiagServerNow:F1}  "
                 + $"{ShiftCooldownService.DiagLastReadSource}";
         }
+
+        UpdateIconWidget();
 
         if (!ShiftCooldownService.HasShiftSpell)
         {
@@ -274,11 +306,42 @@ public class ShiftSpellOverlayPanel : ResizeablePanelBase
         _tileBg.color = ready ? TILE_BASE_READY : TILE_BASE_BUSY;
 
         if (ready)
-            _tileText.text = "Ready";
+            // When the spell icon is showing, a "Ready" label over it is just
+            // clutter — let the icon read clean and only surface the countdown
+            // digits while cooling down (the standard ability-button look).
+            _tileText.text = (_tileIcon != null && _tileIcon.enabled) ? "" : "Ready";
         else if (remaining < 10f)
             _tileText.text = $"{remaining:0.0}s";
         else
             _tileText.text = $"{(int)remaining}s";
+    }
+
+    // 0.16: keep the slotted-spell icon in sync with ShiftCooldownService. Only
+    // (re)assigns the sprite when the slotted spell actually changes — the
+    // service resolves + caches the icon, so most ticks this is a no-op.
+    private void UpdateIconWidget()
+    {
+        if (_tileIcon == null) return;
+
+        var icon = ShiftCooldownService.ShiftIcon;
+        bool show = Settings.ShowShiftSpellIcon
+                    && ShiftCooldownService.HasShiftSpell
+                    && icon != null;
+
+        if (!show)
+        {
+            if (_tileIcon.enabled) _tileIcon.enabled = false;
+            _tileIconHash = 0;
+            return;
+        }
+
+        int h = ShiftCooldownService.ShiftIconPrefabHash;
+        if (h != _tileIconHash)
+        {
+            _tileIcon.sprite = icon;
+            _tileIconHash = h;
+        }
+        if (!_tileIcon.enabled) _tileIcon.enabled = true;
     }
 
     internal override void Reset()

@@ -45,6 +45,10 @@ public abstract class PanelBase : UIBehaviourModel, IPanelBase
     public GameObject CloseButton { get; private set; }
     protected Toggle PinPanelToggleControl;
 
+    // 0.16: transient accent frame shown while the cursor is over the
+    // drag-to-resize border. Built lazily on first hover. See SetResizeHighlight.
+    private GameObject _resizeHighlight;
+
     // 0.10.14: setter widened to public so the main panel's "Lock
     // overlays" toggle can drive IsPinned on every overlay from one
     // place. Pre-0.10.14 IsPinned was protected-set and only flipped
@@ -152,6 +156,71 @@ public abstract class PanelBase : UIBehaviourModel, IPanelBase
 
     public virtual void OnFinishDrag()
     {
+    }
+
+    /// <summary>0.16: show/hide a thin accent frame just inside the panel border
+    /// while the cursor is over the drag-to-resize grip. Friend-test feedback was
+    /// that the resize edge was invisible and hard to find ("had to click the
+    /// perfect spot") — this makes "the edge is draggable" obvious alongside the
+    /// directional resize cursor. Built lazily on first hover; purely cosmetic
+    /// (raycastTarget off, so it never eats clicks).</summary>
+    public void SetResizeHighlight(bool on)
+    {
+        if (_resizeHighlight == null)
+        {
+            if (!on) return;            // nothing built yet, nothing to hide
+            BuildResizeHighlight();
+        }
+        if (_resizeHighlight != null && _resizeHighlight.activeSelf != on)
+            _resizeHighlight.SetActive(on);
+    }
+
+    private void BuildResizeHighlight()
+    {
+        try
+        {
+            _resizeHighlight = UIFactory.CreateUIObject("ResizeHighlight", uiRoot);
+            // uiRoot carries a VerticalLayoutGroup (UIFactory.CreatePanel). Without
+            // ignoreLayout the group overrides our anchors/size and the highlight
+            // never appears where we place it — that's why the v0.16.0 glow didn't
+            // show in testing. ignoreLayout lets the free anchors below stand.
+            var hlLayout = _resizeHighlight.AddComponent<LayoutElement>();
+            hlLayout.ignoreLayout = true;
+            var rt = _resizeHighlight.GetComponent<RectTransform>();
+            rt.anchorMin = Vector2.zero; rt.anchorMax = Vector2.one;
+            rt.offsetMin = Vector2.zero; rt.offsetMax = Vector2.zero;
+            rt.SetAsLastSibling(); // draw over the panel content
+
+            // Four flat edge strips just INSIDE the panel border (kept inside so
+            // they're never clipped by a parent mask). No sprite needed — a
+            // sprite-less Image renders a flat colored rect.
+            // 0.16.x: softened from the original bright cyan to a semi-transparent
+            // warm gold that matches the UI's yellow accent (Theme.Highlight) —
+            // friend-test found the bright blue offsetting on hover.
+            Color glow = new(0.93f, 0.80f, 0.40f, 0.55f);
+            const float t = 3f;
+            AddHighlightStrip("HL_Top",    new Vector2(0, 1), new Vector2(1, 1), new Vector2(0, -t), new Vector2(0, 0), glow);
+            AddHighlightStrip("HL_Bottom", new Vector2(0, 0), new Vector2(1, 0), new Vector2(0, 0),  new Vector2(0, t), glow);
+            AddHighlightStrip("HL_Left",   new Vector2(0, 0), new Vector2(0, 1), new Vector2(0, 0),  new Vector2(t, 0), glow);
+            AddHighlightStrip("HL_Right",  new Vector2(1, 0), new Vector2(1, 1), new Vector2(-t, 0), new Vector2(0, 0), glow);
+
+            _resizeHighlight.SetActive(false);
+        }
+        catch
+        {
+            _resizeHighlight = null; // fall back to no highlight; resize still works
+        }
+    }
+
+    private void AddHighlightStrip(string name, Vector2 aMin, Vector2 aMax, Vector2 offMin, Vector2 offMax, Color c)
+    {
+        var go = UIFactory.CreateUIObject(name, _resizeHighlight);
+        var r = go.GetComponent<RectTransform>();
+        r.anchorMin = aMin; r.anchorMax = aMax;
+        r.offsetMin = offMin; r.offsetMax = offMax;
+        var img = go.AddComponent<Image>();
+        img.color = c;
+        img.raycastTarget = false;
     }
 
     public override void SetActive(bool active)

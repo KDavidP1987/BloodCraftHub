@@ -49,11 +49,27 @@ public static class ShiftCooldownService
     public static int    DiagShiftPrefabHash;
     public static int    DiagCastGroupPrefabHash;
     public static int    DiagCastGroupSlotIndex = -1;
+    public static int    DiagSlotGroupPrefabHash; // 0.16.x: live slot-3 group entity prefab (icon-on-load diag)
     public static double DiagServerNow;
     public static double DiagLatchedEnd;
     public static double DiagLastRefreshAt;
     public static int    DiagPollCount;
     public static string DiagLastReadSource = "init";
+
+    // ── 0.16: slotted-spell icon ──
+    // The actual Sprite shown in the shift slot, resolved Eclipse-style from the
+    // ability group entity's MANAGED AbilityTooltipData component (.Icon is a
+    // ready-to-use Sprite). Cached and keyed by the latched prefab hash so we
+    // only resolve when the slotted spell changes.
+    public static UnityEngine.Sprite ShiftIcon { get; private set; }
+    public static int ShiftIconPrefabHash { get; private set; }
+
+    // Lazily-built ComponentType for the managed AbilityTooltipData lookup. MUST
+    // stay lazy — a static-field initializer calling ComponentType.ReadOnly /
+    // Il2CppType.Of at Plugin.Load NREs inside Unity.Entities.TypeManager before
+    // the ECS World exists (see CLAUDE.md + the 0.10.3 fix). First poll runs well
+    // after the World is up.
+    private static Unity.Entities.ComponentType? _abilityTooltipDataCT;
 
     private const double POLL_INTERVAL_SECONDS = 0.1;
     private static double _lastPollAt;
@@ -114,6 +130,8 @@ public static class ShiftCooldownService
             _latchedCooldownTotal  = 0;
             _latchedCurrentCharges = 1;
             _latchedMaxCharges     = 1;
+            ShiftIcon              = null;
+            ShiftIconPrefabHash    = 0;
         }
 
         // ── Step 1: probe AbilityBar_Shared for cast state ──
@@ -174,6 +192,7 @@ public static class ShiftCooldownService
         // NOT via prefab non-zero, because Bloodcraft's ReplaceAbilityOnSlotBuff
         // leaves the base prefab empty even when the slot is fully usable.
         bool shiftSlotExists = false;
+        Unity.Entities.Entity shiftSlotGroupEntity = Unity.Entities.Entity.Null;
         try
         {
             if (em.HasBuffer<ProjectM.AbilityGroupSlotBuffer>(character))
@@ -181,14 +200,66 @@ public static class ShiftCooldownService
                 var slots = em.GetBuffer<ProjectM.AbilityGroupSlotBuffer>(character);
                 if (slots.Length > 3)
                 {
-                    var slotEntity = slots[3].GroupSlotEntity.GetEntityOnServer();
-                    shiftSlotExists = (slotEntity != Unity.Entities.Entity.Null);
+                    shiftSlotGroupEntity = slots[3].GroupSlotEntity.GetEntityOnServer();
+                    shiftSlotExists = (shiftSlotGroupEntity != Unity.Entities.Entity.Null);
                 }
             }
         }
         catch { /* fall through */ }
 
         HasShiftSpell = shiftSlotExists || _latchedShiftPrefab.GuidHash != 0;
+
+        // ── 0.16.x: icon-on-load — latch from the LIVE slot-3 group entity ──
+        // Friend-test: the icon only appeared after the first cast. Reason: for
+        // Bloodcraft class-spell overrides the BASE slot prefab (read above) is
+        // empty, so _latchedShiftPrefab stayed 0 until a slot-3 cast was observed.
+        // The live GroupSlotEntity, however, reflects the overridden ability once
+        // its replace-on-slot buff has applied at login — so reading ITS prefab
+        // can resolve the icon before the first cast. Best-effort: if it doesn't
+        // carry a usable prefab pre-cast, we fall through and resolve on cast as
+        // before (harmless).
+        DiagSlotGroupPrefabHash = 0;
+        if (shiftSlotGroupEntity != Unity.Entities.Entity.Null)
+        {
+            try
+            {
+                if (em.HasComponent<Stunlock.Core.PrefabGUID>(shiftSlotGroupEntity))
+                {
+                    var slotPrefab = em.GetComponentData<Stunlock.Core.PrefabGUID>(shiftSlotGroupEntity);
+                    DiagSlotGroupPrefabHash = slotPrefab.GuidHash;
+                    if (_latchedShiftPrefab.GuidHash == 0 && slotPrefab.GuidHash != 0)
+                        _latchedShiftPrefab = slotPrefab;   // resolves the icon pre-cast when available
+                }
+            }
+            catch { /* fall through — icon resolves on first cast as before */ }
+        }
+
+        // ── Resolve the slotted spell's icon (Eclipse approach) ──
+        // Read the managed AbilityTooltipData.Icon off the ability group entity.
+        // Only (re)resolve when we don't already have the icon for the current
+        // latched spell, so this is a no-op once cached.
+        if (_latchedShiftPrefab.GuidHash == 0)
+        {
+            ShiftIcon = null;
+            ShiftIconPrefabHash = 0;
+        }
+        else if (ShiftIcon == null || ShiftIconPrefabHash != _latchedShiftPrefab.GuidHash)
+        {
+            int want = _latchedShiftPrefab.GuidHash;
+            // Resolution order:
+            //   1) cast-group entity when a slot-3 cast is in flight (Eclipse's path),
+            //   2) the persistent live slot entity,
+            //   3) the ability-group PREFAB entity.
+            // 0.16.x: friend-test diag showed the live slot entity knows the
+            // prefab (`slot` non-zero) but carries NO managed AbilityTooltipData
+            // (`ic 0`) — that component lives on the prefab TEMPLATE, not the live
+            // slot instance. Reading it from the prefab entity is what resolves
+            // the icon ON LOAD (before any cast).
+            bool resolved = (castGroupSlotIndex == 3 && TryReadShiftIcon(em, castGroupEntity, want))
+                            || TryReadShiftIcon(em, shiftSlotGroupEntity, want);
+            if (!resolved)
+                TryReadShiftIconFromPrefab(em, _latchedShiftPrefab);
+        }
 
         // ── Step 4: refresh cooldown latches when the current cast IS shift ──
         if (HasShiftSpell
@@ -245,6 +316,62 @@ public static class ShiftCooldownService
         CooldownTotal     = _latchedCooldownTotal;
         CurrentCharges    = _latchedCurrentCharges;
         MaxCharges        = _latchedMaxCharges;
+    }
+
+    // Reads the managed AbilityTooltipData.Icon off an ability group entity, but
+    // only trusts it when that entity actually IS the latched shift spell — the
+    // base slot entity can hold a different/empty ability group than a Bloodcraft
+    // override, so blindly trusting it would show the wrong icon. Returns true and
+    // caches the sprite on success.
+    private static bool TryReadShiftIcon(Unity.Entities.EntityManager em, Unity.Entities.Entity groupEntity, int wantHash)
+    {
+        if (groupEntity == Unity.Entities.Entity.Null) return false;
+        try
+        {
+            // Guard: reject an entity whose prefab is a *different* real ability
+            // group. (hash 0 = empty base override — falls through to a null Icon
+            // and returns false harmlessly below.)
+            if (em.HasComponent<Stunlock.Core.PrefabGUID>(groupEntity))
+            {
+                int h = em.GetComponentData<Stunlock.Core.PrefabGUID>(groupEntity).GuidHash;
+                if (h != 0 && h != wantHash) return false;
+            }
+
+            _abilityTooltipDataCT ??= Unity.Entities.ComponentType.ReadOnly(
+                Il2CppInterop.Runtime.Il2CppType.Of<ProjectM.AbilityTooltipData>());
+            if (!em.HasComponent(groupEntity, _abilityTooltipDataCT.Value)) return false;
+
+            var ttd = em.GetComponentObject<ProjectM.AbilityTooltipData>(
+                groupEntity, _abilityTooltipDataCT.Value);
+            if (ttd != null && ttd.Icon != null)
+            {
+                ShiftIcon = ttd.Icon;
+                ShiftIconPrefabHash = wantHash;
+                return true;
+            }
+        }
+        catch { /* leave icon as-is; retry next poll */ }
+        return false;
+    }
+
+    // 0.16.x: resolve the icon from the ability-group PREFAB entity (via
+    // PrefabCollectionSystem) when the live slot/cast entities don't carry the
+    // managed AbilityTooltipData. Friend-test diag confirmed the live slot entity
+    // knows the prefab but has no tooltip component — this prefab lookup is what
+    // makes the icon appear ON LOAD for both vanilla shift and Bloodcraft
+    // class-spell overrides.
+    private static void TryReadShiftIconFromPrefab(Unity.Entities.EntityManager em, Stunlock.Core.PrefabGUID prefab)
+    {
+        if (prefab.GuidHash == 0) return;
+        try
+        {
+            var world = Plugin.EntityManager.World;
+            var prefabSys = world?.GetExistingSystemManaged<ProjectM.PrefabCollectionSystem>();
+            if (prefabSys == null) return;
+            if (prefabSys._PrefabGuidToEntityMap.TryGetValue(prefab, out var prefabEntity))
+                TryReadShiftIcon(em, prefabEntity, prefab.GuidHash);
+        }
+        catch { /* fall through — icon resolves on first cast as before */ }
     }
 
     private static double GetServerTimeOnServer()

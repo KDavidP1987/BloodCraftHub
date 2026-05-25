@@ -440,6 +440,21 @@ public static class EclipseProtocolService
             MaxFamiliarLevel  = PlayerStateService.ParseInt(parts[5]),
         };
         PlayerStateService.UpdateConfig(cfg);
+
+        // 0.16: custom recipes. Bloodcraft broadcasts only a boolean flag (field
+        // 7) + a primal-cost item GUID (field 8); the recipe TABLE itself is
+        // hard-coded in both Eclipse and BCH and applied client-side so the
+        // recipes show in the crafting stations. Skip when the Eclipse mod is
+        // installed (it applies these same mutations itself — applying twice
+        // would duplicate them) or when the user disabled the feature.
+        if (parts.Length > 7
+            && Config.Settings.EnableCustomRecipes
+            && !IsEclipseModLoaded()
+            && bool.TryParse(parts[7], out bool extraRecipes) && extraRecipes)
+        {
+            int primalHash = parts.Length > 8 ? PlayerStateService.ParseInt(parts[8]) : 0;
+            RecipeService.ApplyOnce(new Stunlock.Core.PrefabGUID(primalHash));
+        }
     }
 
     // ---------- Outbound (client -> server) ----------

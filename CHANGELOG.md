@@ -1,5 +1,161 @@
 # Changelog
 
+## 0.16.0 — Input suppression, custom recipes, SHIFT-spell icon, exoform fix, Quick Actions overlay, overlay layering + resize discoverability
+
+A player-feedback release. The marquee addition is an optional setting that
+freezes the character's in-game actions while the BCH UI is open; bundled
+alongside are Bloodcraft custom crafting recipes surfaced in the stations, the
+SHIFT-spell icon, an exoform prestige tracking fix, a new Quick Actions overlay,
+configurable overlay layering, and a more discoverable resize edge.
+
+### Added: optionally freeze character actions while the BCH panel is open
+
+The most-requested fix from friend-testing: with the main panel open, the
+character kept acting in the background — moving on WASD, swinging on mouse
+clicks, casting hotkeyed abilities, and opening game menus (B = build, M = map,
+etc.). Especially disruptive for admins who keep commands/abilities on hotkeys
+and trip them while clicking around the UI.
+
+New `SuppressGameInputWhileUIOpen` option (default **off**), toggled in
+Settings → Display ("Freeze character actions while the main panel is open").
+When on, while the main panel is open BCH suppresses the character's gameplay
+input:
+
+- **Movement + aim** stop.
+- **Ability / hotkey casts** stop, and any attack already mid-swing from the
+  click that opened the panel is cancelled — so the primary attack doesn't get
+  stuck firing.
+- **Game-menu hotkeys** (build, map, inventory, etc.) no longer open menus
+  behind the panel, and queued open-requests are drained so they don't all fire
+  the instant you close it.
+
+Implementation note (for the curious): this suppresses only V Rising's
+*gameplay* input producer systems (`GameplayInputSystem` for movement/aim,
+`AbilityInputSystem` for casts) plus the HUD-menu chokepoint
+(`OpenHUDMenuSystem`, where every menu hotkey resolves). It deliberately never
+touches the system that drives the UI itself, so the panel, cursor, and form
+text-entry stay fully responsive — and the client can't freeze. (An earlier
+naive approach that blocked the shared input system did freeze the client;
+this one is structurally different.) Every hook is wrapped so any failure
+falls back to normal input. Off by default — opt in if you want it.
+
+### Added: Quick Actions overlay (one-click Stash All)
+
+A new draggable, resizable overlay of one-click command buttons. It ships with
+a single **Stash All** button (KindredLogistics `.stash`) for the common "just
+got back to base, dump everything into storage" moment — no opening a tab or
+typing the command. Toggle it from the footer overlay row or Settings → Display
+like every other overlay; position + visibility persist across sessions. The
+overlay is intentionally generic ("Quick Actions") so more one-click actions can
+drop in over future releases without resetting your saved settings.
+
+### Added: Bloodcraft custom recipes in the in-game crafting stations
+
+Bloodcraft can enable a set of extra crafting recipes (vampiric dust,
+copper wires, silver ingot, charged battery, soul-shard extraction,
+primal jewel, blood crystal, primal stygian, plus a batch of new
+salvage outputs). Until now only the Eclipse client mod surfaced these
+in the vanilla crafting/refinement UI; BCH users who had dropped Eclipse
+in favour of BCH lost that surface. BCH now provides it natively.
+
+Mechanism (ported from Eclipse's `Utilities/Recipes.cs`): the recipe
+TABLE is not broadcast — Bloodcraft's server only sends a single boolean
+`extraRecipes` flag (plus an optional `primalCost` item GUID) in its
+Eclipse `ConfigsToClient` payload. Both Eclipse and BCH carry an
+identical hard-coded recipe definition and apply it locally so the
+recipes appear in the station windows. This is **client-side display
+only** — the server still validates every real craft.
+
+Gating (so it never appears where it shouldn't):
+- Applied **only** when the server's `extraRecipes` flag is true. If the
+  server admin hasn't enabled extra recipes, nothing is injected.
+- Skipped entirely when the standalone **Eclipse** mod is also installed
+  (Eclipse performs the same prefab mutations itself; doing it twice
+  would duplicate station recipes / requirement buffers).
+- Gated behind a new `EnableCustomRecipes` config option (default on).
+- Applied once per session, marked applied *before* mutating so a
+  mid-way failure can never double-inject, and wrapped so any failure
+  logs a warning instead of disrupting the client.
+
+This is the first BCH feature that *mutates* the game's ECS data (BCH is
+otherwise read-only); it is version-coupled to Bloodcraft's recipe set.
+Each recipe lookup uses a safe `TryGetValue` so a prefab that doesn't
+exist on the running game version is skipped rather than throwing.
+
+> Note: Eclipse also renames/re-icons the crafted jewel ("Primal Jewel")
+> using its own embedded sprite cache. BCH has no equivalent sprite cache
+> so that purely-cosmetic rename is omitted — the recipe itself works; the
+> crafted item just keeps its default template name.
+
+### Added: SHIFT-spell overlay now shows the actual spell icon
+
+The Shift-spell cooldown overlay previously showed only a colored tile +
+countdown. It now displays the real icon of whatever spell is in the
+shift slot, matching Eclipse. The icon is read from the slotted ability
+group entity's `AbilityTooltipData.Icon` (the same engine-resolved sprite
+the vanilla ability bar uses), cached per-spell, with the radial cooldown
+sweep shading over it and the countdown digits on top. When ready, the
+redundant "Ready" label is dropped so the icon reads cleanly.
+
+New `ShowShiftSpellIcon` config option (default on); turning it off falls
+back to the plain colored tile. When no spell is slotted, or the icon
+can't be resolved, the overlay behaves exactly as before.
+
+> Known limitation: for Bloodcraft **class spells** that override the shift
+> slot, the icon resolves on first cast — the slotted ability's tooltip data
+> isn't available client-side until the spell is used once. This matches
+> Eclipse's behavior. Standard (non-overridden) shift abilities show their
+> icon immediately.
+
+### Fixed: exoform (Exo) prestige was never tracked
+
+Players reported the EXO prestige line never populated. Root cause: BCH
+*did* already query `.prestige get Exo` and had an "EXO Prestige" line in
+the Experience overlay — but the reply parser never matched it. Exo's
+reply uses a different shape from every other prestige type: there is no
+`"<Type> Prestige Info:"` header line, and the level line itself carries
+the type name inline:
+
+```
+Current <color=#90EE90>Exo</color> Prestige Level: <color=yellow>{lvl}</color>/{max} | Max Form Duration: ...
+```
+
+BCH's state machine was waiting for a header that never arrived, so it
+never even examined the level line. Added dedicated parsing for the exo
+reply shape (and for "You have not prestiged in Exo yet."). The existing
+Experience-overlay EXO line now populates, and a matching **Exo prestige
+card was added to the Prestige tab** (auto-fetched on tab open, mirroring
+the overlay). The **combined info overlay's XP section** also gained the EXO
+prestige line, which had been absent there. Normal prestige types are
+unaffected — the new patterns are additive and only match the exo shape.
+
+### Added: overlays can sit behind in-game menus
+
+Feedback: BCH's overlays float on top of the vanilla in-game menus
+(inventory, character sheet, map, etc.), obscuring them. New
+`OverlaysBehindGameMenus` config option (default on) drops BCH's canvases
+behind the menu while one is open, using the game's own menu signal
+(`UICanvasBase.HUDMenuParent`), and restores them on close. Set to false
+to keep the pre-0.16 always-on-top behavior. Independent of Bloodcraft —
+it hooks a vanilla UI system and is wrapped so it can never disrupt the
+game's canvas update.
+
+### Fixed: can't close the panel in fullscreen on smaller screens
+
+On laptop / smaller monitors, the fullscreen main panel's own window
+controls (the `—` close and `[X]` restore buttons in its title bar)
+landed underneath BCH's always-on-top floating launcher button, which
+intercepted the click — leaving no way to close the panel. The floating
+launcher now hides while the main panel is fullscreen (it's redundant
+then; close/restore from the title bar) and reappears on exit.
+
+### Improved: drag-to-resize is now discoverable
+
+Players noted the main panel's drag-to-resize edge was hard to find —
+"you had to click the exact pixel." The resize grab ring was widened
+(10 → 16 px) and a subtle accent border now lights up while the cursor is
+over the resize edge, alongside the existing directional resize cursor.
+
 ## 0.15.1 — Hotfix: hotkey double-toggle + per-system disabled detection + familiar auto-probe
 
 Hotfix on top of v0.15.0 covering four friend-test reports.

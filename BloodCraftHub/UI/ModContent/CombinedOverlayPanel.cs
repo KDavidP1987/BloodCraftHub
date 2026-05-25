@@ -139,6 +139,13 @@ public class CombinedOverlayPanel : ResizeablePanelBase
 
     // Live labels updated by render handlers.
     private TextMeshProUGUI _xpLine;
+    // 0.16.x: EXO prestige line in the combined XP section (from .prestige get
+    // Exo — not in the structured protocol). Shown only when the player has exo.
+    private TextMeshProUGUI _xpExoLine;
+    private int  _xpExoLevel;
+    private int  _xpExoMaxLevel;
+    private bool _xpExoReceived;
+    private bool _exoFetchScheduled;
     private TextMeshProUGUI _famNameLine;
     private TextMeshProUGUI _famStatsLine;
     private TextMeshProUGUI _wepLine;
@@ -250,8 +257,13 @@ public class CombinedOverlayPanel : ResizeablePanelBase
             // as the auto-fetch ticker pulls fresh data.
             PlayerStateService.LastResponseChanged += OnAnyChanged;
             PlayerStateService.BloodInfoChanged    += OnAnyChanged;
+            PlayerStateService.PrestigeInfoChanged += OnAnyChanged;
             _subscribed = true;
         }
+
+        // 0.16.x: pull exo prestige once so the EXO line fills even when only the
+        // combined overlay is used (no standalone XP overlay / Prestige tab open).
+        ScheduleExoFetch();
     }
 
     /// <summary>0.14.0: public hook for the Settings tab to push live
@@ -393,6 +405,11 @@ public class CombinedOverlayPanel : ResizeablePanelBase
         AddSectionHeader(_xpSection, "EXPERIENCE", COL_XP);
         _xpLine = AddSectionBody(_xpSection, "XPLine", "Lv —");
         _xpBar  = AddMiniBar(_xpSection, "XPBar", new Color(0.55f, 0.95f, 0.55f, 0.95f), out _xpBarFill);
+        // 0.16.x: EXO prestige line. Hidden until exo data arrives AND the player
+        // actually has exo prestige (keeps the glance view uncluttered for the
+        // majority who haven't exo-prestiged). Mirrors the standalone XP overlay.
+        _xpExoLine = AddSectionBody(_xpSection, "XPExoLine", "", fontSize: 12);
+        _xpExoLine.gameObject.SetActive(false);
     }
 
     private void BuildFamiliarSection()
@@ -541,6 +558,7 @@ public class CombinedOverlayPanel : ResizeablePanelBase
         {
             _xpLine.text = "(Leveling disabled on this server)";
             SyncBar(_xpBar, _xpBarFill, 0f, false);
+            if (_xpExoLine != null && _xpExoLine.gameObject.activeSelf) _xpExoLine.gameObject.SetActive(false);
             return;
         }
         var s = PlayerStateService.Experience;
@@ -548,6 +566,44 @@ public class CombinedOverlayPanel : ResizeablePanelBase
         string prestige = s.Prestige > 0 ? $"  P{s.Prestige}" : "";
         _xpLine.text = $"Lv {s.Level} ({s.Progress * 100f:0.#}%){prestige}   {cls}";
         SyncBar(_xpBar, _xpBarFill, s.Progress, Settings.ShowProgressBarXP);
+        RenderExoLine();
+    }
+
+    // 0.16.x: EXO prestige isn't in the structured protocol — fill from the parsed
+    // ".prestige get Exo" reply (PrestigeInfoLatest). Only adopt it when it's the
+    // Exo type; shown only when the player actually has exo prestige (>0).
+    private void RenderExoLine()
+    {
+        if (_xpExoLine == null) return;
+        var p = PlayerStateService.PrestigeInfoLatest;
+        if (p.TypeName != null && string.Equals(p.TypeName, "Exo", System.StringComparison.OrdinalIgnoreCase))
+        {
+            _xpExoLevel = p.Level; _xpExoMaxLevel = p.MaxLevel; _xpExoReceived = true;
+        }
+        bool show = _xpExoReceived && _xpExoLevel > 0;
+        if (_xpExoLine.gameObject.activeSelf != show) _xpExoLine.gameObject.SetActive(show);
+        if (show)
+            _xpExoLine.text = _xpExoMaxLevel > 0
+                ? $"EXO Prestige: {_xpExoLevel} / {_xpExoMaxLevel}"
+                : $"EXO Prestige: {_xpExoLevel}";
+    }
+
+    // 0.16.x: one-shot ".prestige get Exo" fetch, deferred until MessageService
+    // is bound. Mirrors ExperienceOverlayPanel.ScheduleExoFetch so the EXO line
+    // fills even when ONLY the combined overlay is in use.
+    private void ScheduleExoFetch()
+    {
+        if (_exoFetchScheduled) return;
+        _exoFetchScheduled = true;
+        System.Action ticker = null;
+        ticker = () =>
+        {
+            if (!BloodCraftHub.Services.MessageService.IsInitialized) return;
+            BloodCraftHub.Behaviors.CoreUpdateBehavior.Actions.Remove(ticker);
+            try { BloodCraftHub.Services.MessageService.EnqueueMessage(".prestige get Exo"); }
+            catch (System.Exception ex) { BloodCraftHub.Utils.LogUtils.LogWarning($"CombinedOverlay: auto .prestige get Exo failed — {ex.Message}"); }
+        };
+        BloodCraftHub.Behaviors.CoreUpdateBehavior.Actions.Add(ticker);
     }
 
     private void RenderFamiliar()
@@ -824,6 +880,7 @@ public class CombinedOverlayPanel : ResizeablePanelBase
             PlayerStateService.QuestChanged      -= OnAnyChanged;
             PlayerStateService.LastResponseChanged -= OnAnyChanged;
             PlayerStateService.BloodInfoChanged    -= OnAnyChanged;
+            PlayerStateService.PrestigeInfoChanged -= OnAnyChanged;
             _subscribed = false;
         }
     }

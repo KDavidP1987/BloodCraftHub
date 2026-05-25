@@ -34,6 +34,7 @@ public class BCHubUIManager : UIManagerBase
     private DailyQuestOverlayPanel _dailyQuestOverlay;
     private ProfessionOverlayPanel _professionOverlay;
     private ShiftSpellOverlayPanel _shiftSpellOverlay;
+    private QuickActionsOverlayPanel _quickActionsOverlay; // 0.16: one-click Kindred action buttons (Stash All)
     // 0.14.0: single combined info overlay. Mutually exclusive with the 4
     // standalone info overlays (XP / Familiar / Daily Quest / Profession);
     // when ShowCombinedOverlay is true, those are hidden regardless of
@@ -49,6 +50,10 @@ public class BCHubUIManager : UIManagerBase
     // config). Mirrors Settings.OverlaysSuppressedByUser; we keep the local
     // copy here for the per-frame visibility application.
     private bool _overlaysSuppressed;
+
+    // 0.16.x: tracks whether the whole BCH UIBase is active (false while the
+    // escape menu is up). Drives RefreshFloatingButtonVisibility.
+    private bool _uiActive = true;
 
     public bool IsMainPanelOpen => _mainPanel != null && _mainPanel.Enabled;
 
@@ -80,6 +85,7 @@ public class BCHubUIManager : UIManagerBase
         ApplyPinnedTo(_dailyQuestOverlay, pinned);
         ApplyPinnedTo(_professionOverlay, pinned);
         ApplyPinnedTo(_shiftSpellOverlay, pinned);
+        ApplyPinnedTo(_quickActionsOverlay, pinned);
         ApplyPinnedTo(_combinedOverlay, pinned);
     }
 
@@ -109,6 +115,7 @@ public class BCHubUIManager : UIManagerBase
         _professionOverlay = null;
         _combinedOverlay = null;
         _shiftSpellOverlay = null;
+        _quickActionsOverlay = null;
     }
 
     protected override void AddMainContentPanel()
@@ -123,7 +130,7 @@ public class BCHubUIManager : UIManagerBase
     {
         // When the whole UIBase is disabled (e.g. escape menu open), hide everything;
         // restore visibility when re-enabled. Each panel keeps its own previous-state.
-        _floatingButton?.SetActive(active && true);
+        _uiActive = active;
         _mainPanel?.SetActive(active && IsMainPanelOpen);
         _experienceOverlay?.SetActive(active && (_experienceOverlay?.Enabled ?? false));
         _familiarOverlay?.SetActive(active && (_familiarOverlay?.Enabled ?? false));
@@ -131,6 +138,9 @@ public class BCHubUIManager : UIManagerBase
         _dailyQuestOverlay?.SetActive(active && (_dailyQuestOverlay?.Enabled ?? false));
         _professionOverlay?.SetActive(active && (_professionOverlay?.Enabled ?? false));
         _shiftSpellOverlay?.SetActive(active && (_shiftSpellOverlay?.Enabled ?? false));
+        _quickActionsOverlay?.SetActive(active && (_quickActionsOverlay?.Enabled ?? false));
+        // 0.16.x: floating launcher follows a single visibility rule (below).
+        RefreshFloatingButtonVisibility();
     }
 
     /// <summary>Show or hide the main tabbed panel.</summary>
@@ -140,6 +150,30 @@ public class BCHubUIManager : UIManagerBase
         bool nextState = !_mainPanel.Enabled;
         BloodCraftHub.Utils.LogUtils.LogDiagnostic($"ToggleMainPanel: {_mainPanel.Enabled} -> {nextState}");
         _mainPanel.SetActive(nextState);
+        RefreshFloatingButtonVisibility();
+    }
+
+    /// <summary>0.16: hide the always-on-top floating launcher while the main
+    /// panel is fullscreen. On small/laptop monitors the panel's own title-bar
+    /// close/restore controls land underneath the floating cluster, which —
+    /// being always on top — intercepted the click so the user couldn't close
+    /// the panel. The launcher is redundant while the panel is maximized (close
+    /// or restore via the title bar), so we simply hide it for the duration.</summary>
+    internal void OnMainPanelFullscreenChanged(bool fullscreen)
+    {
+        RefreshFloatingButtonVisibility();
+    }
+
+    // 0.16.x: single source of truth for the floating launcher's visibility.
+    // Hidden ONLY while the main panel is open AND fullscreen (so the panel's own
+    // close/restore controls aren't intercepted); otherwise it follows the overall
+    // UI active state. Centralizing this prevents the launcher being orphaned
+    // (hidden with no way to reopen the panel) by the close / escape-menu /
+    // fullscreen-exit paths.
+    internal void RefreshFloatingButtonVisibility()
+    {
+        bool hideForFullscreen = (_mainPanel?.Enabled ?? false) && (_mainPanel?.IsFullscreen ?? false);
+        _floatingButton?.SetActive(_uiActive && !hideForFullscreen);
     }
 
     /// <summary>Show or hide a specific tab inside the main panel (and bring the panel up if needed).</summary>
@@ -148,6 +182,7 @@ public class BCHubUIManager : UIManagerBase
         EnsureMainPanel();
         _mainPanel.SetActive(true);
         _mainPanel.ShowTab(tab);
+        RefreshFloatingButtonVisibility();
     }
 
     /// <summary>Toggle one of the secondary overlays.</summary>
@@ -185,6 +220,11 @@ public class BCHubUIManager : UIManagerBase
                 EnsureShiftSpellOverlay();
                 _shiftSpellOverlay.SetActive(!_shiftSpellOverlay.Enabled);
                 BloodCraftHub.Config.Settings.SetShowShiftSpellOverlay(_shiftSpellOverlay.Enabled);
+                break;
+            case PanelType.QuickActionsOverlay:
+                EnsureQuickActionsOverlay();
+                _quickActionsOverlay.SetActive(!_quickActionsOverlay.Enabled);
+                BloodCraftHub.Config.Settings.SetShowQuickActionsOverlay(_quickActionsOverlay.Enabled);
                 break;
             case PanelType.CombinedOverlay:
                 // 0.14.0: toggling combined-mode swaps which set of overlays
@@ -276,6 +316,7 @@ public class BCHubUIManager : UIManagerBase
             _dailyQuestOverlay?.SetActive(false);
             _professionOverlay?.SetActive(false);
             _shiftSpellOverlay?.SetActive(false);
+            _quickActionsOverlay?.SetActive(false);
             _combinedOverlay?.SetActive(false);
             return;
         }
@@ -310,6 +351,11 @@ public class BCHubUIManager : UIManagerBase
         {
             EnsureShiftSpellOverlay();
             _shiftSpellOverlay.SetActive(true);
+        }
+        if (BloodCraftHub.Config.Settings.ShowQuickActionsOverlay)
+        {
+            EnsureQuickActionsOverlay();
+            _quickActionsOverlay.SetActive(true);
         }
     }
 
@@ -365,6 +411,11 @@ public class BCHubUIManager : UIManagerBase
             EnsureShiftSpellOverlay();
             _shiftSpellOverlay.SetActive(true);
         }
+        if (BloodCraftHub.Config.Settings.ShowQuickActionsOverlay)
+        {
+            EnsureQuickActionsOverlay();
+            _quickActionsOverlay.SetActive(true);
+        }
         // 0.14.0: re-show combined overlay last, after the un-suppress walk
         // through individual overlays — ApplyCombinedOverlayMutualExclusion
         // will hide whichever individuals it conflicts with.
@@ -380,6 +431,7 @@ public class BCHubUIManager : UIManagerBase
         PanelType.DailyQuestOverlay      => _dailyQuestOverlay?.Enabled ?? false,
         PanelType.ProfessionOverlay      => _professionOverlay?.Enabled ?? false,
         PanelType.ShiftSpellOverlay      => _shiftSpellOverlay?.Enabled ?? false,
+        PanelType.QuickActionsOverlay    => _quickActionsOverlay?.Enabled ?? false,
         PanelType.CombinedOverlay        => _combinedOverlay?.Enabled ?? false,
         _ => false,
     };
@@ -440,6 +492,14 @@ public class BCHubUIManager : UIManagerBase
         _shiftSpellOverlay.SetActive(false);
     }
 
+    private void EnsureQuickActionsOverlay()
+    {
+        if (_quickActionsOverlay != null) return;
+        _quickActionsOverlay = new QuickActionsOverlayPanel(UiBase);
+        _panels.Add(_quickActionsOverlay);
+        _quickActionsOverlay.SetActive(false);
+    }
+
     private void EnsureCombinedOverlay()
     {
         if (_combinedOverlay != null) return;
@@ -474,6 +534,7 @@ public class BCHubUIManager : UIManagerBase
         _dailyQuestOverlay?.RefreshOpacity();
         _professionOverlay?.RefreshOpacity();
         _shiftSpellOverlay?.RefreshOpacity();
+        _quickActionsOverlay?.RefreshOpacity();
         _combinedOverlay?.RefreshOpacity();
         _mainPanel?.RefreshOpacity();
         _floatingButton?.RefreshOpacity();
@@ -493,6 +554,7 @@ public class BCHubUIManager : UIManagerBase
         _dailyQuestOverlay?.RefreshBackgroundColor();
         _professionOverlay?.RefreshBackgroundColor();
         _shiftSpellOverlay?.RefreshBackgroundColor();
+        _quickActionsOverlay?.RefreshBackgroundColor();
         _combinedOverlay?.RefreshBackgroundColor();
         // Floating button intentionally excluded — it's a single-button
         // strip without a chrome backdrop the user would want themed.
@@ -596,6 +658,7 @@ public class BCHubUIManager : UIManagerBase
         RebuildOverlay(ref _dailyQuestOverlay,      !combined && BloodCraftHub.Config.Settings.ShowDailyQuestOverlay, b => new DailyQuestOverlayPanel(b));
         RebuildOverlay(ref _professionOverlay,      !combined && BloodCraftHub.Config.Settings.ShowProfessionOverlay, b => new ProfessionOverlayPanel(b));
         RebuildOverlay(ref _shiftSpellOverlay,      BloodCraftHub.Config.Settings.ShowShiftSpellOverlay,              b => new ShiftSpellOverlayPanel(b));
+        RebuildOverlay(ref _quickActionsOverlay,    BloodCraftHub.Config.Settings.ShowQuickActionsOverlay,            b => new QuickActionsOverlayPanel(b));
         // 0.14.0: combined overlay is now part of the rebuild so its text
         // scale changes when the user toggles overlay text size. Pre-fix
         // the panel's labels stayed at construct-time font size because

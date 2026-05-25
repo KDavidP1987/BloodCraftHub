@@ -11,7 +11,11 @@ public class PanelDragger
 {
     // Static
 
-    private const int ResizeThickness = 10;
+    // 0.16: widened from 10 → 16 px. Friend-test feedback was that the
+    // drag-to-resize grip was hard to land on ("had to click the perfect
+    // spot"). A fatter grab ring + the on-hover border highlight (see
+    // PanelBase.SetResizeHighlight) together make resizing discoverable.
+    private const int ResizeThickness = 16;
 
     // Instance
 
@@ -101,6 +105,12 @@ public class PanelDragger
         }
         else if (state.HasFlag(MouseState.ButtonState.Released) || state.HasFlag(MouseState.ButtonState.Up))
         {
+            // 0.16.x: the idle (not-clicked) mouse state is ALWAYS 'Up', so the
+            // old `else // mouse moving when not clicked` branch below this one
+            // was dead code — first-activation of hover-resize never ran, so the
+            // resize cursor + border highlight never appeared (only click-drag
+            // resize worked). Do the hover detection HERE, gated only by whether
+            // we just finished a drag/resize this frame.
             if (WasDragging)
             {
                 OnEndDrag();
@@ -109,27 +119,12 @@ public class PanelDragger
             {
                 OnEndResize();
             }
-
-            if (WasHoveringResize)
-            {
-                if (inResizePos)
-                {
-                    OnHoverResize(type);
-                }
-                else
-                {
-                    OnHoverResizeEnd();
-                }
-            }
-        }
-        else // mouse moving when not clicked
-        {
-            if (inResizePos)
+            else if (inResizePos)
             {
                 IsHoverResize = true;
                 OnHoverResize(type);
             }
-            else if (!WasResizing && IsHoverResize)
+            else if (IsHoverResize)
             {
                 OnHoverResizeEnd();
             }
@@ -269,6 +264,9 @@ public class PanelDragger
 
     public virtual void OnHoverResize(ResizeTypes resizeType)
     {
+        // 0.16: light up the panel border so the resize grip is discoverable.
+        UIPanel.SetResizeHighlight(true);
+
         if (WasHoveringResize && _lastResizeHoverType == resizeType)
             return;
 
@@ -321,6 +319,7 @@ public class PanelDragger
     public virtual void OnHoverResizeEnd()
     {
         IsHoverResize = false;
+        UIPanel.SetResizeHighlight(false);
         if (PanelManager.resizeCursorUIBase != null)
             PanelManager.resizeCursorUIBase.Enabled = false;
         if (PanelManager.resizeCursor != null)

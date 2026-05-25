@@ -645,6 +645,21 @@ public static partial class MessageService
     private static readonly Regex _prestigeLevelRegex = new(
         @"Current Prestige Level:\s*<color=yellow>(?<level>\d+)</color>/(?<max>\d+)",
         RegexOptions.Compiled);
+    // 0.16: Exo prestige replies with a DIFFERENT one-line format that has NO
+    // "<Type> Prestige Info:" header — the type, level and cap are all on the
+    // level line itself:
+    //   "Current <color=#90EE90>Exo</color> Prestige Level: <color=yellow>{lvl}</color>/{max} | Max Form Duration: <color=green>{s}</color>s"
+    // The generic header/level regexes above never match it, which is why exo
+    // tracking silently did nothing before 0.16 (the state machine waited for a
+    // "Prestige Info:" header that never arrived). See Bloodcraft
+    // PrestigeCommands.GetPrestigeCommand (the Exo special-case branch).
+    private static readonly Regex _prestigeExoLineRegex = new(
+        @"Current\s+<color=#90EE90>(?<type>Exo)</color>\s+Prestige Level:\s*<color=yellow>(?<level>\d+)</color>/(?<max>\d+)",
+        RegexOptions.Compiled);
+    // "You have not prestiged in <color=#90EE90>Exo</color> yet."
+    private static readonly Regex _prestigeExoNoneRegex = new(
+        @"not prestiged in\s+<color=#90EE90>Exo</color>",
+        RegexOptions.Compiled);
     // Strip any TMPro color/size/bold markup so the effect lines render cleanly
     // in the UI without inline tags.
     private static readonly Regex _stripTmpTagsRegex = new(@"<[^>]+>", RegexOptions.Compiled);
@@ -1023,6 +1038,34 @@ public static partial class MessageService
                     if (headerMatch.Success)
                     {
                         _prestigeInfoBuffer.TypeName = headerMatch.Groups["type"].Value;
+                        _intercept = InterceptFlag.ReceivingPrestigeInfo;
+                        _interceptLastLineTime = UnityEngine.Time.realtimeSinceStartupAsDouble;
+                        return Config.Settings.ClearServerMessages;
+                    }
+
+                    // 0.16: Exo's reply has no header — its level line carries the
+                    // type + level + cap together. Match it directly so exo
+                    // tracking populates (overlay EXO line + Prestige-tab EXO label).
+                    var exoMatch = _prestigeExoLineRegex.Match(text);
+                    if (exoMatch.Success)
+                    {
+                        _prestigeInfoBuffer.TypeName = exoMatch.Groups["type"].Value; // "Exo"
+                        _prestigeInfoBuffer.Level    = PlayerStateService.ParseInt(exoMatch.Groups["level"].Value);
+                        _prestigeInfoBuffer.MaxLevel = PlayerStateService.ParseInt(exoMatch.Groups["max"].Value);
+                        // Move to Receiving so the follow-up "Max Form Duration /
+                        // charge" line is captured as an effect line.
+                        _intercept = InterceptFlag.ReceivingPrestigeInfo;
+                        _interceptLastLineTime = UnityEngine.Time.realtimeSinceStartupAsDouble;
+                        return Config.Settings.ClearServerMessages;
+                    }
+
+                    // 0.16: "You have not prestiged in Exo yet." — record an
+                    // explicit empty state (level 0) so the EXO surfaces show a
+                    // clear "not yet" instead of staying blank forever.
+                    if (_prestigeExoNoneRegex.IsMatch(text))
+                    {
+                        _prestigeInfoBuffer.TypeName = "Exo";
+                        _prestigeInfoBuffer.Level    = 0;
                         _intercept = InterceptFlag.ReceivingPrestigeInfo;
                         _interceptLastLineTime = UnityEngine.Time.realtimeSinceStartupAsDouble;
                         return Config.Settings.ClearServerMessages;
