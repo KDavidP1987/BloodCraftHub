@@ -166,7 +166,12 @@ public class ChatWindowOverlayPanel : ResizeablePanelBase
         {
             var msg = _input.Text?.Trim();
             if (!string.IsNullOrEmpty(msg))
+            {
                 MessageService.SendChat(msg, ActiveSendChannel());
+                // The server broadcasts our message to others but doesn't echo it
+                // back to us, so add a local echo so we see our own message here.
+                ChatRelayService.CaptureLocalEcho(TabDefs[_activeTab].Filter ?? ChatRelayService.Channel.Local, msg);
+            }
         }
         catch (System.Exception ex)
         {

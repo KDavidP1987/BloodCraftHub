@@ -1,7 +1,9 @@
 using System;
 using System.Collections.Generic;
 using BloodCraftHub.Utils;
+using ProjectM;
 using ProjectM.Network;
+using Unity.Entities;
 
 namespace BloodCraftHub.Services;
 
@@ -81,5 +83,53 @@ internal static class ChatRelayService
         }
     }
 
-    internal static void Clear() => _buffer.Clear();
+    // Local echo for messages WE send. The server broadcasts our chat to OTHER
+    // clients but does NOT echo it back to us (the native client shows your own
+    // message via its send path, which our direct injection bypasses). So we add
+    // it to the buffer here, with the local player's name, so the sender sees
+    // their own message in the tabbed window.
+    internal static void CaptureLocalEcho(Channel channel, string text)
+    {
+        try
+        {
+            if (string.IsNullOrEmpty(text)) return;
+            var sender = LocalPlayerName();
+            if (_buffer.Count > 0)
+            {
+                var last = _buffer[_buffer.Count - 1];
+                if (last.Channel == channel && last.Sender == sender && last.Text == text) return;
+            }
+            var line = new ChatLine(channel, sender, text, DateTime.Now);
+            _buffer.Add(line);
+            if (_buffer.Count > MaxLines) _buffer.RemoveRange(0, _buffer.Count - MaxLines);
+            LineCaptured?.Invoke(line);
+        }
+        catch (Exception ex)
+        {
+            LogUtils.LogDebug($"ChatRelayService.CaptureLocalEcho: {ex.Message}");
+        }
+    }
+
+    private static string _localName;
+    private static string LocalPlayerName()
+    {
+        if (!string.IsNullOrEmpty(_localName)) return _localName;
+        try
+        {
+            var c = Plugin.LocalCharacter;
+            if (c != Entity.Null && c.Has<PlayerCharacter>())
+            {
+                var n = c.Read<PlayerCharacter>().Name.ToString();
+                if (!string.IsNullOrEmpty(n)) _localName = n;
+            }
+        }
+        catch { /* best-effort; echo just shows without a name if unresolved */ }
+        return _localName ?? string.Empty;
+    }
+
+    internal static void Clear()
+    {
+        _buffer.Clear();
+        _localName = null;
+    }
 }
