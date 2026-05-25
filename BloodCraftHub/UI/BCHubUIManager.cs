@@ -548,6 +548,18 @@ public class BCHubUIManager : UIManagerBase
     // Focus the tabbed chat window's input — the divert target for the chat-open key.
     public void FocusChatInput() => _chatWindowOverlay?.FocusInput();
 
+    // 0.17.0 escape hatch: force-release our chat input (Escape). Clears focus +
+    // ChatInputActive so suppressed gameplay/menu input is restored — the user can
+    // never be trapped focused (e.g. in the coffin).
+    public void ReleaseChatInput() => _chatWindowOverlay?.ReleaseInput();
+
+    // Diagnostic: is the native chat window currently focused?
+    public bool IsNativeChatFocused()
+    {
+        try { return _nativeChat != null && _nativeChat.IsChatFocused; }
+        catch { return false; }
+    }
+
     public void ApplyNativeChatVisibility()
     {
         try

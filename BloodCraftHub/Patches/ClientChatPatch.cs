@@ -46,23 +46,39 @@ internal static class ClientChatPatch
         // for the freeze-safety rationale.
         Plugin.UIManager?.ApplyNativeChatVisibility();
 
-        // 0.17.0: divert Enter at the SOURCE. Pressing the chat-open key sets
-        // ClientChatSystem._FocusChat, which OnUpdate then turns into a native
-        // input-field focus (via FocusInputField/SetFocused) — and because the
-        // native window is hidden during takeover, that focus sets V Rising's
-        // ChatInputFocused gate with no visible way to close it => total input
-        // freeze. Patching SetFocused alone missed this because the focus also
-        // flows through FocusInputField. Here we neutralize the open-intent flag
-        // before OnUpdate consumes it and focus OUR input instead.
+        // 0.17.0 takeover input handling. (Replaces an earlier _FocusChat divert
+        // that re-focused our input EVERY frame the game set _FocusChat — which the
+        // coffin/rest state keeps set — pinning ChatInputActive on and trapping the
+        // player with no escape. Now decoupled from _FocusChat entirely.)
         try
         {
-            if ((Plugin.UIManager?.IsNativeChatHideActive() ?? false) && __instance._FocusChat)
+            if (Plugin.UIManager?.IsNativeChatHideActive() ?? false)
             {
-                __instance._FocusChat = false;
-                Plugin.UIManager.FocusChatInput();
+                // ESCAPE HATCH: Escape always releases our chat input. Escape is
+                // never suppressed (ShouldBlockMenus ignores ChatInputActive), so
+                // this always reaches us and breaks any "stuck focused" trap.
+                if (InputSuppression.ChatInputActive
+                    && UnityEngine.Input.GetKeyDown(UnityEngine.KeyCode.Escape))
+                {
+                    Plugin.UIManager.ReleaseChatInput();
+                }
+                // ENTER → focus OUR input, detected directly off the key (NOT via
+                // _FocusChat). Only when our input isn't already focused, so a
+                // held/stuck flag can't re-grab focus every frame.
+                else if (!InputSuppression.ChatInputActive
+                    && (UnityEngine.Input.GetKeyDown(UnityEngine.KeyCode.Return)
+                        || UnityEngine.Input.GetKeyDown(UnityEngine.KeyCode.KeypadEnter)))
+                {
+                    Plugin.UIManager.FocusChatInput();
+                }
+
+                // DIAG (read-only, rate-limited): reveals the real Enter path and
+                // whether the game auto-sets _FocusChat (e.g. in the coffin).
+                if (__instance._FocusChat || InputSuppression.ChatInputActive)
+                    InputSuppression.Diag($"takeover: _FocusChat={__instance._FocusChat} chatActive={InputSuppression.ChatInputActive} nativeFocused={(Plugin.UIManager?.IsNativeChatFocused() ?? false)}");
             }
         }
-        catch (Exception ex) { LogUtils.LogDebug($"OnUpdate_Prefix _FocusChat divert: {ex.Message}"); }
+        catch (Exception ex) { LogUtils.LogDebug($"OnUpdate_Prefix takeover: {ex.Message}"); }
 
         // Send the registration handshake once. Eclipse-main delays a couple of
         // seconds with a coroutine; we just fire on the first tick after the

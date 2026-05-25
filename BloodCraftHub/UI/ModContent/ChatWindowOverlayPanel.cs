@@ -157,7 +157,22 @@ public class ChatWindowOverlayPanel : ResizeablePanelBase
     // sets ChatInputActive so gameplay input is suppressed while you type.
     internal void FocusInput()
     {
-        try { _input?.Component?.ActivateInputField(); } catch { }
+        try
+        {
+            // 0.17.0: don't re-activate an already-focused field — re-activating
+            // every frame is what pinned ChatInputActive on and trapped the player.
+            if (_input?.Component != null && !_input.Component.isFocused)
+                _input.Component.ActivateInputField();
+        }
+        catch { }
+    }
+
+    // 0.17.0 escape hatch: force the input to release focus (Escape). Deactivates
+    // the field and clears ChatInputActive so suppressed input is restored.
+    internal void ReleaseInput()
+    {
+        try { _input?.Component?.DeactivateInputField(); } catch { }
+        Patches.InputSuppression.ChatInputActive = false;
     }
 
     private void OnChatSelect(string _)   => Patches.InputSuppression.ChatInputActive = true;

@@ -62,6 +62,25 @@ internal static class InputSuppression
         }
     }
 
+    // 0.17.0 SAFETY: menu/escape gate. Chat typing (ChatInputActive) suppresses
+    // movement + casts so you don't act while typing, but it must NEVER block the
+    // menu/escape systems — otherwise focusing the chat (e.g. in the coffin, where
+    // the game keeps chat focusable) traps the player with no way to open the game
+    // menu or leave. So MenuInputSystem + OpenHUDMenuSystem use THIS, which only
+    // honours the explicit main-panel suppression — never ChatInputActive.
+    internal static bool ShouldBlockMenus()
+    {
+        try
+        {
+            if (!Config.Settings.SuppressGameInputWhileUIOpen) return false;
+            return Plugin.UIManager?.IsMainPanelOpen ?? false;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
     internal static void Diag(string msg)
     {
         double now = UnityEngine.Time.realtimeSinceStartupAsDouble;
@@ -181,7 +200,8 @@ public static class MenuInputSuppressionPatch
     {
         try
         {
-            if (!InputSuppression.ShouldBlock()) return true;
+            // ShouldBlockMenus (NOT ShouldBlock): chat typing must not block menus/escape.
+            if (!InputSuppression.ShouldBlockMenus()) return true;
             InputSuppression.Diag("blocking MenuInputSystem.OnUpdate (panel open).");
             return false;
         }
@@ -223,7 +243,8 @@ public static class OpenHUDMenuSuppressionPatch
     {
         try
         {
-            if (!InputSuppression.ShouldBlock()) return true;
+            // ShouldBlockMenus (NOT ShouldBlock): chat typing must not block menus/escape.
+            if (!InputSuppression.ShouldBlockMenus()) return true;
 
             // Drain pending menu-open requests so they don't fire on unblock.
             try
