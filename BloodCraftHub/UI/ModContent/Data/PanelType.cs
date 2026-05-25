@@ -42,6 +42,10 @@ public enum PanelType
     AboutTab,
     SettingsTab,
 
+    // Standalone enhancement tabs (client-side; work on any server, no
+    // Bloodcraft / Kindred required). 0.17+.
+    GameUITab,              // 0.17: home for standalone V Rising UI enhancements
+
     // Secondary overlays (independent draggable panels):
     ExperienceOverlay,
     FamiliarOverlay,

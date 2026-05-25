@@ -285,6 +285,18 @@ public partial class MainPanel : ResizeablePanelBase
         },
         new TabGroupDef
         {
+            // 0.17: standalone client-side UI enhancements that work on ANY
+            // server, with no Bloodcraft/Kindred dependency. Always available
+            // (see IsTabGroupAvailable) so it shows even on vanilla servers.
+            Title = "Game UI",
+            StartExpanded = false,
+            Tabs = new[]
+            {
+                (PanelType.GameUITab, "Overview"),
+            },
+        },
+        new TabGroupDef
+        {
             // 0.9.8: was "Help"; renamed because friend-testing surfaced that
             // users didn't notice there was a Settings page under what looked
             // like a documentation-only group. The Settings tab is the more
@@ -1112,6 +1124,8 @@ public partial class MainPanel : ResizeablePanelBase
                     Settings.ModAvailability.Off  => false,
                     _ => true, // no probe wired - assume present
                 };
+            case "Game UI":
+                return true; // standalone client-side enhancements; no server probe
             default:
                 return true; // Help, future groups
         }
@@ -1366,6 +1380,9 @@ public partial class MainPanel : ResizeablePanelBase
                 case PanelType.VanillaAdminTab:
                     BuildVanillaAdminTab(page);
                     break;
+                case PanelType.GameUITab:
+                    BuildGameUITab(page);
+                    break;
                 default:
                     AddComingSoonBody(page, label);
                     break;
@@ -1406,6 +1423,26 @@ public partial class MainPanel : ResizeablePanelBase
             vlg.childAlignment = TextAnchor.UpperLeft;
         }
         return wrapper;
+    }
+
+    // 0.17: home tab for the standalone "Game UI" enhancement group. Client-side
+    // features that work on any server (no Bloodcraft/Kindred). Content fills in
+    // as each enhancement lands; today it introduces the section.
+    private void BuildGameUITab(GameObject page)
+    {
+        var card = AddCard(page, "GameUIIntroCard");
+        AddSectionHeading(card, "Standalone UI enhancements");
+        AddBodyText(card,
+            "Client-side improvements to the V Rising interface that work on any " +
+            "server — no Bloodcraft, KindredCommands, or KindredLogistics required. " +
+            "They live here so the hub stays useful even without the server mods.");
+        AddBodyText(card,
+            "Planned for this section:\n" +
+            "• Tabbed chat — split Global / Local / Clan / System / whisper into " +
+            "separate channels in the in-game chat.\n" +
+            "• Resource markers — high-contrast, colorblind-friendly indicators for " +
+            "nearby resource nodes.\n" +
+            "• Map info — castle-heart timers and plot size / availability on the map.");
     }
 
     private static void AddTabHeading(GameObject page, string text)
