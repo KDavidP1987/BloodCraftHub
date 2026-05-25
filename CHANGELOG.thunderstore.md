@@ -7,6 +7,32 @@
 > bundled copy summarizes earlier versions and reproduces the most
 > recent release in full.
 
+## 0.16.1 — Crash hotfix (intermittent load crash)
+
+Fixes an **intermittent crash a few seconds after loading into a game** that
+some players hit on 0.16.0 (others on the same build never saw it). It showed up
+as a NullReferenceException deep inside Il2CppInterop's GC
+(`GarbageCollector_RunFinalizer_Patch`) — a known-unstable piece of the interop
+layer, not BCH code. BCH wasn't failing; it was *triggering* that latent bug by
+doing too much GC-pressuring work in the busy login window — chiefly applying
+custom recipes (a burst of ECS structural changes) right as login traffic
+landed.
+
+- **Custom recipes now default OFF and apply deferred.** `EnableCustomRecipes`
+  now defaults to **false** (turn it on to opt in). When on, recipes are applied
+  a few seconds after login on a quiet frame instead of inline, keeping the
+  structural-change burst out of the volatile load window. The mutation is also
+  hardened (isolated per-block, shape-checked) when enabled.
+- **SHIFT-spell icon** lookup is now gated behind the SHIFT overlay being shown,
+  `ShowShiftSpellIcon` is a real kill-switch, stale entities are skipped, and a
+  circuit-breaker latches it off after repeated faults (cooldown unaffected).
+- **Quick Actions "Stash All"** overlay starts smaller and can be shrunk further.
+
+This is a probability reduction for a non-deterministic interop-layer race, not a
+guaranteed fix — keeping your BepInEx (V Rising) pack up to date is recommended.
+Existing configs that already set `EnableCustomRecipes = true` keep that value; if
+you still crash, set it to `false`.
+
 ## 0.16.0 — Input suppression, custom recipes, SHIFT-spell icon, exoform fix, Quick Actions overlay, overlay layering + resize discoverability
 
 A player-feedback release. Marquee addition: an optional setting that freezes

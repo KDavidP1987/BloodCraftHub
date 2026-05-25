@@ -1,5 +1,65 @@
 # Changelog
 
+## 0.16.1 — Crash hotfix: stop triggering the Il2CppInterop GC-finalizer crash at login
+
+A stability hotfix for an **intermittent crash a few seconds after loading into
+a game** that some players hit on 0.16.0 (and which others, on the same build,
+never saw). It surfaced as a fault deep inside Il2CppInterop's garbage collector:
+
+```
+Unhandled exception. System.NullReferenceException
+   at Il2CppInterop.Runtime.Injection.Hooks.GarbageCollector_RunFinalizer_Patch.Hook(...)
+```
+
+### What it actually was
+
+That stack is entirely inside **Il2CppInterop**, not BCH — `GarbageCollector_RunFinalizer_Patch`
+is a known-unstable piece of the interop layer (since removed upstream) that can
+fault under GC pressure during load. The crash is **non-deterministic**: same
+build, different outcome per machine; it "came and went" for testers with no
+code change; no BCH exception is ever logged. BCH wasn't *failing* — it was
+**triggering** that latent interop bug by doing too much GC-pressuring work in
+the busy login window. The chief offender: `RecipeService` ran a burst of ECS
+structural changes synchronously, right as registration + the familiar probe +
+the chat flood all landed, forcing GC sync points at the worst moment.
+
+### Changes
+
+**Custom recipes now default OFF and apply on a deferred, quiet frame.** The
+custom-recipe feature is the single new-0.16.0 element most correlated with the
+crash window, so `EnableCustomRecipes` now defaults to **false** — turn it on to
+opt in. When on, application is **deferred a few seconds after login** to a quiet
+frame (instead of running inline in the Eclipse config handler), keeping its
+structural-change burst out of the volatile load window. (Existing configs that
+already set `EnableCustomRecipes = true` keep their value — see Notes.)
+
+**Recipe mutation hardened.** Even when enabled, every mutation block is now
+isolated in its own try/catch (a version-mismatched prefab can't abort the rest
+or half-apply, and logs which step it skipped) and shape-checked before any
+buffer access (entity exists + is really a recipe; buffers present and non-empty
+before slot `[0]` is touched).
+
+**SHIFT-spell icon resolution gated + guarded.** The managed `AbilityTooltipData`
+read (`GetComponentObject`) added in 0.16.0 now only runs when the SHIFT overlay
+is actually shown, `ShowShiftSpellIcon` is a real kill-switch (it previously only
+hid an already-resolved icon), stale entities are skipped, and a circuit-breaker
+latches it off after repeated faults. Cooldown readout is unaffected.
+
+**Smaller, shrinkable Quick Actions overlay.** Friend-test: the "Stash All"
+button was oversized and wouldn't shrink. Lowered the overlay's minimum footprint
+and the button's minimums so it starts smaller and resizes down.
+
+### Notes
+
+- This is a **probability reduction for a non-deterministic interop-layer race**,
+  not a guaranteed fix — but it removes the login-time trigger for the default
+  configuration. The underlying fault lives in Il2CppInterop; keeping your
+  BepInEx (V Rising) pack up to date is recommended.
+- **Existing installs** that already have `EnableCustomRecipes = true` in their
+  config keep that value (the new default only affects fresh configs). If a user
+  is still crashing, set `EnableCustomRecipes = false` — the deferral also
+  reduces the risk for those who leave it on.
+
 ## 0.16.0 — Input suppression, custom recipes, SHIFT-spell icon, exoform fix, Quick Actions overlay, overlay layering + resize discoverability
 
 A player-feedback release. The marquee addition is an optional setting that

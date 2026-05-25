@@ -71,6 +71,16 @@ public static class ShiftCooldownService
     // after the World is up.
     private static Unity.Entities.ComponentType? _abilityTooltipDataCT;
 
+    // 0.16.1 crash-hardening: the managed AbilityTooltipData read (GetComponentObject)
+    // this drives is the ONLY managed-component access in this poll and the suspected
+    // source of the v0.16.0 GC-finalizer crash seen on some servers (a dangling managed
+    // wrapper surfacing on the IL2CPP finalizer thread). If it faults repeatedly, latch
+    // it off for the rest of the session so a bad server/entity state can't keep poking
+    // managed-component access every poll. The cooldown readout is unaffected.
+    private static int  _iconResolutionFaults;
+    private static bool _iconResolutionDisabled;
+    private const int   ICON_RESOLUTION_FAULT_LIMIT = 5;
+
     private const double POLL_INTERVAL_SECONDS = 0.1;
     private static double _lastPollAt;
 
@@ -238,7 +248,18 @@ public static class ShiftCooldownService
         // Read the managed AbilityTooltipData.Icon off the ability group entity.
         // Only (re)resolve when we don't already have the icon for the current
         // latched spell, so this is a no-op once cached.
-        if (_latchedShiftPrefab.GuidHash == 0)
+        //
+        // 0.16.1 crash-hardening: this managed read is the suspected source of the
+        // v0.16.0 GC-finalizer crash on some servers. The icon has NO consumer other
+        // than the Shift overlay, so there is no reason to touch managed components
+        // unless that overlay is actually shown. Gate the whole thing on the overlay
+        // being visible AND the icon enabled — `ShowShiftSpellIcon` is now a genuine
+        // kill-switch (previously it only hid an already-resolved icon) — and skip
+        // entirely once the circuit-breaker has latched off.
+        bool wantIcon = !_iconResolutionDisabled
+                        && Config.Settings.ShowShiftSpellOverlay
+                        && Config.Settings.ShowShiftSpellIcon;
+        if (!wantIcon || _latchedShiftPrefab.GuidHash == 0)
         {
             ShiftIcon = null;
             ShiftIconPrefabHash = 0;
@@ -328,6 +349,10 @@ public static class ShiftCooldownService
         if (groupEntity == Unity.Entities.Entity.Null) return false;
         try
         {
+            // 0.16.1: never touch a stale/destroyed entity — a managed read off an
+            // entity the engine has recycled is a prime finalizer-crash vector.
+            if (!em.Exists(groupEntity)) return false;
+
             // Guard: reject an entity whose prefab is a *different* real ability
             // group. (hash 0 = empty base override — falls through to a null Icon
             // and returns false harmlessly below.)
@@ -350,8 +375,26 @@ public static class ShiftCooldownService
                 return true;
             }
         }
-        catch { /* leave icon as-is; retry next poll */ }
+        catch (Exception ex) { RecordIconFault(ex); }
         return false;
+    }
+
+    // 0.16.1: after repeated faults, permanently stop attempting icon resolution
+    // for this session. The icon is a cosmetic nicety; the cooldown readout (the
+    // overlay's real job) keeps working. Async finalizer crashes can't be caught
+    // here, but this stops us re-entering a known-bad managed access every poll.
+    private static void RecordIconFault(Exception ex)
+    {
+        if (_iconResolutionDisabled) return;
+        if (++_iconResolutionFaults >= ICON_RESOLUTION_FAULT_LIMIT)
+        {
+            _iconResolutionDisabled = true;
+            ShiftIcon = null;
+            ShiftIconPrefabHash = 0;
+            LogUtils.LogWarning(
+                $"ShiftCooldownService: disabling slotted-spell icon resolution for this session " +
+                $"after {_iconResolutionFaults} faults (last: {ex.Message}). Cooldown readout is unaffected.");
+        }
     }
 
     // 0.16.x: resolve the icon from the ability-group PREFAB entity (via
@@ -371,7 +414,7 @@ public static class ShiftCooldownService
             if (prefabSys._PrefabGuidToEntityMap.TryGetValue(prefab, out var prefabEntity))
                 TryReadShiftIcon(em, prefabEntity, prefab.GuidHash);
         }
-        catch { /* fall through — icon resolves on first cast as before */ }
+        catch (Exception ex) { RecordIconFault(ex); }
     }
 
     private static double GetServerTimeOnServer()
