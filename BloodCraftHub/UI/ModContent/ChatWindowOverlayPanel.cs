@@ -167,11 +167,23 @@ public class ChatWindowOverlayPanel : ResizeablePanelBase
         catch { }
     }
 
-    // 0.17.0 escape hatch: force the input to release focus (Escape). Deactivates
-    // the field and clears ChatInputActive so suppressed input is restored.
+    // 0.17.0 escape hatch / canonical defocus. Deactivates the field, clears the
+    // EventSystem selection, and clears ChatInputActive. The EventSystem clear is
+    // load-bearing: V Rising suppresses gameplay input while a UI text field is the
+    // EventSystem's selected object, and DeactivateInputField alone does NOT clear
+    // that selection — so without this the game keeps gameplay frozen even after we
+    // "defocus" (the post-chat freeze).
     internal void ReleaseInput()
     {
         try { _input?.Component?.DeactivateInputField(); } catch { }
+        try
+        {
+            var es = UnityEngine.EventSystems.EventSystem.current;
+            if (es != null && _input?.Component != null
+                && es.currentSelectedGameObject == _input.Component.gameObject)
+                es.SetSelectedGameObject(null);
+        }
+        catch { }
         Patches.InputSuppression.ChatInputActive = false;
     }
 
@@ -220,8 +232,7 @@ public class ChatWindowOverlayPanel : ResizeablePanelBase
             }
             else
             {
-                _input.Component.DeactivateInputField();
-                Patches.InputSuppression.ChatInputActive = false;
+                ReleaseInput(); // deactivate + clear EventSystem selection + flag
             }
         }
     }
