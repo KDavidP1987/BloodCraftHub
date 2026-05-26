@@ -132,17 +132,29 @@ public static class EclipseProtocolService
     // the user hasn't summoned a familiar in the 30 s settling window.
     private static bool _familiarProbeScheduled;
     private static System.Action _familiarProbeAction;
+    // 0.17.1: hold the probe this long after the registration ACK. It used to fire
+    // the very NEXT frame — right inside the busy login window where the Eclipse
+    // config/progress flood is processed (twice, if the Eclipse MOD is also
+    // installed and BCH is in coexistence mode). That window is what tips the
+    // latent Il2CppInterop GC-finalizer crash (the 0.16 crash; the BCH+Eclipse
+    // crash log ends EXACTLY at this probe's dispatch). Holding BCH's own probe a
+    // few seconds moves it off the GC peak. See [[project_v016_crash_investigation]].
+    private const float FAMILIAR_PROBE_DELAY_SECONDS = 8f;
+    private static float _familiarProbeFireAt;
     private static void ScheduleFamiliarSystemProbe()
     {
         if (_familiarProbeScheduled) return;
         _familiarProbeScheduled = true;
+        _familiarProbeFireAt = UnityEngine.Time.realtimeSinceStartup + FAMILIAR_PROBE_DELAY_SECONDS;
         _familiarProbeAction = () =>
         {
             try
             {
+                // Hold until the post-login flood has settled (and the UI is up).
+                if (UnityEngine.Time.realtimeSinceStartup < _familiarProbeFireAt) return;
                 if (!MessageService.IsInitialized) return; // wait until next frame
                 MessageService.EnqueueMessageSilent(MessageService.BCCOM_FAM_BOXES);
-                LogUtils.LogDiagnostic("Eclipse: dispatched silent `.fam boxes` familiar-system probe after registration ACK.");
+                LogUtils.LogDiagnostic("Eclipse: dispatched deferred `.fam boxes` familiar-system probe (post-ACK quiet frame).");
                 BloodCraftHub.Behaviors.CoreUpdateBehavior.Actions.Remove(_familiarProbeAction);
                 _familiarProbeAction = null;
             }

@@ -1,4 +1,24 @@
 # Changelog
+## 0.17.1 — Eclipse coexistence / login-crash hardening (in progress)
+
+Targets the intermittent **crash a few seconds after loading in** — the latent
+Il2CppInterop GC-finalizer fault that some players hit on 0.16.x, and that also
+manifests when the **Eclipse mod is installed alongside BCH**. Diagnosis: BCH
+itself loads clean (no managed exception); the crash is GC/interop pressure in
+the busy login window tipping a known-unstable interop hook. With Eclipse present,
+both mods parse the whole Bloodcraft config/progress flood, and BCH was stacking
+its own `.fam boxes` familiar probe onto that exact peak (a crash log ends right
+at that probe's dispatch).
+
+- **Familiar-system probe deferred** ~8s past the registration ACK (it used to
+  fire the very next frame, inside the flood) so BCH's own work sits off the GC
+  peak — the same approach that helped custom recipes in 0.16.1.
+
+If your client crashes on load with BCH (with or without Eclipse), the highest-
+value fix is usually **regenerating the interop layer**: close the game, delete
+`BepInEx/interop` and `BepInEx/cache` in your profile (they rebuild on next
+launch) and update your BepInEx (V Rising) pack — the fault lives there, not in BCH.
+
 ## 0.17.0 — Standalone "Game UI" group + tabbed chat window
 
 A large client-side feature release. Everything here works on **any** server —
