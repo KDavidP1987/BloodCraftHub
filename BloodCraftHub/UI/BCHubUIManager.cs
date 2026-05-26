@@ -632,6 +632,33 @@ public class BCHubUIManager : UIManagerBase
         catch { return false; }
     }
 
+    // 0.17.3 (#38): entry point for the social-menu whisper redirect
+    // (ClanWhisperRedirectPatch). Brings the chat window up if needed, opens a whisper
+    // composed at the given player (resolved target — name + NetworkId), and focuses the
+    // input so the user can type immediately. Returns true if BCH took over the whisper
+    // (the caller then suppresses the native one); false leaves the native whisper to run.
+    public bool BeginExternalWhisper(ProjectM.Network.NetworkId id, string name)
+    {
+        try
+        {
+            EnsureChatWindowOverlay();
+            if (_chatWindowOverlay == null) return false;
+            if (!_chatWindowOverlay.Enabled)
+            {
+                _chatWindowOverlay.SetActive(true);
+                BloodCraftHub.Config.Settings.SetShowChatWindowOverlay(true);
+            }
+            _chatWindowOverlay.BeginWhisperTo(name, id);
+            _chatWindowOverlay.FocusInput();
+            return true;
+        }
+        catch (Exception ex)
+        {
+            BloodCraftHub.Utils.LogUtils.LogWarning($"BeginExternalWhisper: {ex.Message}");
+            return false;
+        }
+    }
+
     public void ApplyNativeChatVisibility()
     {
         try

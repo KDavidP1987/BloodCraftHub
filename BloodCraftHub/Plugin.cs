@@ -246,18 +246,24 @@ public class Plugin : BasePlugin
         else
             Log.LogWarning("[compat] Overlay-layering patch SKIPPED — overlays always render on top. Diagnostic; expected to be ON for normal use.");
 
-        // 0.17.3 TEMPORARY: social-menu whisper diagnostic (logs the context-entry click
-        // args so we can redirect right-click -> Whisper into BCH chat). Logging-only;
-        // wrapped so a resolve/patch failure can never break plugin load. REMOVE once
-        // the data is captured.
-        try
+        // 0.17.3 (#38): redirect the P-key social/clan menu's right-click -> Whisper
+        // into BCH's own chat window. The native ClanMenuMapper.Whisper(NetworkId, name)
+        // opens the (possibly hidden) native chat to compose — broken/lock-in when BCH's
+        // chat window is in use. Our prefix captures the target + name and routes it into
+        // BCH chat instead. Gated INSIDE the prefix to the chat-window setting, so when
+        // BCH chat is off the vanilla whisper is left completely untouched. Wrapped so a
+        // resolve/patch failure can never break plugin load (falls back to native).
+        if (chat)
         {
-            h.CreateClassProcessor(typeof(Patches.SocialMenuDiagPatch)).Patch();
-            Log.LogInfo("[diag] Social-menu whisper diagnostic patch APPLIED (temporary).");
-        }
-        catch (System.Exception ex)
-        {
-            Log.LogWarning($"[diag] Social-menu diagnostic patch did not apply (non-fatal): {ex.Message}");
+            try
+            {
+                h.CreateClassProcessor(typeof(Patches.ClanWhisperRedirectPatch)).Patch();
+                Log.LogInfo("[compat] Social-menu whisper redirect APPLIED (right-click Whisper -> BCH chat).");
+            }
+            catch (System.Exception ex)
+            {
+                Log.LogWarning($"[compat] Social-menu whisper redirect did not apply (non-fatal, native whisper unchanged): {ex.Message}");
+            }
         }
     }
 

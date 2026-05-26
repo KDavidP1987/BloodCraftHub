@@ -494,6 +494,18 @@ public class ChatWindowOverlayPanel : ResizeablePanelBase
     private bool TryStartWhisperByName(string typed)
     {
         if (!ResolvePlayer(typed, out var name, out var id)) return false;
+        BeginWhisperTo(name, id);
+        return true;
+    }
+
+    // 0.17.3 (#38): begin a whisper to an ALREADY-resolved target (name + NetworkId) and
+    // make it the active All-tab compose target. Shared by TryStartWhisperByName and the
+    // social-menu redirect (BCHubUIManager.BeginExternalWhisper); the latter has the id
+    // straight from the game so it needs no name lookup. Stays on the All tab, where
+    // free channel/whisper switching lives.
+    public void BeginWhisperTo(string name, NetworkId id)
+    {
+        if (string.IsNullOrEmpty(name)) return;
         ChatRelayService.RememberWhisperTarget(name, id);
         _closedPartners.Remove(name);
         _initiatedPartners.Add(name);
@@ -511,7 +523,6 @@ public class ChatWindowOverlayPanel : ResizeablePanelBase
             if (_composeDropdown != null) _composeDropdown.SetValueWithoutNotify(_composeIndex);
         }
         Render();
-        return true;
     }
 
     // 0.17.3: resolve a typed (possibly partial) player name to a whisper target.
