@@ -62,10 +62,14 @@ public class ChatWindowOverlayPanel : ResizeablePanelBase
     private bool _subscribed;
     private readonly List<ButtonRef> _tabButtons = new();
     private InputFieldRef _input;
+    private GameObject _inputRow;       // 0.17.0: kept so the row can grow with wrapped input
     // 0.17.0: the scroll view + its content rect, kept so we can auto-scroll the
     // log to the newest message (bottom or top, per ChatNewestAtBottom).
     private UnityEngine.UI.ScrollRect _scrollRect;
     private RectTransform _scrollContentRect;
+    // 0.17.0: input grows vertically (word-wrap) from one line up to this many px.
+    private const float InputBaseHeight = 24f;
+    private const float InputMaxHeight  = 96f;
 
     // 0.17.0 whisper sub-tabs. When the Whispers top-tab is active, a second row
     // appears: "All" (every whisper) + one sub-tab per conversation partner.
@@ -167,11 +171,22 @@ public class ChatWindowOverlayPanel : ResizeablePanelBase
         // type (friend-test: the Send button grew/shrank while typing).
         var inputRow = UIFactory.CreateHorizontalGroup(ContentRoot, "ChatInputRow",
             false, false, true, true, 2, new Vector4(2, 2, 2, 2), bgColor: new Color(0f, 0f, 0f, 0f));
+        // childAlignment Upper so the (fixed-height) Send button stays top-aligned
+        // beside the input as the input grows downward with wrapped text.
+        var inputRowHlg = inputRow.GetComponent<UnityEngine.UI.HorizontalLayoutGroup>();
+        if (inputRowHlg != null) { inputRowHlg.childAlignment = TextAnchor.UpperCenter; inputRowHlg.childForceExpandHeight = false; }
+        _inputRow = inputRow;
         UIFactory.SetLayoutElement(inputRow, minHeight: 26, preferredHeight: 26, flexibleWidth: 1);
         _input = UIFactory.CreateInputField(inputRow, "ChatInput", "Type a message…");
         UIFactory.SetLayoutElement(_input.GameObject,
             minWidth: 160, preferredWidth: 280, flexibleWidth: 1,
             minHeight: 24, preferredHeight: 24, flexibleHeight: 0);
+        // 0.17.0: word-wrap. SingleLine never wraps (it scrolls horizontally);
+        // MultiLineSubmit wraps long messages onto multiple lines while Enter
+        // STILL submits (send). The text component already has word-wrapping on.
+        _input.Component.lineType = TMPro.TMP_InputField.LineType.MultiLineSubmit;
+        if (_input.Component.textComponent != null)
+            _input.Component.textComponent.alignment = TextAlignmentOptions.TopLeft;
         // Respect the game's chat length: ChatMessageEvent.MessageText is a
         // FixedString512Bytes, so cap input well under 512 bytes (500 chars leaves
         // headroom for multi-byte characters). SubmitText also truncates as a backstop.
@@ -179,6 +194,9 @@ public class ChatWindowOverlayPanel : ResizeablePanelBase
         _input.Component.onSubmit.AddListener(OnChatSubmit);
         _input.Component.onSelect.AddListener(OnChatSelect);
         _input.Component.onDeselect.AddListener(OnChatDeselect);
+        // Grow the input row vertically as wrapped text adds lines (once-per-frame
+        // via InputFieldRef.OnValueChanged), shrinking back when it's cleared.
+        _input.OnValueChanged += _ => UpdateInputHeight();
         // Explicit Send button — reliable even if Enter is intercepted by the
         // still-visible native chat (until the native-takeover increment).
         var sendBtn = UIFactory.CreateButton(inputRow, "ChatSendButton", "Send");
@@ -249,6 +267,24 @@ public class ChatWindowOverlayPanel : ResizeablePanelBase
         {
             if (_input?.Component?.textComponent != null) _input.Component.textComponent.fontSize = size;
             if (_input?.PlaceholderText != null) _input.PlaceholderText.fontSize = size;
+        }
+        catch { }
+        UpdateInputHeight();
+    }
+
+    // 0.17.0: size the input row to fit the wrapped text — one line at rest,
+    // growing up to InputMaxHeight, then shrinking back when the message is sent.
+    private void UpdateInputHeight()
+    {
+        try
+        {
+            var txt = _input?.Component?.textComponent;
+            if (txt == null) return;
+            float pref = txt.preferredHeight;
+            int h = (int)UnityEngine.Mathf.Clamp(pref + 6f, InputBaseHeight, InputMaxHeight);
+            UIFactory.SetLayoutElement(_input.GameObject, minHeight: h, preferredHeight: h);
+            if (_inputRow != null)
+                UIFactory.SetLayoutElement(_inputRow, minHeight: h + 2, preferredHeight: h + 2);
         }
         catch { }
     }
@@ -392,7 +428,12 @@ public class ChatWindowOverlayPanel : ResizeablePanelBase
             if (btn?.Component == null) continue;
             // Unread badge in the label, e.g. "Clan (3)". All tab never badges.
             if (btn.ButtonText != null)
+            {
                 btn.ButtonText.text = _unread[i] > 0 ? $"{TabDefs[i].Label} ({_unread[i]})" : TabDefs[i].Label;
+                // 0.17.0: tint the tab label in its channel's color (All stays neutral).
+                btn.ButtonText.color = (Settings.ChatColorTabs && TabDefs[i].Filter.HasValue)
+                    ? ChannelColor(TabDefs[i].Filter) : Theme.DefaultText;
+            }
             var baseC = (i == _activeTab) ? activeColor : inactiveColor;
             var cb = btn.Component.colors;
             cb.normalColor      = baseC;
@@ -502,6 +543,11 @@ public class ChatWindowOverlayPanel : ResizeablePanelBase
             cb.normalColor = baseC; cb.highlightedColor = baseC * 1.2f;
             cb.selectedColor = baseC * 1.1f; cb.pressedColor = baseC * 0.7f;
             btn.Component.colors = cb;
+            // 0.17.0: tint whisper sub-tab labels in the Whisper color when colored
+            // tabs are on (these are all whisper conversations).
+            if (btn.ButtonText != null)
+                btn.ButtonText.color = Settings.ChatColorTabs
+                    ? ChannelColor(ChatRelayService.Channel.Whisper) : Theme.DefaultText;
         }
     }
 
@@ -566,13 +612,45 @@ public class ChatWindowOverlayPanel : ResizeablePanelBase
         catch { /* scroll is best-effort; never throw into the inbound pump */ }
     }
 
-    private static string ChannelTag(ChatRelayService.Channel ch) => ch switch
+    // 0.17.0: single source of truth for per-channel color, shared by the inline
+    // label tags AND the colored tab labels. Global is user-configurable; the rest
+    // are fixed, distinct defaults (Local blue / Clan green / System gold / Whisper pink).
+    internal static string ChannelColorHex(ChatRelayService.Channel? ch) => ch switch
     {
-        ChatRelayService.Channel.Global  => "<color=#FFFFFF>[G]</color>",
-        ChatRelayService.Channel.Local   => "<color=#B0E0FF>[L]</color>",
-        ChatRelayService.Channel.Clan    => "<color=#90EE90>[Clan]</color>",
-        ChatRelayService.Channel.System  => "<color=#FFD700>[Sys]</color>",
-        ChatRelayService.Channel.Whisper => "<color=#FF9CEF>[W]</color>",
+        ChatRelayService.Channel.Global  => Settings.ChatGlobalColorHex,
+        ChatRelayService.Channel.Local   => "#B0E0FF",
+        ChatRelayService.Channel.Clan    => "#90EE90",
+        ChatRelayService.Channel.System  => "#FFD700",
+        ChatRelayService.Channel.Whisper => "#FF9CEF",
+        _                                => "#FFFFFF",
+    };
+
+    private static Color ChannelColor(ChatRelayService.Channel? ch) =>
+        UnityEngine.ColorUtility.TryParseHtmlString(ChannelColorHex(ch), out var c) ? c : Theme.DefaultText;
+
+    private static string ChannelTag(ChatRelayService.Channel ch)
+    {
+        string label = Settings.ChatChannelLabelsSpelledOut ? SpelledLabel(ch) : ShortLabel(ch);
+        return string.IsNullOrEmpty(label) ? string.Empty : $"<color={ChannelColorHex(ch)}>{label}</color>";
+    }
+
+    private static string ShortLabel(ChatRelayService.Channel ch) => ch switch
+    {
+        ChatRelayService.Channel.Global  => "[G]",
+        ChatRelayService.Channel.Local   => "[L]",
+        ChatRelayService.Channel.Clan    => "[Clan]",
+        ChatRelayService.Channel.System  => "[Sys]",
+        ChatRelayService.Channel.Whisper => "[W]",
+        _                                => string.Empty,
+    };
+
+    private static string SpelledLabel(ChatRelayService.Channel ch) => ch switch
+    {
+        ChatRelayService.Channel.Global  => "[Global]",
+        ChatRelayService.Channel.Local   => "[Local]",
+        ChatRelayService.Channel.Clan    => "[Clan]",
+        ChatRelayService.Channel.System  => "[System]",
+        ChatRelayService.Channel.Whisper => "[Whisper]",
         _                                => string.Empty,
     };
 
@@ -587,6 +665,7 @@ public class ChatWindowOverlayPanel : ResizeablePanelBase
         _whisperPicker = null;
         _whisperSubRow = null;
         _input = null;
+        _inputRow = null;
         _log = null;
         _scrollRect = null;
         _scrollContentRect = null;

@@ -590,6 +590,26 @@ public class Settings
     // 0.17.0: auto-scroll the chat log to keep the newest message in view as lines arrive.
     public static bool ChatAutoScroll => (ConfigEntries[nameof(ChatAutoScroll)] as ConfigEntry<bool>)?.Value ?? true;
     public static void SetChatAutoScroll(bool v) => SetBool(nameof(ChatAutoScroll), v);
+    // 0.17.0: channel label format — short acronym ([G]/[L]/[Sys]/[W], false/default)
+    // or the spelled-out name ([Global]/[Local]/[System]/[Whisper], true).
+    public static bool ChatChannelLabelsSpelledOut => (ConfigEntries[nameof(ChatChannelLabelsSpelledOut)] as ConfigEntry<bool>)?.Value ?? false;
+    public static void SetChatChannelLabelsSpelledOut(bool v) => SetBool(nameof(ChatChannelLabelsSpelledOut), v);
+    // 0.17.0: tint each channel tab's label in that channel's color (Global in the
+    // Global color, Local in its blue, Clan green, etc.). The All tab stays neutral.
+    public static bool ChatColorTabs => (ConfigEntries[nameof(ChatColorTabs)] as ConfigEntry<bool>)?.Value ?? true;
+    public static void SetChatColorTabs(bool v) => SetBool(nameof(ChatColorTabs), v);
+    // 0.17.0: configurable color for the GLOBAL channel (label tag + tab). Global
+    // had no distinct color before (rendered plain white); default is a warm coral
+    // that stands apart from Local-blue / Clan-green / System-gold / Whisper-pink.
+    public const string DEFAULT_CHAT_GLOBAL_HEX = "#FF8A5B";
+    public static string ChatGlobalColorHex =>
+        (ConfigEntries.TryGetValue(nameof(ChatGlobalColorHex), out var e) && e is ConfigEntry<string> s && !string.IsNullOrWhiteSpace(s.Value))
+            ? s.Value : DEFAULT_CHAT_GLOBAL_HEX;
+    public static void SetChatGlobalColorHex(string hex)
+    {
+        if (ConfigEntries.TryGetValue(nameof(ChatGlobalColorHex), out var e) && e is ConfigEntry<string> s)
+            s.Value = hex;
+    }
     public static bool ShiftSpellOverlayShowDiagnostics => (ConfigEntries[nameof(ShiftSpellOverlayShowDiagnostics)] as ConfigEntry<bool>)?.Value ?? false;
     public static bool ShowShiftSpellIcon      => (ConfigEntries[nameof(ShowShiftSpellIcon)]      as ConfigEntry<bool>)?.Value ?? true;
     public static bool OverlaysBehindGameMenus => (ConfigEntries[nameof(OverlaysBehindGameMenus)] as ConfigEntry<bool>)?.Value ?? true;
@@ -831,6 +851,9 @@ public class Settings
         InitConfigEntry(OVERLAY_SETTINGS_GROUP, nameof(ChatTextScale),               1.0f,  "Font size multiplier for the tabbed chat window ONLY — independent of 'Overlay text size'. (Small=0.85, Standard=1.0, Large=1.2, X-Large=1.5.) Lets you enlarge chat text without enlarging the XP / Familiar / etc. overlays. Changes apply immediately.");
         InitConfigEntry(OVERLAY_SETTINGS_GROUP, nameof(ChatNewestAtBottom),          true,  "Tabbed chat: show the newest message at the BOTTOM (true, like the game's own chat) or at the TOP (false).");
         InitConfigEntry(OVERLAY_SETTINGS_GROUP, nameof(ChatAutoScroll),              true,  "Tabbed chat: automatically scroll to keep the newest message in view as new lines arrive (to the bottom or top per the 'newest at bottom' setting). Turn off to scroll back through history freely without being snapped to the newest line.");
+        InitConfigEntry(OVERLAY_SETTINGS_GROUP, nameof(ChatChannelLabelsSpelledOut), false, "Tabbed chat: spell out channel labels in full ([Global] / [Local] / [Clan] / [System] / [Whisper]) instead of the short acronyms ([G] / [L] / [Clan] / [Sys] / [W]). Only applies when 'Show channel labels' is on.");
+        InitConfigEntry(OVERLAY_SETTINGS_GROUP, nameof(ChatColorTabs),                true,  "Tabbed chat: tint each channel tab's label in that channel's color (Global / Local / Clan / System / Whispers). The All tab stays neutral. Off = all tab labels use the default text color.");
+        InitConfigEntry(OVERLAY_SETTINGS_GROUP, nameof(ChatGlobalColorHex),           DEFAULT_CHAT_GLOBAL_HEX, "Tabbed chat: color for the Global channel — used for its [G]/[Global] label tag AND its tab when 'Color tabs by channel' is on. Hex string (e.g. #FF8A5B coral default, #FFFFFF white, #66CCFF blue). The other channels' colors are fixed (Local blue, Clan green, System gold, Whisper pink).");
         InitConfigEntry(OVERLAY_SETTINGS_GROUP, nameof(ShiftSpellOverlayShowDiagnostics), false, "Show the small italic 'pf/cg/si/end/srv' debug line under the Shift overlay's SHIFT label. Off by default; flip on if you need to debug why the cooldown isn't updating.");
         InitConfigEntry(OVERLAY_SETTINGS_GROUP, nameof(ShowShiftSpellIcon),               true,  "Show the slotted spell's actual icon on the Shift-spell overlay tile (like Eclipse). When off, the overlay shows the plain colored cooldown tile instead.");
         InitConfigEntry(OVERLAY_SETTINGS_GROUP, nameof(OverlaysBehindGameMenus),          true,  "When an in-game menu (inventory, character sheet, map, etc.) is open, drop BCH's overlays/panels BEHIND it instead of floating over the top. Set false to keep them always on top (the pre-0.16 behavior).");

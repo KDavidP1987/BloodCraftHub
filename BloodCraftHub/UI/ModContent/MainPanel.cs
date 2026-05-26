@@ -1496,6 +1496,36 @@ public partial class MainPanel : ResizeablePanelBase
         AddChatOptionToggle(chatCard, "Auto-scroll to the newest message",
             Config.Settings.ChatAutoScroll,
             v => Config.Settings.SetChatAutoScroll(v));
+        AddChatOptionToggle(chatCard, "Spell out channel labels ([Global] instead of [G])",
+            Config.Settings.ChatChannelLabelsSpelledOut,
+            v => Config.Settings.SetChatChannelLabelsSpelledOut(v));
+        AddChatOptionToggle(chatCard, "Color tabs by channel",
+            Config.Settings.ChatColorTabs,
+            v => Config.Settings.SetChatColorTabs(v));
+
+        // Global channel color — used for its [G]/[Global] label tag AND its tab
+        // (when "Color tabs by channel" is on). The other channels have fixed
+        // colors; Global previously rendered plain white.
+        AddSectionHeading(chatCard, "Global channel color");
+        var globalColorRow = UIFactory.CreateHorizontalGroup(chatCard, "ChatGlobalColorRow",
+            forceExpandWidth: true, forceExpandHeight: false,
+            childControlWidth: true, childControlHeight: true,
+            spacing: 6, padding: new Vector4(2, 2, 2, 2));
+        UIFactory.SetLayoutElement(globalColorRow,
+            minWidth: 200, preferredWidth: 280, flexibleWidth: 1,
+            minHeight: 28, preferredHeight: 30, flexibleHeight: 0);
+        foreach (var preset in new[] {
+            ("Coral", Config.Settings.DEFAULT_CHAT_GLOBAL_HEX), ("White", "#FFFFFF"),
+            ("Amber", "#FFD479"), ("Cyan", "#66CCFF"), ("Violet", "#C9A0FF") })
+            AddPanelBgPresetButton(globalColorRow, preset.Item1, preset.Item2, ApplyChatGlobalColorHex);
+    }
+
+    // 0.17.0: persist the Global channel color + live-refresh the chat window so
+    // the label tags and colored tab update immediately.
+    private void ApplyChatGlobalColorHex(string hex)
+    {
+        Config.Settings.SetChatGlobalColorHex(hex);
+        Plugin.UIManager?.RefreshChatWindowOverlay();
     }
 
     // 0.17: small labeled toggle for the Game UI chat-window options. Persists
