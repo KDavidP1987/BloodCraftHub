@@ -52,25 +52,11 @@ internal static class ClientChatPatch
         // for the freeze-safety rationale.
         Plugin.UIManager?.ApplyNativeChatVisibility();
 
-        // 0.17.0: AUTHORITATIVE suppression flag. Drive ChatInputActive from our
-        // chat input's real focus state every frame, instead of trusting the
-        // onSelect/onDeselect events (DeactivateInputField doesn't reliably raise
-        // onDeselect, so the event-set flag stuck true and left gameplay input
-        // suppressed after chatting — the post-chat freeze). If the field isn't
-        // focused, suppression can't stick on.
-        InputSuppression.ChatInputActive = Plugin.UIManager?.IsChatInputFocused() ?? false;
-
-        // ESCAPE HATCH (always, takeover or not): Escape releases our chat input
-        // whenever it's focused, so any blocked gameplay/menu input resumes the next
-        // frame. GetKeyDown reads the raw key, so this works even while the menu
-        // systems are suppressed during typing — there is no way to get trapped.
-        try
-        {
-            if (InputSuppression.ChatInputActive
-                && UnityEngine.Input.GetKeyDown(UnityEngine.KeyCode.Escape))
-                Plugin.UIManager?.ReleaseChatInput();
-        }
-        catch (Exception ex) { LogUtils.LogDebug($"OnUpdate_Prefix escape: {ex.Message}"); }
+        // 0.17.0: ChatInputActive (the typing-suppression flag) + the Escape hatch
+        // are now driven every frame by InputSuppression.TickChatFocus on
+        // CoreUpdateBehavior — ClientChatSystem.OnUpdate doesn't tick reliably, so
+        // polling here let the flag go stale and menu hotkeys leaked through while
+        // typing. The takeover block below just READS the flag.
 
         // 0.17.0 takeover input handling (Enter → our input; keep native chat closed).
         try
@@ -134,11 +120,12 @@ internal static class ClientChatPatch
                 if (!entity.Has<ChatMessageServerEvent>()) continue;
 
                 var ev = entity.Read<ChatMessageServerEvent>();
-                // 0.17.0: capture the whisper partner's NetworkId (in arrival order)
-                // so the tabbed window can reply. CaptureFormatted pairs the next id
-                // with the resolved sender name.
-                if (ev.MessageType == ServerChatMessageType.WhisperFrom)
-                    ChatRelayService.EnqueueWhisperFrom(ev.FromUser);
+                // 0.17.0: capture EVERY sender's NetworkId (in arrival order) so the
+                // tabbed window can whisper anyone who's spoken — not just whisperers.
+                // CaptureFormatted pairs the next id with the resolved sender name.
+                // Same predicate both sides → the id queue stays 1:1 with the formatter.
+                if (ChatRelayService.IsSenderBearing(ev.MessageType))
+                    ChatRelayService.EnqueueSenderId(ev.FromUser);
                 // Only system-type messages carry the Eclipse protocol. Player chat is type Local/Global/etc.
                 if (ev.MessageType != ServerChatMessageType.System) continue;
 

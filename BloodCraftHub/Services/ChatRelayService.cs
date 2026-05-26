@@ -42,28 +42,61 @@ internal static class ChatRelayService
     internal static event Action<ChatLine> LineCaptured;
     internal static IReadOnlyList<ChatLine> Buffer => _buffer;
 
-    // 0.17.0 whisper targeting. Incoming whispers carry the partner's NetworkId
-    // (ChatMessageServerEvent.FromUser); ClientChatPatch enqueues it in order as it
-    // pumps the inbound query, and CaptureFormatted (which has the resolved name)
-    // pairs the next id with that name. Reply-send then looks the target up by name.
-    private static readonly Queue<NetworkId> _pendingWhisperIds = new();
-    private static readonly Dictionary<string, NetworkId> _whisperTargets = new();
+    // 0.17.0 whisper/sender targeting. EVERY sender-bearing chat message
+    // (Global/Local/Region/Clan/WhisperFrom) carries the sender's NetworkId
+    // (ChatMessageServerEvent.FromUser) — that NetworkId IS a valid whisper target.
+    // ClientChatPatch enqueues it in arrival order as it pumps the inbound query;
+    // CaptureFormatted (which has the GAME-RESOLVED name) pairs the next id with
+    // that name into _playerIds. So _playerIds becomes "everyone we've seen speak"
+    // → name → whisper target. This is the reliable client-side source for the
+    // whisper picker, since the client holds a User entity ONLY for the local
+    // player (confirmed via diagnostic) — a roster EntityQuery can't enumerate others.
+    private static readonly Queue<NetworkId> _pendingSenderIds = new();
+    private static readonly Dictionary<string, NetworkId> _playerIds = new();
 
-    internal static void EnqueueWhisperFrom(NetworkId fromUser)
+    // True for message types that carry a real player sender (so FromUser is a
+    // usable whisper target). MUST match the predicate ClientChatPatch enqueues on,
+    // so the id queue and the formatter dequeue stay 1:1 aligned.
+    internal static bool IsSenderBearing(ServerChatMessageType t) => t switch
+    {
+        ServerChatMessageType.Global      => true,
+        ServerChatMessageType.Local       => true,
+        ServerChatMessageType.Region      => true,
+        ServerChatMessageType.Team        => true,
+        ServerChatMessageType.WhisperFrom => true,
+        _                                 => false,
+    };
+
+    internal static void EnqueueSenderId(NetworkId fromUser)
     {
         // Cap to avoid unbounded growth if the pairing ever desyncs.
-        if (_pendingWhisperIds.Count > 32) _pendingWhisperIds.Clear();
-        _pendingWhisperIds.Enqueue(fromUser);
+        if (_pendingSenderIds.Count > 64) _pendingSenderIds.Clear();
+        _pendingSenderIds.Enqueue(fromUser);
     }
 
     internal static bool TryGetWhisperTarget(string partner, out NetworkId id)
-        => _whisperTargets.TryGetValue(partner ?? string.Empty, out id);
+        => _playerIds.TryGetValue(partner ?? string.Empty, out id);
 
     // Record a whisper target chosen from the player picker, so reply-send works
     // even before that player has whispered us.
     internal static void RememberWhisperTarget(string partner, NetworkId id)
     {
-        if (!string.IsNullOrEmpty(partner)) _whisperTargets[partner] = id;
+        if (!string.IsNullOrEmpty(partner)) _playerIds[partner] = id;
+    }
+
+    // Everyone we've seen speak (any channel), name → whisper target, excluding
+    // the local player, sorted by name. The whisper picker's source.
+    internal static List<PlayerRosterService.PlayerRef> GetKnownPlayers()
+    {
+        var self = LocalPlayerName();
+        var list = new List<PlayerRosterService.PlayerRef>();
+        foreach (var kv in _playerIds)
+        {
+            if (!string.IsNullOrEmpty(self) && string.Equals(kv.Key, self, StringComparison.OrdinalIgnoreCase)) continue;
+            list.Add(new PlayerRosterService.PlayerRef(kv.Key, kv.Value));
+        }
+        list.Sort((a, b) => string.Compare(a.Name, b.Name, StringComparison.OrdinalIgnoreCase));
+        return list;
     }
 
     internal static Channel MapChannel(ServerChatMessageType t) => t switch
@@ -103,14 +136,17 @@ internal static class ChatRelayService
                     return;
             }
 
-            // Whisper: the partner is the sender, and pair the matching NetworkId
-            // (enqueued in order by ClientChatPatch) so we can reply to them.
+            // Pair the sender's NetworkId (enqueued in arrival order by
+            // ClientChatPatch for every sender-bearing message) with the resolved
+            // name. Dequeue for the SAME predicate the patch enqueues on so the
+            // queue stays 1:1 aligned; only store when we actually got a name.
             string partner = string.Empty;
-            if (channel == Channel.Whisper && !string.IsNullOrEmpty(sender))
+            if (IsSenderBearing(messageType))
             {
-                partner = sender;
-                if (_pendingWhisperIds.Count > 0)
-                    _whisperTargets[sender] = _pendingWhisperIds.Dequeue();
+                NetworkId id = default; bool hasId = false;
+                if (_pendingSenderIds.Count > 0) { id = _pendingSenderIds.Dequeue(); hasId = true; }
+                if (hasId && !string.IsNullOrEmpty(sender)) _playerIds[sender] = id;
+                if (channel == Channel.Whisper && !string.IsNullOrEmpty(sender)) partner = sender;
             }
 
             var line = new ChatLine(channel, sender, text, DateTime.Now, partner);
@@ -173,5 +209,7 @@ internal static class ChatRelayService
     {
         _buffer.Clear();
         _localName = null;
+        _pendingSenderIds.Clear();
+        _playerIds.Clear();
     }
 }

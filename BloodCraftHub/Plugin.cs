@@ -123,6 +123,11 @@ public class Plugin : BasePlugin
         // user binds something — cheap when unused.
         CoreUpdateBehavior.Actions.Add(TickHotkeys);
 
+        // 0.17.0: drive the tabbed-chat input-focus suppression flag every frame
+        // (was polled from ClientChatSystem.OnUpdate, which doesn't tick reliably,
+        // so menu hotkeys leaked through while typing). Cheap when chat is closed.
+        CoreUpdateBehavior.Actions.Add(Patches.InputSuppression.TickChatFocus);
+
         _harmony = Harmony.CreateAndPatchAll(Assembly.GetExecutingAssembly(), MyPluginInfo.PLUGIN_GUID);
 
         IsInitialized = true;
