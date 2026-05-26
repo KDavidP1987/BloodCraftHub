@@ -1,4 +1,41 @@
 # Changelog
+## 0.17.1 — Run alongside Eclipse (command-console mode)
+
+BloodCraftHub and [Eclipse](https://thunderstore.io/c/v-rising/p/zfolmt/Eclipse/)
+used to crash the client on load when installed together. The fault is inside
+Eclipse's own HUD code (its `CanvasService` reads a Unity `BufferLookup` from a
+background coroutine — an access violation that BCH's normal startup activity
+tips over; BCH isn't in the crash stack and can't fix it directly). So BCH now
+**auto-detects Eclipse and switches to "command-console mode"** to stay out of
+its way — they load together cleanly.
+
+**In command-console mode (Eclipse present):**
+
+- BCH **stands down from its own live Bloodcraft readouts** — it doesn't register
+  for or read the Bloodcraft data stream (that's what avoided the crash). **Eclipse
+  provides the live HUD** (XP / legacy / expertise / familiar / professions / quests).
+- BCH's **stat overlays auto-hide** (XP / Familiar / Daily Quest / Professions /
+  Shift / Combined). Your saved on/off preferences are untouched, so they return
+  automatically the next time you play **without** Eclipse (and stay off if you
+  never used them).
+- Everything that **doesn't** overlap Eclipse keeps working: all **command buttons**
+  (Bloodcraft + KindredCommands + KindredLogistics), the **tabbed chat window**, the
+  **Familiar Browser** and **Quick Actions** overlays, full **familiar management**
+  (bind / switch / unbind / toggle — click a familiar to switch to it; "Unbind
+  active" to release), and **V-Bloods**: the list fills in **passively** as you
+  browse your boxes, and **Scan all** still walks every box.
+- The affected Bloodcraft tabs show an in-app note explaining what's off and what
+  still works. Info panels fill in when you press their Refresh / query button.
+
+Prefer BloodCraftHub's own live overlays? Disable Eclipse in your mod manager —
+BCH covers the same readouts on its own.
+
+**Also:** a small startup hardening (the familiar-system probe now defers a few
+seconds off the busy login window). If your client ever crashes on load (with or
+without Eclipse), regenerating the interop layer usually clears it — close the
+game, delete `BepInEx/interop` and `BepInEx/cache` in your profile (they rebuild
+on next launch) and update your BepInEx (V Rising) pack.
+
 ## 0.17.0 — Standalone "Game UI" group + tabbed chat window
 
 A large client-side feature release. Everything here works on **any** server —

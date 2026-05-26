@@ -6,8 +6,8 @@ Unified client-side V Rising UI mod that surfaces every chat command of the [Blo
 
 ## ⚠ Heads-up before you install
 
-**1 — Eclipse mod compatibility (needs re-testing).**
-BloodCraftHub is built around the same MAC-signed protocol [Eclipse](https://thunderstore.io/c/v-rising/p/zfolmt/Eclipse/) uses. Previously, having BOTH installed simultaneously hard-crashed the V Rising client before world entry — the crash originated inside Eclipse's `CanvasService` UI bring-up (harmless in Eclipse-only setups, only manifesting when BCH was loaded alongside). Eclipse has since received an update that we haven't yet had a chance to test against; it's likely still incompatible, but that needs confirming. **To be safe, disable Eclipse in your mod manager while you use BloodCraftHub.** Re-testing compatibility (and proper coexistence) is on the roadmap; this notice will be updated once we've verified.
+**1 — Running alongside Eclipse? BloodCraftHub auto-switches to "command-console mode."**
+Historically, BloodCraftHub + [Eclipse](https://thunderstore.io/c/v-rising/p/zfolmt/Eclipse/) crashed the client on load. The fault is inside Eclipse's own HUD code (`Eclipse.Services.CanvasService` reads a Unity `BufferLookup<ModifyUnitStatBuff_DOTS>` from a background coroutine — an access violation that BCH's normal startup activity tips over; BCH isn't in the crash stack and can't fix it directly). So as of 0.17.1, **when BCH detects Eclipse it stands down from its own passive Bloodcraft layer**: it doesn't register for or read the Bloodcraft data stream, which avoids the crash. In that mode **Eclipse provides the live HUD** (XP / legacy / expertise / familiar / professions / quests), and **BloodCraftHub still gives you its command buttons (Bloodcraft + KindredCommands + KindredLogistics) and the tabbed chat window** — the affected tabs show an in-app notice explaining this. If you'd rather have BloodCraftHub's *own* live overlays, **disable Eclipse** (BCH covers the same readouts on its own). The proper fix for true side-by-side passive overlays is on Eclipse's end (guarding that coroutine lookup).
 
 **2 — Pre-1.0 testing.**
 v0.x is still public-beta. The major feature set is in place and the mod is daily-driven on a live PvE server, but APIs and UI may still shift before 1.0. If you spot a bug, please reach out on the **[The Shadow Realm Discord](https://discord.gg/usC9QgBrXK)** — that's the fastest way to get a fix in the next release. GitHub issues also work for written-up reports.
@@ -31,25 +31,21 @@ If you want full BCH functionality on a Quests-only / Professions-only server, a
 ---
 
 **Repo:** https://github.com/KDavidP1987/BloodCraftHub
-**Status:** v0.16.0 — **pre-1.0 public beta**, actively developed (APIs and UI may still shift before 1.0).
+**Status:** v0.17.1 — **pre-1.0 public beta**, actively developed (APIs and UI may still shift before 1.0).
 
-**At a glance:** 24 tabs across BLOODCRAFT / KINDRED / SETTINGS-AND-HELP · 8 secondary overlays (including the combined info overlay and the new Quick Actions overlay) · every chat command from the 3 backing server mods surfaced as forms + buttons (~250+ commands).
+**At a glance:** a "Game UI" group (works on any server, no server mods needed) + BLOODCRAFT / KINDRED / SETTINGS-AND-HELP tabs · a standalone tabbed chat window · secondary info overlays · every chat command from the 3 backing server mods surfaced as forms + buttons (~250+ commands).
 
-**New in v0.16.0** — a player-feedback release:
+**New in v0.17.x** — a big client-side release:
 
-- **Freeze character actions while the panel is open** (opt-in) — stops your character moving / attacking / casting and blocks game-menu hotkeys (build, map, …) while you use the UI. A top friend-test request; off by default.
-- **Quick Actions overlay** — a new overlay of one-click command buttons, shipping with a Stash All button.
-- **Bloodcraft custom recipes** surfaced in the vanilla crafting stations (only when the server enables them; auto-skipped if the Eclipse mod is installed).
-- **SHIFT-spell overlay** now shows the real slotted-spell icon.
-- **Exoform (Exo) prestige tracking fixed** — now shows in the XP overlay, the combined overlay, and a new Prestige-tab card.
-- **Overlays can sit behind in-game menus** — new `OverlaysBehindGameMenus` option.
-- **Fullscreen close-button fix** on smaller monitors, plus a wider, highlighted **drag-to-resize edge**.
+- **Standalone "Game UI" group + tabbed chat window** — a movable, persistent, per-channel chat window (All / Global / Local / Clan / System / Whispers) with sender names, whisper conversations, an optional native-chat takeover, an All-tab "send to" dropdown + Tab-to-cycle, per-channel colored tabs, configurable colors, chat-only text size, word-wrap input, and its own transparency + theme. Works on **any** server.
+- **Runs alongside Eclipse (command-console mode)** — install both and BCH auto-detects Eclipse, stands down from its own live readouts (Eclipse shows those), and keeps its command buttons, chat window, Familiar Browser, and V-Bloods scanning working. No more load crash.
+- Folds in the **0.16.1 stability hardening** (custom recipes default-off + deferred; gated SHIFT-icon read).
 
 Full per-version history lives in [`CHANGELOG.md`](CHANGELOG.md).
 
 ## Screenshots
 
-*All captures below are from v0.13.0 — every UI piece shown still applies in v0.16.0. The UX/reliability work since (v0.15.0's handshake diagnostic + brighter toggles + hotkeys, and v0.16.0's input-suppression setting + Quick Actions overlay) is largely invisible until triggered; the screenshots below still represent the day-to-day look of the panel.*
+*All captures below are from v0.13.0 — every UI piece shown still applies in v0.17.1. Newer work (v0.16's input-suppression + Quick Actions overlay, and v0.17's Game UI group + tabbed chat window + Eclipse command-console mode) is largely invisible until triggered; the screenshots below still represent the day-to-day look of the panel.*
 
 ![Class tab — class-synergy card (v0.13.0)](https://raw.githubusercontent.com/KDavidP1987/BloodCraftHub/main/docs/screenshots/v0.13.0%20Screenshots/BloodCraftHub_Screenshot_v0.13.0-IMG4.png)
 *Class tab — Active Class card now includes the live class-details block (Death Mage shown here, with archetype + tagline + weapon/blood synergies + on-hit debuff). The Last server response strip at the bottom shows the same data the Bloodcraft `.class lst` reply carries, with stat synergies color-coded by Weapon / Blood. Settings → Display → Combined overlay carries the same data into the combined HUD overlay's Weapon and Blood sections.*

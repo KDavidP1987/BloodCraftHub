@@ -244,7 +244,22 @@ public static class VBloodScannerService
 
     private static void OnBoxContentsChanged()
     {
-        if (_state != State.SweepingBoxes) return;
+        // 0.17.1: PASSIVE scan. Outside a full sweep, whenever a box's contents
+        // arrive because the user navigated to it (Familiar Browser / Boxes tab),
+        // fold that box's V-Bloods into the collection so the V-Bloods tab fills in
+        // as the player moves through boxes — no full sweep, no Eclipse conflict
+        // (this is just reading box contents the user already requested). A "Scan
+        // all" still walks EVERY box and reconciles deletions.
+        if (_state != State.SweepingBoxes)
+        {
+            var box = PlayerStateService.ActiveBox;
+            if (!string.IsNullOrEmpty(box)
+                && PlayerStateService.BoxContents.TryGetValue(box, out var navEntries) && navEntries != null)
+            {
+                ProcessBoxEntries(box, navEntries);
+            }
+            return;
+        }
         if (string.IsNullOrEmpty(_currentBox)) return;
 
         // The flush may belong to a different box if the user navigated
@@ -285,7 +300,7 @@ public static class VBloodScannerService
                     list = new List<PlayerStateService.VBloodInstance>(1);
                     _accumulated[baseName] = list;
                 }
-                list.Add(new PlayerStateService.VBloodInstance
+                var inst = new PlayerStateService.VBloodInstance
                 {
                     Box           = box,
                     Index         = entry.Index,
@@ -294,7 +309,12 @@ public static class VBloodScannerService
                     IsShiny       = entry.IsShiny,
                     ShinySchool   = entry.ShinySchool,
                     IsPrimal      = isPrimal,
-                });
+                };
+                // 0.17.1: update-in-place by (Box, Index) instead of always appending,
+                // so re-processing a box (passive scan re-visit, or a familiar that
+                // leveled up) refreshes its entry rather than duplicating it.
+                int existing = list.FindIndex(x => x.Box == box && x.Index == entry.Index);
+                if (existing >= 0) list[existing] = inst; else list.Add(inst);
                 touched.Add(baseName);
             }
         }

@@ -132,6 +132,18 @@ internal static class ClientChatPatch
                 string text = ev.MessageText.Value;
                 if (string.IsNullOrEmpty(text)) continue;
 
+                // 0.17.1 EXPERIMENT: in Eclipse stand-down, do NOT decode the
+                // Eclipse protocol (that's the passive layer Eclipse owns) — leave
+                // those entities entirely for Eclipse. Still fall through to the
+                // regex pipeline below so user-clicked command replies are parsed.
+                if (EclipseProtocolService.StandDownForEclipse())
+                {
+                    PlayerNameCacheService.TryHarvestNames(text);
+                    if (MessageService.HandleInboundChat(text))
+                        Plugin.EntityManager.DestroyEntity(entity);
+                    continue;
+                }
+
                 if (EclipseProtocolService.TryHandleServerMessage(text))
                 {
                     // Normally we destroy here so the [N]:csv;mac... noise

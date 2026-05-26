@@ -541,8 +541,13 @@ public class FamiliarBrowserOverlayPanel : ResizeablePanelBase
             ? "Active: (none bound)"
             : $"Active: {fam.Name}   Lv {fam.Level}";
         bool hasFam = !string.IsNullOrEmpty(fam.Name);
-        if (_toggleBtn != null) _toggleBtn.Component.interactable = hasFam;
-        if (_unbindBtn != null) _unbindBtn.Component.interactable = hasFam;
+        // 0.17.1: under Eclipse stand-down BCH gets no live "active familiar" from
+        // the stream (hasFam is always false), but `.fam t` / `.fam ub` still work
+        // server-side — they act on whatever's actually bound. Keep the buttons
+        // usable so manual toggle/unbind work under Eclipse.
+        bool enableActions = hasFam || EclipseProtocolService.StandDownForEclipse();
+        if (_toggleBtn != null) _toggleBtn.Component.interactable = enableActions;
+        if (_unbindBtn != null) _unbindBtn.Component.interactable = enableActions;
 
         // Familiar list
         ClearChildren(_famListContainer);
@@ -878,6 +883,20 @@ public class FamiliarBrowserOverlayPanel : ResizeablePanelBase
 
     private void OnFamiliarClicked(int index)
     {
+        // 0.17.1: under Eclipse stand-down we can't read the active familiar from
+        // the stream, so the click-to-arm-swap UX can't fire (it always fell
+        // through to "no active → just bind", which fails server-side if one is
+        // already bound — the symptom the user saw). Make a click switch directly:
+        // unbind whatever's active (a server no-op if none) then bind the clicked
+        // one. Pure unbind (no rebind) is the "Unbind active" footer button.
+        if (EclipseProtocolService.StandDownForEclipse())
+        {
+            ClearPendingSwap();
+            EnqueueOrWarn(MessageService.BCCOM_FAM_UNBIND);
+            EnqueueOrWarn(string.Format(MessageService.BCCOM_FAM_BIND_BY_INDEX_FORMAT, index));
+            return;
+        }
+
         bool hasActive = !string.IsNullOrEmpty(PlayerStateService.Familiar.Name);
         if (!hasActive)
         {

@@ -112,6 +112,7 @@ public static class EclipseProtocolService
         RegistrationGaveUp = false;
         _registrationSentAt = 0f;
         _registrationAttemptCount = 0;
+        _standDownLogged = false; // 0.17.1: re-log the stand-down on the next session
         // 0.15.1: also clear the one-shot probe flag so the next session's
         // ACK re-fires `.fam boxes` to redetect FamiliarSystem availability
         // on the new server.
@@ -132,17 +133,29 @@ public static class EclipseProtocolService
     // the user hasn't summoned a familiar in the 30 s settling window.
     private static bool _familiarProbeScheduled;
     private static System.Action _familiarProbeAction;
+    // 0.17.1: hold the probe this long after the registration ACK. It used to fire
+    // the very NEXT frame — right inside the busy login window where the Eclipse
+    // config/progress flood is processed (twice, if the Eclipse MOD is also
+    // installed and BCH is in coexistence mode). That window is what tips the
+    // latent Il2CppInterop GC-finalizer crash (the 0.16 crash; the BCH+Eclipse
+    // crash log ends EXACTLY at this probe's dispatch). Holding BCH's own probe a
+    // few seconds moves it off the GC peak. See [[project_v016_crash_investigation]].
+    private const float FAMILIAR_PROBE_DELAY_SECONDS = 8f;
+    private static float _familiarProbeFireAt;
     private static void ScheduleFamiliarSystemProbe()
     {
         if (_familiarProbeScheduled) return;
         _familiarProbeScheduled = true;
+        _familiarProbeFireAt = UnityEngine.Time.realtimeSinceStartup + FAMILIAR_PROBE_DELAY_SECONDS;
         _familiarProbeAction = () =>
         {
             try
             {
+                // Hold until the post-login flood has settled (and the UI is up).
+                if (UnityEngine.Time.realtimeSinceStartup < _familiarProbeFireAt) return;
                 if (!MessageService.IsInitialized) return; // wait until next frame
                 MessageService.EnqueueMessageSilent(MessageService.BCCOM_FAM_BOXES);
-                LogUtils.LogDiagnostic("Eclipse: dispatched silent `.fam boxes` familiar-system probe after registration ACK.");
+                LogUtils.LogDiagnostic("Eclipse: dispatched deferred `.fam boxes` familiar-system probe (post-ACK quiet frame).");
                 BloodCraftHub.Behaviors.CoreUpdateBehavior.Actions.Remove(_familiarProbeAction);
                 _familiarProbeAction = null;
             }
@@ -191,6 +204,18 @@ public static class EclipseProtocolService
         _eclipseModChecked = true;
         return _eclipseModLoaded;
     }
+
+    // 0.17.1 EXPERIMENT (Eclipse coexistence): when the Eclipse mod is installed,
+    // BCH "stands down" from the PASSIVE Bloodcraft layer — it does NOT register
+    // for the Eclipse-protocol data stream, does NOT decode protocol broadcasts,
+    // and does NOT fire background auto-queries. This keeps BCH from doing ANY
+    // Bloodcraft ECS work in the volatile login window, which is what perturbs
+    // Eclipse's fragile HUD BufferLookup and crashes the client. BCH still works as
+    // a command console (user-clicked Bloodcraft/Kindred commands + their chat-reply
+    // parsing) and its standalone chat window; Eclipse provides the live passive
+    // HUD. See [[project_v016_crash_investigation]].
+    internal static bool StandDownForEclipse() => IsEclipseModLoaded();
+    private static bool _standDownLogged;
 
     // ---------- Inbound (server -> client) ----------
 
@@ -470,6 +495,20 @@ public static class EclipseProtocolService
         if (SharedKey == null) return;
         if (UserRegistered) return;
         if (RegistrationGaveUp) return;
+
+        // 0.17.1 EXPERIMENT: stand down from the passive Bloodcraft layer when the
+        // Eclipse mod is present — never register, so BCH receives no structured
+        // stream and does no protocol ECS work in the login window. The UI still
+        // sends user-clicked commands (command-console mode); Eclipse owns the HUD.
+        if (StandDownForEclipse())
+        {
+            if (!_standDownLogged)
+            {
+                _standDownLogged = true;
+                LogUtils.LogInfo("Eclipse present: BCH standing down from the passive Bloodcraft layer (no protocol registration). Use the UI buttons to send commands; Eclipse provides the live HUD.");
+            }
+            return;
+        }
 
         // 0.12.1: retry on pending. v0.11.x and earlier had a single-attempt
         // gate (`!UserRegistered && !RegistrationPending`) — once Pending flipped

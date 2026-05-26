@@ -1291,6 +1291,44 @@ public partial class MainPanel : ResizeablePanelBase
     // Tab content area (right side) - dispatches per-tab builders
     // -----------------------------------------------------------------------
 
+    // 0.17.1: when BCH is standing down from the passive Bloodcraft layer because
+    // Eclipse is installed (see EclipseProtocolService.StandDownForEclipse), put a
+    // clear notice at the top of each affected Bloodcraft-data tab — what's off,
+    // why, and what still works. Kindred / Game-UI / Settings tabs are unaffected,
+    // so they get no banner.
+    private void MaybeAddEclipseStandDownBanner(GameObject page, PanelType tab)
+    {
+        if (!Services.EclipseProtocolService.StandDownForEclipse()) return;
+        if (!IsBloodcraftDataTab(tab)) return;
+
+        var card = AddCard(page, "EclipseStandDownNotice");
+        AddSectionHeading(card, "Eclipse detected — Bloodcraft readouts off here");
+        AddBodyText(card,
+            "Eclipse is installed, so BloodCraftHub turns OFF its own live Bloodcraft " +
+            "data to stay compatible (the two can't run together otherwise — it's a " +
+            "known Eclipse-side crash). Eclipse's HUD shows your live XP / legacy / " +
+            "expertise / familiar / professions / quest data instead.");
+        AddBodyText(card,
+            "Still works here: every command button on this tab, plus Kindred / " +
+            "KindredLogistics commands and the tabbed chat window. Info panels are " +
+            "blank until you press their Refresh / query button (live auto-updates " +
+            "are disabled in this mode).");
+        AddBodyText(card,
+            "Want BloodCraftHub's own live overlays back? Disable Eclipse in your mod " +
+            "manager — BloodCraftHub covers the same readouts on its own.");
+    }
+
+    // The Bloodcraft-data tabs whose passive readouts go dark under Eclipse
+    // stand-down. Kindred*, GameUI, Settings, About, Help, Admin tabs are unaffected.
+    private static bool IsBloodcraftDataTab(PanelType t) => t switch
+    {
+        PanelType.FamiliarsTab or PanelType.BoxesTab or PanelType.VBloodsTab
+        or PanelType.AllFamiliarsTab or PanelType.ClassTab or PanelType.ExpertiseTab
+        or PanelType.BloodLegacyTab or PanelType.UnarmedShiftTab or PanelType.PrestigeTab
+        or PanelType.LevelsTab or PanelType.DailyQuestTab => true,
+        _ => false,
+    };
+
     private void BuildContentArea(GameObject parent)
     {
         var content = UIFactory.CreateVerticalGroup(parent, "TabContent",
@@ -1305,6 +1343,7 @@ public partial class MainPanel : ResizeablePanelBase
         {
             var pageWrapper = CreateTabPage(content, out var page);
             AddTabHeading(page, label);
+            MaybeAddEclipseStandDownBanner(page, tab); // 0.17.1: command-console-mode notice
 
             switch (tab)
             {
@@ -2293,6 +2332,18 @@ public partial class MainPanel : ResizeablePanelBase
 
     private void OnFamiliarClicked(int index)
     {
+        // 0.17.1: under Eclipse stand-down BCH has no active familiar from the
+        // stream, so the arm-to-swap UX can't fire. Switch directly: unbind active
+        // (server no-op if none) then bind the clicked one. Mirrors the Familiar
+        // Browser. Pure unbind (no rebind) is the "Unbind" command button.
+        if (Services.EclipseProtocolService.StandDownForEclipse())
+        {
+            ClearPendingSwap();
+            EnqueueOrWarn(MessageService.BCCOM_FAM_UNBIND);
+            EnqueueOrWarn(string.Format(MessageService.BCCOM_FAM_BIND_BY_INDEX_FORMAT, index));
+            return;
+        }
+
         // No active familiar → straight bind. (Familiar.Name is empty when
         // PlayerStateService has no active familiar yet.)
         bool hasActive = !string.IsNullOrEmpty(PlayerStateService.Familiar.Name);
@@ -2694,7 +2745,10 @@ public partial class MainPanel : ResizeablePanelBase
         AddSectionHeading(headerCard, "V-Blood Collection");
         AddBodyText(headerCard,
             "One row per captured V-Blood variant (basic / shiny / primal / primal shiny). " +
-            $"Scan walks each of your familiar boxes once via {Mono(".fam boxes")} + {Mono(".fam l")} — your active box is restored when it finishes. " +
+            "This list fills in <b>passively</b> as you browse your familiar boxes (via the " +
+            "Familiar Browser or Boxes tab) — every box you open is recorded automatically. " +
+            $"<b>Scan all</b> walks <i>every</i> box once via {Mono(".fam boxes")} + {Mono(".fam l")} (restoring your active box afterward) " +
+            "to capture boxes you haven't visited and to reconcile any you've cleared out. " +
             "Filter shows All / Captured / Missing / Shiny only.");
 
         AddSpacer(page, 6);

@@ -7,6 +7,29 @@
 > bundled copy summarizes earlier versions and reproduces the most
 > recent release in full.
 
+## 0.17.1 — Run alongside Eclipse (command-console mode)
+
+BloodCraftHub + [Eclipse](https://thunderstore.io/c/v-rising/p/zfolmt/Eclipse/)
+used to crash the client on load together. The fault is in Eclipse's own HUD code
+(a `BufferLookup` read from a background coroutine; BCH isn't in the crash stack
+and can't fix it directly), so BCH now **auto-detects Eclipse and switches to
+"command-console mode"** — they load together cleanly.
+
+- With Eclipse present, BCH **stands down from its own live Bloodcraft readouts**
+  (no data-stream registration) and **auto-hides its stat overlays** (XP / Familiar
+  / Daily Quest / Professions / Shift / Combined). **Eclipse provides the live HUD.**
+  Your overlay on/off prefs are preserved and come back automatically when you play
+  without Eclipse.
+- Everything non-overlapping keeps working: all **command buttons** (Bloodcraft +
+  Kindred + KindredLogistics), the **chat window**, the **Familiar Browser** + **Quick
+  Actions** overlays, full **familiar management** (click a familiar to switch;
+  "Unbind active" to release), and **V-Bloods** (fills in passively as you browse
+  boxes; **Scan all** still walks every box). Affected tabs show an in-app note.
+- Prefer BCH's own overlays? Disable Eclipse — BCH covers the same readouts.
+- Minor: the familiar-system probe defers off the busy login window. On any
+  load crash, regenerating `BepInEx/interop` + `cache` (delete; they rebuild)
+  usually clears it.
+
 ## 0.17.0 — Standalone "Game UI" group + tabbed chat window
 
 A large client-side release — all of it works on **any** server (no Bloodcraft /
