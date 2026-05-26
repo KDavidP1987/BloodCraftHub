@@ -1544,6 +1544,12 @@ public partial class MainPanel : ResizeablePanelBase
         AddChatOptionToggle(chatCard, "Tabular layout (align time / channel+sender / message in columns)",
             Config.Settings.ChatTabularLayout,
             v => Config.Settings.SetChatTabularLayout(v));
+        AddChatOptionToggle(chatCard, "    └ Separate channel and name into their own columns",
+            Config.Settings.ChatTabularSeparateChannelName,
+            v => Config.Settings.SetChatTabularSeparateChannelName(v));
+        AddChatOptionToggle(chatCard, "Double-click a name in chat to whisper them",
+            Config.Settings.ChatDoubleClickNameWhisper,
+            v => Config.Settings.SetChatDoubleClickNameWhisper(v));
 
         // 0.17.3: per-channel filter for the consolidated "All" tab. All default on
         // (All shows everything). Unchecking a channel hides it from the All tab only

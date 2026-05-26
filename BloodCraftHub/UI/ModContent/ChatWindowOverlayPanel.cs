@@ -146,6 +146,10 @@ public class ChatWindowOverlayPanel : ResizeablePanelBase
     private string _composeSignature = ""; // rebuild guard (clan state + whisper partners)
     private Action _composeKeyTicker;
     private Action _tabHotkeyTicker; // 0.17.3: <Modifier>+1..6 tab switch (chat open, not typing)
+    private Action _nameClickTicker; // 0.17.3: double-click a name in the log to whisper
+    private float _lastNameClickTime;
+    private string _lastNameClickId;
+    private float _nextComposeRefresh; // 0.17.3: throttle clan-availability re-check (All tab)
     // Frames of "still counts as typing" grace after the input reports unfocused.
     // The field's focus flag blips for a frame around a Tab press, which made every
     // OTHER Tab a no-op (friend-test: Tab needed pressing twice to switch). The
@@ -320,6 +324,10 @@ public class ChatWindowOverlayPanel : ResizeablePanelBase
         // window is open, the feature is on, and the input isn't focused.
         _tabHotkeyTicker = TickTabHotkeys;
         BloodCraftHub.Behaviors.CoreUpdateBehavior.Actions.Add(_tabHotkeyTicker);
+        // 0.17.3: double-click a player's name in the log to start a whisper. No-ops
+        // unless the feature is on, the window's open, and the click hits a name link.
+        _nameClickTicker = TickNameDoubleClick;
+        BloodCraftHub.Behaviors.CoreUpdateBehavior.Actions.Add(_nameClickTicker);
 
         ApplyChatTextScale(); // size the input field to match the chat scale
         UpdateComposeRow();   // build + show the compose dropdown if All tab is active
@@ -1151,8 +1159,66 @@ public class ChatWindowOverlayPanel : ResizeablePanelBase
             if (IsInputFocused()) _inputFocusGrace = 6;
             else if (_inputFocusGrace > 0) _inputFocusGrace--;
             if (_inputFocusGrace > 0 && UnityEngine.Input.GetKeyDown(KeyCode.Tab)) CycleCompose(+1);
+
+            // 0.17.3: re-evaluate the available compose targets a few times a minute so
+            // the All-tab "Send to:" dropdown reflects clan membership that resolved AFTER
+            // login (the clan entity replicates a few seconds late — the reported "Clan
+            // option missing until I re-log") and mid-game clan join/leave. Cheap:
+            // EnsureComposeTargets guards on a signature, so this only rebuilds the dropdown
+            // when the set actually changes.
+            if (UnityEngine.Time.unscaledTime >= _nextComposeRefresh)
+            {
+                _nextComposeRefresh = UnityEngine.Time.unscaledTime + 2f;
+                UpdateComposeRow();
+            }
         }
         catch { }
+    }
+
+    // 0.17.3: double-click a player's name in the chat log to start a whisper to them.
+    // Polls left-clicks while the pointer is over the log; if the click lands on a sender
+    // <link> and a second click on the SAME name lands within the double-click window,
+    // open a whisper to them. Single clicks (and scroll drags) are unaffected.
+    private void TickNameDoubleClick()
+    {
+        try
+        {
+            if (!Enabled || _log == null || !Settings.ChatDoubleClickNameWhisper) return;
+            if (!UnityEngine.Input.GetMouseButtonDown(0)) return;
+            var rt = _log.rectTransform;
+            var mp = UnityEngine.Input.mousePosition;
+            if (rt == null || !UnityEngine.RectTransformUtility.RectangleContainsScreenPoint(rt, mp, null)) return;
+            int li = TMPro.TMP_TextUtilities.FindIntersectingLink(_log, mp, null);
+            if (li < 0) return;
+            string id = _log.textInfo.linkInfo[li].GetLinkID();
+            if (string.IsNullOrEmpty(id)) return;
+            float now = UnityEngine.Time.unscaledTime;
+            if (id == _lastNameClickId && (now - _lastNameClickTime) <= 0.40f)
+            {
+                _lastNameClickId = null; _lastNameClickTime = 0f; // consume
+                StartWhisperFromClickedName(id);
+            }
+            else { _lastNameClickId = id; _lastNameClickTime = now; }
+        }
+        catch { }
+    }
+
+    // Resolve a double-clicked name to a whisper target and open the conversation (All
+    // tab, that whisper selected as the compose target, input focused). If the name
+    // can't be resolved (e.g. they're offline now), report who IS whisperable.
+    private void StartWhisperFromClickedName(string plainName)
+    {
+        try
+        {
+            if (string.IsNullOrWhiteSpace(plainName)) return;
+            if (ResolvePlayer(plainName, out var name, out var id))
+            {
+                BeginWhisperTo(name, id);
+                FocusInput();
+            }
+            else ReportWhisperResolveFailure(plainName);
+        }
+        catch (System.Exception ex) { Utils.LogUtils.LogError($"StartWhisperFromClickedName: {ex}"); }
     }
 
     private static bool IsInClan()
@@ -1197,16 +1263,20 @@ public class ChatWindowOverlayPanel : ResizeablePanelBase
             line.Clear();
             if (tabular)
             {
-                AppendTabularLine(line, ln, showTime, showTag);
+                AppendTabularLine(line, ln, showTime, showTag, Settings.ChatTabularSeparateChannelName);
             }
             else
             {
                 if (showTime) line.Append("<color=#808080>").Append(ln.Received.ToString("HH:mm")).Append("</color> ");
                 if (showTag)  line.Append(ChannelTag(ln.Channel)).Append(' ');
-                // Game-resolved sender name (empty for system messages). The native
-                // userName may already carry color tags — render as-is.
+                // Game-resolved sender name (empty for system messages). Wrapped in a
+                // click-to-whisper link when that feature is on; the native userName may
+                // already carry color tags — kept as the visible link text.
                 if (!string.IsNullOrEmpty(ln.Sender))
-                    line.Append(ln.Sender).Append(": ");
+                {
+                    AppendSenderLinked(line, ln.Sender);
+                    line.Append(": ");
+                }
                 line.Append(ln.Text);
             }
             lines.Add(line.ToString());
@@ -1231,10 +1301,34 @@ public class ChatWindowOverlayPanel : ResizeablePanelBase
     // backwards so the text just flows inline — a graceful fallback, not a break.
     // <indent> is closed at the end so the next line (joined by \n in the same TMP
     // text block) doesn't inherit it.
-    private static void AppendTabularLine(StringBuilder line, ChatRelayService.ChatLine ln, bool showTime, bool showTag)
+    private static void AppendTabularLine(StringBuilder line, ChatRelayService.ChatLine ln, bool showTime, bool showTag, bool separate)
     {
-        int metaPct = showTime ? 12 : 0;
-        int msgPct  = showTime ? 34 : 24;
+        bool hasSender = !string.IsNullOrEmpty(ln.Sender);
+
+        // 0.17.3: separate channel + name into their OWN columns:
+        //   [time]   [channel]   [name]        message
+        // Only meaningful when channel tags are shown (otherwise nothing to separate
+        // out, so fall through to the combined layout below).
+        if (separate && showTag)
+        {
+            int chanPct = showTime ? 11 : 0;
+            int namePct = chanPct + 10;
+            int msgPct  = showTime ? 42 : 31;
+            if (showTime)
+                line.Append("<color=#808080>").Append(ln.Received.ToString("HH:mm")).Append("</color>");
+            line.Append("<pos=").Append(chanPct).Append("%>");
+            var tag = ChannelTag(ln.Channel);
+            if (!string.IsNullOrEmpty(tag)) line.Append(tag);
+            line.Append("<pos=").Append(namePct).Append("%>");
+            if (hasSender) AppendSenderLinked(line, ln.Sender);
+            line.Append("<indent=").Append(msgPct).Append("%><pos=").Append(msgPct).Append("%>")
+                .Append(ln.Text).Append("</indent>");
+            return;
+        }
+
+        // Combined: [time]   [channel] name:   message  (the original layout).
+        int metaPct  = showTime ? 12 : 0;
+        int msgPctC  = showTime ? 34 : 24;
         if (showTime)
             line.Append("<color=#808080>").Append(ln.Received.ToString("HH:mm")).Append("</color>");
         if (metaPct > 0) line.Append("<pos=").Append(metaPct).Append("%>");
@@ -1243,9 +1337,37 @@ public class ChatWindowOverlayPanel : ResizeablePanelBase
             var tag = ChannelTag(ln.Channel);
             if (!string.IsNullOrEmpty(tag)) line.Append(tag).Append(' ');
         }
-        if (!string.IsNullOrEmpty(ln.Sender)) line.Append(ln.Sender).Append(':');
-        line.Append("<indent=").Append(msgPct).Append("%><pos=").Append(msgPct).Append("%>")
+        if (hasSender) { AppendSenderLinked(line, ln.Sender); line.Append(':'); }
+        line.Append("<indent=").Append(msgPctC).Append("%><pos=").Append(msgPctC).Append("%>")
             .Append(ln.Text).Append("</indent>");
+    }
+
+    // 0.17.3: append a sender name, wrapped in a TMP <link> when click-to-whisper is on
+    // so a double-click on it can be detected (TickNameDoubleClick). The link ID is the
+    // PLAIN name (rich-text stripped, quotes removed) so it resolves against the roster /
+    // chat-seen players; the visible link text keeps any color tags the game applied.
+    private static void AppendSenderLinked(StringBuilder line, string sender)
+    {
+        if (string.IsNullOrEmpty(sender)) return;
+        if (!Settings.ChatDoubleClickNameWhisper) { line.Append(sender); return; }
+        string plain = StripRichTags(sender).Replace("\"", string.Empty).Trim();
+        if (string.IsNullOrEmpty(plain)) { line.Append(sender); return; }
+        line.Append("<link=\"").Append(plain).Append("\">").Append(sender).Append("</link>");
+    }
+
+    // Strip TMP rich-text tags (<...>) to recover a plain name for matching/link IDs.
+    private static string StripRichTags(string s)
+    {
+        if (string.IsNullOrEmpty(s) || s.IndexOf('<') < 0) return s;
+        var sb = new StringBuilder(s.Length);
+        bool inTag = false;
+        foreach (char c in s)
+        {
+            if (c == '<') { inTag = true; continue; }
+            if (c == '>') { inTag = false; continue; }
+            if (!inTag) sb.Append(c);
+        }
+        return sb.ToString();
     }
 
     // Snap the scroll view to the newest message's edge. ScrollRect convention:
@@ -1328,6 +1450,16 @@ public class ChatWindowOverlayPanel : ResizeablePanelBase
         {
             BloodCraftHub.Behaviors.CoreUpdateBehavior.Actions.Remove(_composeKeyTicker);
             _composeKeyTicker = null;
+        }
+        if (_tabHotkeyTicker != null)
+        {
+            BloodCraftHub.Behaviors.CoreUpdateBehavior.Actions.Remove(_tabHotkeyTicker);
+            _tabHotkeyTicker = null;
+        }
+        if (_nameClickTicker != null)
+        {
+            BloodCraftHub.Behaviors.CoreUpdateBehavior.Actions.Remove(_nameClickTicker);
+            _nameClickTicker = null;
         }
         _composeDropdownObj = null;
         _composeDropdown = null;

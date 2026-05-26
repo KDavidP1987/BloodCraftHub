@@ -609,6 +609,16 @@ public class Settings
     // for the mixed All view. Off by default (free-flowing text, the original look).
     public static bool ChatTabularLayout => (ConfigEntries[nameof(ChatTabularLayout)] as ConfigEntry<bool>)?.Value ?? false;
     public static void SetChatTabularLayout(bool v) => SetBool(nameof(ChatTabularLayout), v);
+    // 0.17.3: in tabular layout, put the channel label and the sender name in SEPARATE
+    // columns (time | channel | sender | message) instead of sharing one (time |
+    // channel+sender | message). Default TRUE (separate). Only affects tabular layout.
+    public static bool ChatTabularSeparateChannelName => (ConfigEntries[nameof(ChatTabularSeparateChannelName)] as ConfigEntry<bool>)?.Value ?? true;
+    public static void SetChatTabularSeparateChannelName(bool v) => SetBool(nameof(ChatTabularSeparateChannelName), v);
+    // 0.17.3: double-click a player's name in the chat log to start a whisper to them
+    // (jumps to the All tab with that whisper as the selected compose target and focuses
+    // the input). Default TRUE.
+    public static bool ChatDoubleClickNameWhisper => (ConfigEntries[nameof(ChatDoubleClickNameWhisper)] as ConfigEntry<bool>)?.Value ?? true;
+    public static void SetChatDoubleClickNameWhisper(bool v) => SetBool(nameof(ChatDoubleClickNameWhisper), v);
     // 0.17.3: per-channel inclusion in the consolidated "All" tab. All default TRUE
     // (All shows everything, as before). Uncheck one to hide that channel from the
     // All aggregate only — its own dedicated tab is unaffected.
@@ -953,6 +963,8 @@ public class Settings
         InitConfigEntry(OVERLAY_SETTINGS_GROUP, nameof(ChatChannelLabelsSpelledOut), false, "Tabbed chat: spell out channel labels in full ([Global] / [Local] / [Clan] / [System] / [Whisper]) instead of the short acronyms ([G] / [L] / [Clan] / [Sys] / [W]). Only applies when 'Show channel labels' is on.");
         InitConfigEntry(OVERLAY_SETTINGS_GROUP, nameof(ChatColorTabs),                true,  "Tabbed chat: tint each channel tab's label in that channel's color (Global / Local / Clan / System / Whispers). The All tab stays neutral. Off = all tab labels use the default text color.");
         InitConfigEntry(OVERLAY_SETTINGS_GROUP, nameof(ChatTabularLayout),             false, "Tabbed chat: render messages in aligned COLUMNS (time | channel + sender | message) with wrapped lines hanging-indented under the message column — cleaner for the mixed All tab. Off by default (free-flowing text). Best with timestamps + channel labels on.");
+        InitConfigEntry(OVERLAY_SETTINGS_GROUP, nameof(ChatTabularSeparateChannelName), true,  "Tabbed chat (tabular layout only): put the channel label and the player name in SEPARATE columns (time | channel | name | message). Turn off to combine them into one column (time | channel+name | message). Default on.");
+        InitConfigEntry(OVERLAY_SETTINGS_GROUP, nameof(ChatDoubleClickNameWhisper),    true,  "Tabbed chat: double-click a player's name in the chat log to start a whisper to them (jumps to the All tab with that whisper selected and focuses the input). Default on.");
         InitConfigEntry(OVERLAY_SETTINGS_GROUP, nameof(ChatGlobalColorHex),           DEFAULT_CHAT_GLOBAL_HEX, "Tabbed chat: color for the Global channel — used for its [G]/[Global] label tag AND its tab when 'Color tabs by channel' is on. Hex string (e.g. #FF8A5B coral default, #FFFFFF white, #66CCFF blue). The other channels' colors are fixed (Local blue, Clan green, System gold, Whisper pink).");
         InitConfigEntry(OVERLAY_SETTINGS_GROUP, nameof(ChatWindowBackgroundColorHex), DEFAULT_PANEL_BG_HEX, "Tabbed chat window background theme color (independent of the main panel color). Hex string; same presets as Settings → Display panel color. Default #121212 near-black. Transparency is set separately by the chat window transparency control.");
         InitConfigEntry(OVERLAY_SETTINGS_GROUP, nameof(AllTabShowGlobal),             true,  "Tabbed chat: include GLOBAL messages in the consolidated 'All' tab. Uncheck to hide Global from All (its own Global tab is unaffected).");
