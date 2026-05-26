@@ -152,6 +152,14 @@ public static class GameplayInputSuppressionPatch
     {
         try
         {
+            // 0.17.2: drain queued menu-open requests from HERE. GameplayInputSystem
+            // runs early in the input phase — before OpenHUDMenuSystem consumes the
+            // requests — so this beats the menu open, unlike the CoreUpdateBehavior
+            // tick which fired too late (menus still popped while typing). Self-gates
+            // on ShouldBlockMenus, so it only acts while typing / panel-open, NEVER
+            // during tracking — no crash risk (this system is proven safe to patch).
+            InputSuppression.DrainMenuOpenRequests();
+
             if (!InputSuppression.ShouldBlock()) return true; // run normally
 
             // Clear any held movement so the character doesn't drift while the
