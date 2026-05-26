@@ -1,4 +1,76 @@
 # Changelog
+## 0.17.3 — Chat overhaul: whisper anyone, cleaner columns, new-player hints
+
+A big quality-of-life pass on the tabbed chat window, plus some new-player guidance —
+all client-side.
+
+### Whispering — fast, and to anyone on the server
+
+- **Right-click → Whisper on the social page (P key) now opens in BCH's chat.** It used
+  to target the game's native chat — which BCH hides — so it did nothing, and could trap
+  your keystrokes in an invisible field. BCH now intercepts that whisper, opens its own
+  chat composed to that player, and focuses the input so you can just type. (Only when
+  BCH's chat window is enabled; otherwise the vanilla whisper is left completely
+  untouched, so there's no lock-in risk.)
+- **Double-click a player's name in chat to whisper them.** Clickable names render
+  underlined + link-blue so it's obvious; double-clicking jumps to a whisper composed to
+  that player. Toggle it off (*Double-click a name in chat to whisper them*) if you have
+  a small screen or click names by accident.
+- **The whisper picker and whisper-by-name now reach everyone online**, not just people
+  you've seen talk. BCH reads the game's full connected-player list (the same roster the
+  social page shows), so the "+ Whisper…" dropdown lists all online players and
+  `\whisper <name>` / the type-a-name box resolve anyone on the server.
+- **Backslash / slash chat commands:** `\g`/`\global`, `\l`/`\local`, `\c`/`\clan`, and
+  `\w <name>` / `\whisper <name>` switch the All-tab send target (or start a whisper)
+  inline as you type.
+
+### Chat readability
+
+- **Tabular layout improvements.** Channel and player name can now be **separate columns**
+  (time | channel | name | message), and the columns **auto-fit**: time/channel/name get
+  snug fixed widths and the **message column absorbs all the extra width** — so widening
+  the chat window grows the message text first instead of stretching every column evenly.
+  Both are toggleable (turn auto-fit off to lock the name column at a fixed width — the
+  message column still gets the extra space).
+- **All-tab channel filter** — choose which channels appear in the consolidated All tab
+  (each channel's own dedicated tab is unaffected).
+- **Chat-tab switch hotkeys** — `<modifier> + 1–6` selects a tab while the chat window is
+  open and you're not typing. Default modifier is **Alt** (Shift / Ctrl / None also
+  available); Alt is the default because Shift+number is the consumable bar and Ctrl pops
+  the action wheel.
+- Long player names and unread badges no longer word-wrap awkwardly inside tabs and
+  dropdowns, and an **Eclipse-blue** background preset was added.
+
+### New-player guidance
+
+- **"You're leaving power on the table" hints.** When you haven't set an element up, the
+  **Class**, **Weapon Expertise**, and **Blood Legacy** pages (and the matching overlays)
+  show a short amber nudge — e.g. *"⚔ No class selected — pick one for bonus stats &
+  abilities."* Shown **only for systems your server actually has enabled**, and fully
+  toggleable (*Show "missing … — free power" hints*, default on) so players who
+  intentionally skip a system aren't nagged.
+
+### Fixes
+
+- **Fixed a "Putrid Rat" V-Blood mis-capture** — it's listed in-game as "Nibbles the
+  Putrid Rat", which the scanner now maps correctly.
+- **Fixed a stuck basic-attack** when clicking the chat window's tabs or input — a click
+  over the chat window no longer leaks into the world as an attack that latches on.
+- **Eclipse command-console mode no longer spams chat.** Under Eclipse stand-down, BCH's
+  passive weapon/blood auto-refreshers stopped firing `.wep get` / `.bl get`, which had
+  been spamming blood/weapon system replies into chat.
+- **Hardened the native-chat input guard** so a hidden native chat can't capture your
+  keystrokes.
+
+### Known issue
+
+- **Stash All (Quick Actions) doesn't work while a game menu is open.** With "Overlays
+  behind game menus" on (the default), BCH's overlays render *behind* an open
+  inventory/menu, so the Stash All button can't be clicked until you **close the menu**
+  (or turn that setting off). It works fine with the menu closed. A proper fix — a
+  dedicated always-on-top canvas for the Quick Actions overlay — is planned for a later
+  version.
+
 ## 0.17.2 — Fixes the load / V-Blood-tracking / waypoint-teleport crash
 
 Some players on 0.16.x crashed a few seconds after loading into a server, the

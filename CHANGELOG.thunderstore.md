@@ -7,6 +7,44 @@
 > bundled copy summarizes earlier versions and reproduces the most
 > recent release in full.
 
+## 0.17.3 — Chat overhaul: whisper anyone, cleaner columns, new-player hints
+
+A big quality-of-life pass on the tabbed chat window, plus new-player guidance.
+
+**Whispering**
+- **Right-click → Whisper on the social page (P key) now opens in BCH's chat** instead of
+  the hidden native chat (where it did nothing) — composed to that player, input focused.
+  Only when BCH's chat window is on; otherwise the vanilla whisper is untouched.
+- **Double-click a name in chat to whisper them.** Clickable names show underlined +
+  link-blue; toggle off if you click names by accident.
+- **Whisper anyone online** — the "+ Whisper…" picker and `\whisper <name>` now read the
+  full connected-player roster (the same list the social page shows), not just people
+  you've seen talk.
+- **Backslash/slash chat commands:** `\g` `\local` `\clan`, `\whisper <name>`, etc. switch
+  the send target inline as you type.
+
+**Readability**
+- **Tabular layout:** optional **separate channel + name columns**, and **auto-fit
+  columns** so the **message column grows first** when you widen the window (instead of
+  every column stretching). Both toggleable.
+- **All-tab channel filter** (pick which channels show in All), **tab-switch hotkeys**
+  (`Alt + 1–6` by default), long-name / unread-badge wrap fixes, and an **Eclipse-blue**
+  background preset.
+
+**New-player guidance**
+- **"Missing element — free power" hints** on the Class / Weapon Expertise / Blood Legacy
+  pages + overlays when you haven't picked a class or chosen expertise/legacy stats. Only
+  for systems your server has enabled; fully toggleable (default on).
+
+**Fixes**
+- "Putrid Rat" V-Blood ("Nibbles the Putrid Rat") capture fixed; stuck basic-attack when
+  clicking chat tabs/input fixed; Eclipse command-console mode no longer spams `.wep get`
+  / `.bl get` replies; native-chat input-trap guard hardened.
+
+**Known issue:** **Stash All** doesn't work while a game menu is open — with "Overlays
+behind game menus" on (default), BCH overlays sit behind the menu so the button can't be
+clicked. Close the menu first (or turn that setting off). A proper fix is planned.
+
 ## 0.17.2 — Fixes the load / V-Blood-tracking / waypoint-teleport crash
 
 Fixes the 0.16.x crash that hit some players a few seconds after loading in, the

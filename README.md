@@ -45,12 +45,13 @@ If you want full BCH functionality on a Quests-only / Professions-only server, a
 ---
 
 **Repo:** https://github.com/KDavidP1987/BloodCraftHub
-**Status:** v0.17.2 — **pre-1.0 public beta**, actively developed (APIs and UI may still shift before 1.0).
+**Status:** v0.17.3 — **pre-1.0 public beta**, actively developed (APIs and UI may still shift before 1.0).
 
 **At a glance:** a "Game UI" group (works on any server, no server mods needed) + BLOODCRAFT / KINDRED / SETTINGS-AND-HELP tabs · a standalone tabbed chat window · secondary info overlays · every chat command from the 3 backing server mods surfaced as forms + buttons (~250+ commands).
 
 **New in v0.17.x** — a big client-side release:
 
+- **0.17.3 — chat overhaul + new-player hints.** *Whisper anyone on the server:* right-click → Whisper on the social page (**P**) now opens in BCH's chat, **double-click a name in chat** to whisper, and the "+ Whisper…" picker / `\whisper <name>` read the **full online roster** (not just people you've seen talk). *Cleaner tabbed chat:* optional **separate channel/name columns** with **auto-fit** so the **message column grows first** when you widen the window, an **All-tab channel filter**, and **`Alt + 1–6` tab hotkeys**. Inline **`\g` / `\local` / `\whisper`** chat commands. New **"you're leaving power on the table" hints** on the Class / Weapon Expertise / Blood Legacy pages + overlays (toggleable, and only for systems your server has enabled). Fixes: "Putrid Rat" V-Blood capture, a stuck basic-attack when clicking chat tabs/input, and Eclipse command-console chat spam. *Known issue:* **Stash All** must be clicked with your inventory/menu **closed** (with "Overlays behind game menus" on, BCH overlays sit behind the menu) — fix planned.
 - **0.17.2 — fixed the load / V-Blood-tracking / waypoint-teleport crash.** Some 0.16.x players crashed on login, on starting to track a V-Blood/boss, or on a waypoint teleport (and then on every load after). The cause was BCH's "don't open menus while typing" feature detouring three of the game's menu-input systems, which tipped a BepInEx IL2CPP interop bug during HUD rebuilds. Those three patches are removed — menu suppression while typing now uses a safe approach instead — while the "don't move / cast while typing" suppression stays. Overlays also now build on a quiet frame a few seconds after login. *Minor known gap:* menu keys can still open a menu while typing into a **main-panel form** (press Escape); a safe fix is planned. *(A form-typing experiment was reverted for stability — see the changelog.)*
 - **Standalone "Game UI" group + tabbed chat window** — a movable, persistent, per-channel chat window (All / Global / Local / Clan / System / Whispers) with sender names, whisper conversations, an optional native-chat takeover, an All-tab "send to" dropdown + Tab-to-cycle, per-channel colored tabs, configurable colors, chat-only text size, word-wrap input, and its own transparency + theme. Works on **any** server.
 - **Runs alongside Eclipse (command-console mode)** — install both and BCH auto-detects Eclipse, stands down from its own live readouts (Eclipse shows those), and keeps its command buttons, chat window, Familiar Browser, and V-Bloods scanning working. No more load crash.
@@ -60,7 +61,7 @@ Full per-version history lives in [`CHANGELOG.md`](CHANGELOG.md).
 
 ## Screenshots
 
-*All captures below are from v0.13.0 — every UI piece shown still applies in v0.17.2. Newer work (v0.16's input-suppression + Quick Actions overlay, and v0.17's Game UI group + tabbed chat window + Eclipse command-console mode) is largely invisible until triggered; the screenshots below still represent the day-to-day look of the panel.*
+*All captures below are from v0.13.0 — every UI piece shown still applies in v0.17.3. Newer work (v0.16's input-suppression + Quick Actions overlay, and v0.17's Game UI group + tabbed chat window + Eclipse command-console mode) is largely invisible until triggered; the screenshots below still represent the day-to-day look of the panel.*
 
 ![Class tab — class-synergy card (v0.13.0)](https://raw.githubusercontent.com/KDavidP1987/BloodCraftHub/main/docs/screenshots/v0.13.0%20Screenshots/BloodCraftHub_Screenshot_v0.13.0-IMG4.png)
 *Class tab — Active Class card now includes the live class-details block (Death Mage shown here, with archetype + tagline + weapon/blood synergies + on-hit debuff). The Last server response strip at the bottom shows the same data the Bloodcraft `.class lst` reply carries, with stat synergies color-coded by Weapon / Blood. Settings → Display → Combined overlay carries the same data into the combined HUD overlay's Weapon and Blood sections.*
