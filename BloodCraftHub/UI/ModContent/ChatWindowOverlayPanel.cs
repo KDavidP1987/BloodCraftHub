@@ -50,6 +50,15 @@ public class ChatWindowOverlayPanel : ResizeablePanelBase
     public override float Opacity => Settings.TransparencyToAlpha(Settings.ChatWindowOverlayTransparency);
     public override bool UsesCustomBackgroundColor => true;
 
+    // 0.17.0: the chat window themes off its OWN color (Settings.ChatWindowBackgroundColor),
+    // independent of the main panel's color. Overriding means BOTH construct-time and the
+    // shared RefreshAllPanelBackgrounds walk paint the chat window with its own color, so
+    // changing the main panel color never bleeds into the chat window.
+    public override void RefreshBackgroundColor()
+    {
+        UIFactory.ApplyBackgroundColorRgbToPanel(uiRoot, Settings.ChatWindowBackgroundColor);
+    }
+
     private static readonly (ChatRelayService.Channel? Filter, string Label)[] TabDefs =
     {
         (null,                             "All"),
@@ -225,6 +234,25 @@ public class ChatWindowOverlayPanel : ResizeablePanelBase
         _input.Component.lineType = TMPro.TMP_InputField.LineType.MultiLineSubmit;
         if (_input.Component.textComponent != null)
             _input.Component.textComponent.alignment = TextAlignmentOptions.TopLeft;
+        // 0.17.0: readable typing area. The framework default is grey-on-grey
+        // (light grey box + grey placeholder), which the user found hard to read.
+        // Give it a dark, near-opaque box (independent of the window's transparency —
+        // ApplyOpacityToPanel only touches the main Content image, not this) with
+        // bright typed text and a lighter placeholder. ApplyBackgroundColorRgbToPanel
+        // skips this Image too (no LayoutGroup), so the theme color won't override it.
+        try
+        {
+            // Transition None so the image shows our exact color (ColorTint would
+            // multiply it by the theme's normal/hover tint and shift the result).
+            _input.Component.transition = UnityEngine.UI.Selectable.Transition.None;
+            var inBg = _input.GameObject.GetComponent<UnityEngine.UI.Image>();
+            if (inBg != null) inBg.color = new Color(0.10f, 0.10f, 0.13f, 0.95f);
+            if (_input.Component.textComponent != null)
+                _input.Component.textComponent.color = new Color(0.95f, 0.95f, 0.97f, 1f);
+            if (_input.PlaceholderText != null)
+                _input.PlaceholderText.color = new Color(0.62f, 0.62f, 0.68f, 1f);
+        }
+        catch { }
         // Respect the game's chat length: ChatMessageEvent.MessageText is a
         // FixedString512Bytes, so cap input well under 512 bytes (500 chars leaves
         // headroom for multi-byte characters). SubmitText also truncates as a backstop.

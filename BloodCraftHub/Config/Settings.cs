@@ -610,6 +610,28 @@ public class Settings
         if (ConfigEntries.TryGetValue(nameof(ChatGlobalColorHex), out var e) && e is ConfigEntry<string> s)
             s.Value = hex;
     }
+    // 0.17.0: chat window's OWN background theme color, independent of the main
+    // panel's PanelBackgroundColorHex (so the chat window can be themed separately).
+    // Same preset palette as the main panel picker. Default matches the panel default.
+    public static string ChatWindowBackgroundColorHex =>
+        (ConfigEntries.TryGetValue(nameof(ChatWindowBackgroundColorHex), out var e) && e is ConfigEntry<string> s && !string.IsNullOrWhiteSpace(s.Value))
+            ? s.Value : DEFAULT_PANEL_BG_HEX;
+    public static void SetChatWindowBackgroundColorHex(string hex)
+    {
+        if (ConfigEntries.TryGetValue(nameof(ChatWindowBackgroundColorHex), out var e) && e is ConfigEntry<string> s)
+            s.Value = hex;
+    }
+    public static UnityEngine.Color ChatWindowBackgroundColor
+    {
+        get
+        {
+            if (UnityEngine.ColorUtility.TryParseHtmlString(ChatWindowBackgroundColorHex, out var c))
+                return new UnityEngine.Color(c.r, c.g, c.b, 1f);
+            if (UnityEngine.ColorUtility.TryParseHtmlString(DEFAULT_PANEL_BG_HEX, out var fb))
+                return new UnityEngine.Color(fb.r, fb.g, fb.b, 1f);
+            return new UnityEngine.Color(0.07f, 0.07f, 0.07f, 1f);
+        }
+    }
     public static bool ShiftSpellOverlayShowDiagnostics => (ConfigEntries[nameof(ShiftSpellOverlayShowDiagnostics)] as ConfigEntry<bool>)?.Value ?? false;
     public static bool ShowShiftSpellIcon      => (ConfigEntries[nameof(ShowShiftSpellIcon)]      as ConfigEntry<bool>)?.Value ?? true;
     public static bool OverlaysBehindGameMenus => (ConfigEntries[nameof(OverlaysBehindGameMenus)] as ConfigEntry<bool>)?.Value ?? true;
@@ -854,6 +876,7 @@ public class Settings
         InitConfigEntry(OVERLAY_SETTINGS_GROUP, nameof(ChatChannelLabelsSpelledOut), false, "Tabbed chat: spell out channel labels in full ([Global] / [Local] / [Clan] / [System] / [Whisper]) instead of the short acronyms ([G] / [L] / [Clan] / [Sys] / [W]). Only applies when 'Show channel labels' is on.");
         InitConfigEntry(OVERLAY_SETTINGS_GROUP, nameof(ChatColorTabs),                true,  "Tabbed chat: tint each channel tab's label in that channel's color (Global / Local / Clan / System / Whispers). The All tab stays neutral. Off = all tab labels use the default text color.");
         InitConfigEntry(OVERLAY_SETTINGS_GROUP, nameof(ChatGlobalColorHex),           DEFAULT_CHAT_GLOBAL_HEX, "Tabbed chat: color for the Global channel — used for its [G]/[Global] label tag AND its tab when 'Color tabs by channel' is on. Hex string (e.g. #FF8A5B coral default, #FFFFFF white, #66CCFF blue). The other channels' colors are fixed (Local blue, Clan green, System gold, Whisper pink).");
+        InitConfigEntry(OVERLAY_SETTINGS_GROUP, nameof(ChatWindowBackgroundColorHex), DEFAULT_PANEL_BG_HEX, "Tabbed chat window background theme color (independent of the main panel color). Hex string; same presets as Settings → Display panel color. Default #121212 near-black. Transparency is set separately by the chat window transparency control.");
         InitConfigEntry(OVERLAY_SETTINGS_GROUP, nameof(ShiftSpellOverlayShowDiagnostics), false, "Show the small italic 'pf/cg/si/end/srv' debug line under the Shift overlay's SHIFT label. Off by default; flip on if you need to debug why the cooldown isn't updating.");
         InitConfigEntry(OVERLAY_SETTINGS_GROUP, nameof(ShowShiftSpellIcon),               true,  "Show the slotted spell's actual icon on the Shift-spell overlay tile (like Eclipse). When off, the overlay shows the plain colored cooldown tile instead.");
         InitConfigEntry(OVERLAY_SETTINGS_GROUP, nameof(OverlaysBehindGameMenus),          true,  "When an in-game menu (inventory, character sheet, map, etc.) is open, drop BCH's overlays/panels BEHIND it instead of floating over the top. Set false to keep them always on top (the pre-0.16 behavior).");

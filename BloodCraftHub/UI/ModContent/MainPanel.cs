@@ -1518,6 +1518,21 @@ public partial class MainPanel : ResizeablePanelBase
             ("Coral", Config.Settings.DEFAULT_CHAT_GLOBAL_HEX), ("White", "#FFFFFF"),
             ("Amber", "#FFD479"), ("Cyan", "#66CCFF"), ("Violet", "#C9A0FF") })
             AddPanelBgPresetButton(globalColorRow, preset.Item1, preset.Item2, ApplyChatGlobalColorHex);
+
+        // Chat window background — transparency + theme color, independent of the
+        // other overlays / the main panel (same controls as Settings → Display).
+        AddSectionHeading(chatCard, "Chat window background");
+        AddTransparencyRow(chatCard, "Transparency",
+            () => Config.Settings.ChatWindowOverlayTransparency,
+            v => Config.Settings.SetChatWindowOverlayTransparency(v));
+        AddPanelColorPresetRow(chatCard, "ChatBgPresetRow", ApplyChatWindowBgHex);
+    }
+
+    // 0.17.0: persist the chat window's own background color + live-refresh it.
+    private void ApplyChatWindowBgHex(string hex)
+    {
+        Config.Settings.SetChatWindowBackgroundColorHex(hex);
+        Plugin.UIManager?.RefreshChatWindowBackground();
     }
 
     // 0.17.0: persist the Global channel color + live-refresh the chat window so

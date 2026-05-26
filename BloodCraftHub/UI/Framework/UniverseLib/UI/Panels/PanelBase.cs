@@ -80,7 +80,7 @@ public abstract class PanelBase : UIBehaviourModel, IPanelBase
     /// structural backgrounds (LayoutGroup-attached Images). No-op when the
     /// panel opts out by keeping <see cref="UsesCustomBackgroundColor"/>=false.
     /// Pushed by BCHubUIManager.RefreshAllPanelBackgrounds on user pick.</summary>
-    public void RefreshBackgroundColor()
+    public virtual void RefreshBackgroundColor()
     {
         if (!UsesCustomBackgroundColor) return;
         UIFactory.ApplyBackgroundColorRgbToPanel(uiRoot, Config.Settings.PanelBackgroundColor);

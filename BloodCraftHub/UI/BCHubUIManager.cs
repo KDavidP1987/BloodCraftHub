@@ -636,10 +636,15 @@ public class BCHubUIManager : UIManagerBase
         _professionOverlay?.RefreshOpacity();
         _shiftSpellOverlay?.RefreshOpacity();
         _quickActionsOverlay?.RefreshOpacity();
+        _chatWindowOverlay?.RefreshOpacity();   // 0.17.0: chat window honors its transparency live
         _combinedOverlay?.RefreshOpacity();
         _mainPanel?.RefreshOpacity();
         _floatingButton?.RefreshOpacity();
     }
+
+    // 0.17.0: re-apply just the chat window's own background theme color (used by
+    // the Game UI chat color picker so the change shows immediately).
+    public void RefreshChatWindowBackground() => _chatWindowOverlay?.RefreshBackgroundColor();
 
     /// <summary>0.12.0: push the user's Settings.PanelBackgroundColor
     /// (RGB only — alpha is owned by the transparency settings) onto every
