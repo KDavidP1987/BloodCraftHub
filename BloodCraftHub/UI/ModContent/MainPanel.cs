@@ -1552,6 +1552,9 @@ public partial class MainPanel : ResizeablePanelBase
         AddChatOptionToggle(chatCard, "    └ Separate channel and name into their own columns",
             Config.Settings.ChatTabularSeparateChannelName,
             v => Config.Settings.SetChatTabularSeparateChannelName(v));
+        AddChatOptionToggle(chatCard, "    └ Auto-fit name column (off = fixed width; message column always grows first)",
+            Config.Settings.ChatTabularAutoFitColumns,
+            v => Config.Settings.SetChatTabularAutoFitColumns(v));
         AddChatOptionToggle(chatCard, "Double-click a name in chat to whisper them",
             Config.Settings.ChatDoubleClickNameWhisper,
             v => Config.Settings.SetChatDoubleClickNameWhisper(v));

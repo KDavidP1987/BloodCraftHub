@@ -1252,18 +1252,22 @@ public class ChatWindowOverlayPanel : ResizeablePanelBase
         var lines = new List<string>();
         var line = new StringBuilder(160);
         var buf = ChatRelayService.Buffer;
+        bool Visible(ChatRelayService.ChatLine ln)
+            => (!filter.HasValue || ln.Channel == filter.Value)
+               && (filter.HasValue || AllTabIncludes(ln.Channel))
+               && (!whisperPartnerFilter || ln.Partner == _activeWhisperPartner);
+        // 0.17.3: pre-compute tabular column geometry once per render. Fixed-pixel
+        // columns (auto-fit) give all extra width to the message column; otherwise the
+        // legacy %-of-width columns scale everything with the window.
+        var cols = tabular ? ComputeTabCols(buf, Visible, showTime, showTag) : default;
         for (int i = 0; i < buf.Count; i++)
         {
             var ln = buf[i];
-            if (filter.HasValue && ln.Channel != filter.Value) continue;
-            // 0.17.3: All-tab per-channel filter (settings). Excluded channels are
-            // hidden from the All aggregate; each channel's own tab is unaffected.
-            if (!filter.HasValue && !AllTabIncludes(ln.Channel)) continue;
-            if (whisperPartnerFilter && ln.Partner != _activeWhisperPartner) continue;
+            if (!Visible(ln)) continue;
             line.Clear();
             if (tabular)
             {
-                AppendTabularLine(line, ln, showTime, showTag, Settings.ChatTabularSeparateChannelName);
+                AppendTabularLine(line, ln, showTime, showTag, Settings.ChatTabularSeparateChannelName, cols);
             }
             else
             {
@@ -1301,14 +1305,94 @@ public class ChatWindowOverlayPanel : ResizeablePanelBase
     // backwards so the text just flows inline — a graceful fallback, not a break.
     // <indent> is closed at the end so the next line (joined by \n in the same TMP
     // text block) doesn't inherit it.
-    private static void AppendTabularLine(StringBuilder line, ChatRelayService.ChatLine ln, bool showTime, bool showTag, bool separate)
+    // Tabular column geometry for one render. When UsePx, the offsets are fixed pixels
+    // (time/channel/name columns are snug and the message column gets all remaining
+    // width — widening the window grows the message first). Otherwise the legacy
+    // %-of-width offsets are used (every column scales with the window).
+    private readonly struct TabCols
+    {
+        public readonly bool UsePx;
+        public readonly int ChanStart;  // separate: channel col; combined: meta (tag+name) start
+        public readonly int NameStart;  // separate: name col
+        public readonly int MsgStart;   // message col (both modes)
+        public TabCols(bool usePx, int chanStart, int nameStart, int msgStart)
+        { UsePx = usePx; ChanStart = chanStart; NameStart = nameStart; MsgStart = msgStart; }
+    }
+
+    // Compute fixed-pixel tabular columns: snug time/channel/name, message absorbs the
+    // rest. The name column auto-fits the longest VISIBLE sender so there's no dead gap.
+    // Pixels scale with the log's font size so columns track the chat text-size setting.
+    private TabCols ComputeTabCols(System.Collections.Generic.IReadOnlyList<ChatRelayService.ChatLine> buf,
+                                   System.Func<ChatRelayService.ChatLine, bool> visible, bool showTime, bool showTag)
+    {
+        float fs = (_log != null && _log.fontSize > 0.1f) ? _log.fontSize : 14f;
+
+        // Name-column width: auto-fit (flex) to the longest VISIBLE sender, or a fixed
+        // ~10-char width when auto-fit is off (locked/static). Either way the columns are
+        // fixed pixels and the MESSAGE column absorbs all remaining width — so widening
+        // the window grows the message first, never every column proportionally.
+        float nameChars = 10f;
+        if (Settings.ChatTabularAutoFitColumns)
+        {
+            int maxName = 0;
+            for (int i = 0; i < buf.Count; i++)
+            {
+                var ln = buf[i];
+                if (string.IsNullOrEmpty(ln.Sender) || !visible(ln)) continue;
+                int len = StripRichTags(ln.Sender).Trim().Length;
+                if (len > maxName) maxName = len;
+            }
+            nameChars = Mathf.Clamp(maxName, 4, 18);
+        }
+
+        float gap   = 0.8f * fs;
+        float timeW = showTime ? 3.8f * fs : 0f;
+        float chanW = showTag ? (Settings.ChatChannelLabelsSpelledOut ? 6.2f : 3.4f) * fs : 0f;
+        float nameW = nameChars * 0.55f * fs;
+
+        int chanStart = (int)(timeW + (timeW > 0f ? gap : 0f));
+        bool separate = Settings.ChatTabularSeparateChannelName && showTag;
+        int nameStart = (int)(chanStart + chanW + gap);
+        int msgStart  = separate
+            ? (int)(nameStart + nameW + gap)
+            : (int)(chanStart + chanW + nameW + gap); // combined: tag + name share before message
+        return new TabCols(true, chanStart, nameStart, msgStart);
+    }
+
+    private static void AppendTabularLine(StringBuilder line, ChatRelayService.ChatLine ln, bool showTime, bool showTag, bool separate, TabCols cols)
     {
         bool hasSender = !string.IsNullOrEmpty(ln.Sender);
 
-        // 0.17.3: separate channel + name into their OWN columns:
-        //   [time]   [channel]   [name]        message
-        // Only meaningful when channel tags are shown (otherwise nothing to separate
-        // out, so fall through to the combined layout below).
+        // ---- Fixed-pixel columns (message column gets all remaining width) ----
+        if (cols.UsePx)
+        {
+            if (showTime)
+                line.Append("<color=#808080>").Append(ln.Received.ToString("HH:mm")).Append("</color>");
+            if (separate && showTag)
+            {
+                line.Append("<pos=").Append(cols.ChanStart).Append('>');
+                var tag = ChannelTag(ln.Channel);
+                if (!string.IsNullOrEmpty(tag)) line.Append(tag);
+                line.Append("<pos=").Append(cols.NameStart).Append('>');
+                if (hasSender) AppendSenderLinked(line, ln.Sender);
+            }
+            else
+            {
+                line.Append("<pos=").Append(cols.ChanStart).Append('>');
+                if (showTag)
+                {
+                    var tag = ChannelTag(ln.Channel);
+                    if (!string.IsNullOrEmpty(tag)) line.Append(tag).Append(' ');
+                }
+                if (hasSender) { AppendSenderLinked(line, ln.Sender); line.Append(':'); }
+            }
+            line.Append("<indent=").Append(cols.MsgStart).Append("><pos=").Append(cols.MsgStart).Append('>')
+                .Append(ln.Text).Append("</indent>");
+            return;
+        }
+
+        // ---- Legacy %-of-width columns (everything scales with the window) ----
+        // Separate channel + name into their OWN columns: [time] [channel] [name] message.
         if (separate && showTag)
         {
             int chanPct = showTime ? 11 : 0;

@@ -614,6 +614,14 @@ public class Settings
     // channel+sender | message). Default TRUE (separate). Only affects tabular layout.
     public static bool ChatTabularSeparateChannelName => (ConfigEntries[nameof(ChatTabularSeparateChannelName)] as ConfigEntry<bool>)?.Value ?? true;
     public static void SetChatTabularSeparateChannelName(bool v) => SetBool(nameof(ChatTabularSeparateChannelName), v);
+    // 0.17.3: tabular column SIZING. When TRUE (default) the time/channel/name columns
+    // get FIXED widths and the message column absorbs ALL remaining width — so widening
+    // the chat window grows the message column first (not every column proportionally),
+    // and the name column auto-fits the longest visible name (minimal dead space). When
+    // FALSE, columns are LOCKED at proportional %-of-width positions (the original
+    // behavior — every column scales with the window). Only affects tabular layout.
+    public static bool ChatTabularAutoFitColumns => (ConfigEntries[nameof(ChatTabularAutoFitColumns)] as ConfigEntry<bool>)?.Value ?? true;
+    public static void SetChatTabularAutoFitColumns(bool v) => SetBool(nameof(ChatTabularAutoFitColumns), v);
     // 0.17.3: double-click a player's name in the chat log to start a whisper to them
     // (jumps to the All tab with that whisper as the selected compose target and focuses
     // the input). Default TRUE.
@@ -970,6 +978,7 @@ public class Settings
         InitConfigEntry(OVERLAY_SETTINGS_GROUP, nameof(ChatColorTabs),                true,  "Tabbed chat: tint each channel tab's label in that channel's color (Global / Local / Clan / System / Whispers). The All tab stays neutral. Off = all tab labels use the default text color.");
         InitConfigEntry(OVERLAY_SETTINGS_GROUP, nameof(ChatTabularLayout),             false, "Tabbed chat: render messages in aligned COLUMNS (time | channel + sender | message) with wrapped lines hanging-indented under the message column — cleaner for the mixed All tab. Off by default (free-flowing text). Best with timestamps + channel labels on.");
         InitConfigEntry(OVERLAY_SETTINGS_GROUP, nameof(ChatTabularSeparateChannelName), true,  "Tabbed chat (tabular layout only): put the channel label and the player name in SEPARATE columns (time | channel | name | message). Turn off to combine them into one column (time | channel+name | message). Default on.");
+        InitConfigEntry(OVERLAY_SETTINGS_GROUP, nameof(ChatTabularAutoFitColumns),      true,  "Tabbed chat (tabular layout only): auto-fit the name column to the longest visible name so there's no dead space; the MESSAGE column always absorbs the extra width when you widen the window (it grows first, not every column). Turn off to LOCK the name column at a fixed width instead of fitting to content (the message column still gets the extra width). Default on.");
         InitConfigEntry(OVERLAY_SETTINGS_GROUP, nameof(ChatDoubleClickNameWhisper),    true,  "Tabbed chat: double-click a player's name in the chat log to start a whisper to them (jumps to the All tab with that whisper selected and focuses the input). Default on.");
         InitConfigEntry(OVERLAY_SETTINGS_GROUP, nameof(ShowMissingElementHints),       true,  "Show a short 'you're missing this — free power' hint on the Class / Weapon Expertise / Blood Legacy pages and overlays when you haven't set that element up yet (no class chosen, or no expertise/legacy bonus stats picked). Helpful for new players; turn off if you intentionally skip a system. Only shown for systems your server has enabled.");
         InitConfigEntry(OVERLAY_SETTINGS_GROUP, nameof(ChatGlobalColorHex),           DEFAULT_CHAT_GLOBAL_HEX, "Tabbed chat: color for the Global channel — used for its [G]/[Global] label tag AND its tab when 'Color tabs by channel' is on. Hex string (e.g. #FF8A5B coral default, #FFFFFF white, #66CCFF blue). The other channels' colors are fixed (Local blue, Clan green, System gold, Whisper pink).");
