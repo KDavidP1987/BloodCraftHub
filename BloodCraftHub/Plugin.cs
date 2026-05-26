@@ -245,6 +245,20 @@ public class Plugin : BasePlugin
         }
         else
             Log.LogWarning("[compat] Overlay-layering patch SKIPPED — overlays always render on top. Diagnostic; expected to be ON for normal use.");
+
+        // 0.17.3 TEMPORARY: social-menu whisper diagnostic (logs the context-entry click
+        // args so we can redirect right-click -> Whisper into BCH chat). Logging-only;
+        // wrapped so a resolve/patch failure can never break plugin load. REMOVE once
+        // the data is captured.
+        try
+        {
+            h.CreateClassProcessor(typeof(Patches.SocialMenuDiagPatch)).Patch();
+            Log.LogInfo("[diag] Social-menu whisper diagnostic patch APPLIED (temporary).");
+        }
+        catch (System.Exception ex)
+        {
+            Log.LogWarning($"[diag] Social-menu diagnostic patch did not apply (non-fatal): {ex.Message}");
+        }
     }
 
     /// <summary>Called from GameManagerPatch once the client World is available.</summary>
