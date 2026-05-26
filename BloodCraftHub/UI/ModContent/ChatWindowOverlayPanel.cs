@@ -145,6 +145,7 @@ public class ChatWindowOverlayPanel : ResizeablePanelBase
     private int _composeIndex;
     private string _composeSignature = ""; // rebuild guard (clan state + whisper partners)
     private Action _composeKeyTicker;
+    private Action _tabHotkeyTicker; // 0.17.3: <Modifier>+1..6 tab switch (chat open, not typing)
     // Frames of "still counts as typing" grace after the input reports unfocused.
     // The field's focus flag blips for a frame around a Tab press, which made every
     // OTHER Tab a no-op (friend-test: Tab needed pressing twice to switch). The
@@ -187,16 +188,7 @@ public class ChatWindowOverlayPanel : ResizeablePanelBase
                 btn.ButtonText.enableWordWrapping = false;
                 btn.ButtonText.overflowMode = TextOverflowModes.Ellipsis;
             }
-            btn.OnClick = () =>
-            {
-                _activeTab = idx;
-                _unread[idx] = 0;                       // viewing this tab clears its badge
-                if (idx == 0) for (int k = 0; k < _unread.Length; k++) _unread[k] = 0; // All sees everything
-                UpdateWhisperSubRow();                  // show/hide + rebuild the whisper sub-tabs
-                UpdateComposeRow();                     // show/hide the All-tab compose dropdown
-                UpdateTabHighlight();
-                Render();
-            };
+            btn.OnClick = () => SwitchToTab(idx);
             _tabButtons.Add(btn);
         }
 
@@ -324,6 +316,10 @@ public class ChatWindowOverlayPanel : ResizeablePanelBase
         // each frame but no-ops unless our input is focused on the All tab.
         _composeKeyTicker = TickComposeKeys;
         BloodCraftHub.Behaviors.CoreUpdateBehavior.Actions.Add(_composeKeyTicker);
+        // 0.17.3: chat-tab switch hotkeys (Modifier + 1..6). No-ops unless the chat
+        // window is open, the feature is on, and the input isn't focused.
+        _tabHotkeyTicker = TickTabHotkeys;
+        BloodCraftHub.Behaviors.CoreUpdateBehavior.Actions.Add(_tabHotkeyTicker);
 
         ApplyChatTextScale(); // size the input field to match the chat scale
         UpdateComposeRow();   // build + show the compose dropdown if All tab is active
@@ -713,6 +709,50 @@ public class ChatWindowOverlayPanel : ResizeablePanelBase
         ChatMessageType.Team   => ChatRelayService.Channel.Clan,
         _                      => ChatRelayService.Channel.Local,
     };
+
+    // 0.17.3: select a tab (shared by tab-button clicks and the tab hotkeys).
+    private void SwitchToTab(int idx)
+    {
+        if (idx < 0 || idx >= TabDefs.Length) return;
+        _activeTab = idx;
+        _unread[idx] = 0;                                              // viewing clears its badge
+        if (idx == 0) for (int k = 0; k < _unread.Length; k++) _unread[k] = 0; // All sees everything
+        UpdateWhisperSubRow();
+        UpdateComposeRow();
+        UpdateTabHighlight();
+        Render();
+    }
+
+    // 0.17.3: <Modifier>+1..6 switches tabs while the chat window is open and the
+    // input is NOT focused (so the keys still type normally while composing). The
+    // key isn't consumed — the game still sees it — so pick a non-conflicting
+    // modifier (default Shift). Registered on CoreUpdateBehavior.
+    private void TickTabHotkeys()
+    {
+        try
+        {
+            if (!Enabled || !Settings.ChatTabHotkeysEnabled) return;
+            if (IsInputFocused()) return;                 // don't hijack keys while typing
+            if (!ModifierHeld(Settings.ChatTabHotkeyModifier)) return;
+            int count = System.Math.Min(TabDefs.Length, 9);
+            for (int i = 0; i < count; i++)
+            {
+                if (UnityEngine.Input.GetKeyDown(KeyCode.Alpha1 + i)) { SwitchToTab(i); break; }
+            }
+        }
+        catch { }
+    }
+
+    private static bool ModifierHeld(string mod)
+    {
+        switch ((mod ?? "Shift").Trim().ToLowerInvariant())
+        {
+            case "none":               return true;
+            case "ctrl": case "control": return UnityEngine.Input.GetKey(KeyCode.LeftControl) || UnityEngine.Input.GetKey(KeyCode.RightControl);
+            case "alt":                return UnityEngine.Input.GetKey(KeyCode.LeftAlt) || UnityEngine.Input.GetKey(KeyCode.RightAlt);
+            default:                   return UnityEngine.Input.GetKey(KeyCode.LeftShift) || UnityEngine.Input.GetKey(KeyCode.RightShift);
+        }
+    }
 
     private void UpdateTabHighlight()
     {

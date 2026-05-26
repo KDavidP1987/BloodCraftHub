@@ -1552,6 +1552,36 @@ public partial class MainPanel : ResizeablePanelBase
         AddChatOptionToggle(chatCard, "System",   Config.Settings.AllTabShowSystem,  v => Config.Settings.SetAllTabShowSystem(v));
         AddChatOptionToggle(chatCard, "Whispers", Config.Settings.AllTabShowWhisper, v => Config.Settings.SetAllTabShowWhisper(v));
 
+        // 0.17.3: tab-switch hotkeys — <Modifier>+1..6 selects a tab while the chat
+        // window is open and you're not typing in it (1=All … 6=Whispers).
+        AddSectionHeading(chatCard, "Tab-switch hotkeys");
+        AddChatOptionToggle(chatCard, "Switch chat tabs with hotkeys (Modifier + 1-6, while chat is open & not typing)",
+            Config.Settings.ChatTabHotkeysEnabled,
+            v => Config.Settings.SetChatTabHotkeysEnabled(v));
+        var modRow = UIFactory.CreateHorizontalGroup(chatCard, "ChatTabHotkeyModRow",
+            true, false, true, true, 6, new Vector4(2, 2, 2, 2));
+        UIFactory.SetLayoutElement(modRow,
+            minWidth: 200, preferredWidth: 280, flexibleWidth: 1, minHeight: 28, preferredHeight: 30, flexibleHeight: 0);
+        var modLabel = UIFactory.CreateLabel(modRow, "ChatTabModLabel",
+            $"Modifier: {Config.Settings.ChatTabHotkeyModifier}", TextAlignmentOptions.MidlineLeft,
+            color: null, fontSize: Theme.ScaledUI(12));
+        UIFactory.SetLayoutElement(modLabel.GameObject,
+            minWidth: 96, preferredWidth: 110, flexibleWidth: 0, minHeight: 24, preferredHeight: 24, flexibleHeight: 0);
+        foreach (var m in new[] { "Shift", "Ctrl", "Alt", "None" })
+        {
+            var mm = m;
+            var b = UIFactory.CreateButton(modRow, $"ChatTabMod_{mm}", mm);
+            UIFactory.SetLayoutElement(b.GameObject,
+                minWidth: 44, preferredWidth: 52, flexibleWidth: 1, minHeight: 22, preferredHeight: 24, flexibleHeight: 0);
+            var tt = b.Component.GetComponentInChildren<TextMeshProUGUI>(); if (tt != null) tt.fontSize = Theme.ScaledUI(11);
+            b.OnClick = () =>
+            {
+                Config.Settings.SetChatTabHotkeyModifier(mm);
+                if (modLabel?.TextMesh != null) modLabel.TextMesh.text = $"Modifier: {mm}";
+            };
+            TooltipHover.Attach(b.GameObject, $"Use {mm} + number keys 1-6 to switch chat tabs (1=All … 6=Whispers). The key isn't consumed, so pick a modifier that doesn't clash.");
+        }
+
         // Global channel color — used for its [G]/[Global] label tag AND its tab
         // (when "Color tabs by channel" is on). The other channels have fixed
         // colors; Global previously rendered plain white.
