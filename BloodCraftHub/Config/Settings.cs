@@ -104,6 +104,12 @@ public class Settings
     public const string FAM_SETTINGS_GROUP      = "FamiliarSettings";
     public const string GENERAL_SETTINGS_GROUP  = "GeneralOptions";
     public const string OVERLAY_SETTINGS_GROUP  = "Overlays";
+    // 0.17.2: crash-compatibility kill-switches. These let an affected player (or a
+    // tester) reduce BCH's always-on footprint to bisect the intermittent 0.16.x
+    // load crash — an upstream Il2CppInterop GC-finalizer fault that BCH only
+    // *triggers* under login-window pressure, worse when other client mods churn at
+    // the same time. All default to full functionality; flip OFF only to diagnose.
+    public const string COMPAT_SETTINGS_GROUP   = "Compatibility";
 
     // ---- UI / general ----
     public static float UITransparency =>
@@ -638,6 +644,47 @@ public class Settings
     public static bool EnableCustomRecipes     => (ConfigEntries[nameof(EnableCustomRecipes)]     as ConfigEntry<bool>)?.Value ?? false;
     public static bool SuppressGameInputWhileUIOpen => (ConfigEntries[nameof(SuppressGameInputWhileUIOpen)] as ConfigEntry<bool>)?.Value ?? false;
 
+    // -------------------------------------------------------------------------
+    // 0.17.2: compatibility / crash-bisect kill-switches (Compatibility section).
+    //
+    // The 0.16.x intermittent load crash is an upstream Il2CppInterop
+    // GarbageCollector_RunFinalizer_Patch fault: non-deterministic, machine- and
+    // mod-mix-specific, with no managed exception logged. BCH alone is stable; the
+    // crash shows up for players running BCH *plus other client mods*, where the
+    // combined IL2CPP churn in the login window tips the latent bug. A prior
+    // "all features off" diagnostic still crashed — so the remaining suspects are
+    // BCH's always-on Harmony patches (applied at load regardless of any feature
+    // setting). These switches let an affected user drop each patch GROUP (the
+    // patch isn't applied at all, not merely no-op'd) to find the trigger, and let
+    // BCH push its UI construction out of the volatile login window.
+    //
+    // ALL default to full functionality. Only turn them off to diagnose a crash.
+
+    // When OFF, BCH does not patch the chat systems at all: inbound command-reply
+    // parsing AND the tabbed chat window stop working (big functionality loss —
+    // bisect only).
+    public static bool EnableChatSystemHooks =>
+        (ConfigEntries[nameof(EnableChatSystemHooks)] as ConfigEntry<bool>)?.Value ?? true;
+
+    // When OFF, BCH does not patch the input/menu systems: typing in a BCH form or
+    // the chat window no longer suppresses character movement / abilities / menu
+    // hotkeys. Functionality otherwise intact.
+    public static bool EnableInputSuppressionPatches =>
+        (ConfigEntries[nameof(EnableInputSuppressionPatches)] as ConfigEntry<bool>)?.Value ?? true;
+
+    // When OFF, BCH does not patch UICanvasSystem: overlays always render on top of
+    // in-game menus (the OverlaysBehindGameMenus feature is unavailable).
+    public static bool EnableOverlayLayeringPatch =>
+        (ConfigEntries[nameof(EnableOverlayLayeringPatch)] as ConfigEntry<bool>)?.Value ?? true;
+
+    // Seconds to wait after login before BCH restores its overlays (and starts the
+    // V-Blood scanner). Building overlays synchronously the instant the player
+    // spawns piled allocations into the fragile login window; deferring moves that
+    // off the login frame onto a quiet one. Clamped 0..30. 0 = legacy synchronous
+    // behavior (restore immediately on spawn). Default 3.
+    public static int UiBuildDelaySeconds =>
+        UnityEngine.Mathf.Clamp((ConfigEntries[nameof(UiBuildDelaySeconds)] as ConfigEntry<int>)?.Value ?? 3, 0, 30);
+
     public static void SetShowExperienceOverlay(bool v) => SetBool(nameof(ShowExperienceOverlay), v);
     public static void SetShowFamiliarOverlay(bool v)   => SetBool(nameof(ShowFamiliarOverlay),   v);
     public static void SetShowFamiliarBrowser(bool v)   => SetBool(nameof(ShowFamiliarBrowser),   v);
@@ -931,6 +978,17 @@ public class Settings
             "Hotkey to show / hide all overlays at once (master overlay toggle). Empty by default — same format and bind-via-Settings UI as the main panel hotkey.");
         InitConfigEntry(GENERAL_SETTINGS_GROUP, nameof(DiagnosticMode),         "Off",
             "Diagnostic mode: emit detailed [DIAG]-prefixed trace logs to BepInEx for UI clicks, overlay toggles, protocol state changes, and hotkey fires. Valid persistent values: 'Off' or 'Always'. Use Settings → Display → Hotkeys & diagnostics to also pick 'Session' (this run only — resets to Off on game restart). Cheap when off (one bool check + early return per call site).");
+
+        // 0.17.2: compatibility / crash-bisect switches. Leave these ON unless you
+        // are diagnosing the intermittent 0.16.x load crash (see docs/LESSONS_LEARNED).
+        InitConfigEntry(COMPAT_SETTINGS_GROUP, nameof(EnableChatSystemHooks),         true,
+            "ON (default): BCH patches the chat systems for inbound command-reply parsing AND the tabbed chat window. OFF: those chat patches are NOT applied — the tabbed chat window and command-reply parsing stop working. Turn OFF only to test whether BCH's chat patches contribute to the intermittent 0.16.x load crash.");
+        InitConfigEntry(COMPAT_SETTINGS_GROUP, nameof(EnableInputSuppressionPatches), true,
+            "ON (default): BCH patches the input/menu systems so typing in a BCH form or chat window suppresses character movement, abilities, and menu hotkeys. OFF: those input patches are NOT applied — your character may act on keystrokes while you type. Turn OFF only to test whether these patches contribute to the intermittent 0.16.x load crash.");
+        InitConfigEntry(COMPAT_SETTINGS_GROUP, nameof(EnableOverlayLayeringPatch),    true,
+            "ON (default): BCH patches UICanvasSystem so overlays can render BEHIND in-game menus (the 'Overlays behind game menus' feature). OFF: that patch is NOT applied — overlays always render on top. Turn OFF only to test whether this patch contributes to the intermittent 0.16.x load crash.");
+        InitConfigEntry(COMPAT_SETTINGS_GROUP, nameof(UiBuildDelaySeconds),           3,
+            "Seconds to wait after you spawn into the world before BCH restores its overlays and starts the V-Blood scanner. Building them the instant you spawn piled work into the fragile login window; deferring moves it onto a quiet frame, which can avoid the intermittent 0.16.x load crash on some setups. Clamped 0..30. 0 = restore immediately (old behavior). Default 3.");
 
         return this;
     }
