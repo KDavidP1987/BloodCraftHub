@@ -280,3 +280,28 @@ public static class OpenHUDMenuSuppressionPatch
         }
     }
 }
+
+// 0.17.0: the radial Action Wheel is its OWN system, NOT routed through
+// OpenHUDMenuSystem, so it slipped past the menu block and opened while typing in
+// chat (friend-test: a modifier key — e.g. Ctrl, which the user wants free for
+// Ctrl+A select-all in the field — popped this wheel). Skip its OnUpdate while the
+// menu block is active so the wheel can't open mid-type. Safe: when not blocking it
+// runs normally; any exception falls through to running the original.
+[HarmonyPatch(typeof(ActionWheelSystem), nameof(ActionWheelSystem.OnUpdate))]
+public static class ActionWheelSuppressionPatch
+{
+    [HarmonyPrefix]
+    private static bool Prefix()
+    {
+        try
+        {
+            if (!InputSuppression.ShouldBlockMenus()) return true;
+            InputSuppression.Diag("blocking ActionWheelSystem.OnUpdate (typing/panel open).");
+            return false;
+        }
+        catch
+        {
+            return true;
+        }
+    }
+}
