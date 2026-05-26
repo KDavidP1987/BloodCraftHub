@@ -668,6 +668,26 @@ public class BCHubUIManager : UIManagerBase
         }
     }
 
+    // 0.17.3: per-frame guard so the HIDDEN native chat can never trap input while
+    // we've taken over. The SetFocused/FocusInputField prefixes block the usual focus
+    // paths, but the P-key social menu's right-click "Whisper" opens native whisper
+    // mode through SocialMenuMapper — a path those prefixes don't cover — which (with
+    // the native chat hidden) would otherwise leave the player focused in an invisible
+    // chat and unable to move. Running the same unfocus the toggle-time safety net does
+    // EVERY frame closes that window. Registered on CoreUpdateBehavior in Plugin.Load.
+    internal void TickNativeChatGuard()
+    {
+        try
+        {
+            if (!IsNativeChatHideActive()) return;   // only while we've taken over
+            if (_nativeChat == null)
+                _nativeChat = UnityEngine.Object.FindObjectOfType<ProjectM.UI.HUDChatWindow>();
+            if (_nativeChat != null && _nativeChat.IsChatFocused)
+                _nativeChat.SetFocused(false);
+        }
+        catch { /* best-effort guard; never throw into the per-frame pump */ }
+    }
+
     private void EnsureCombinedOverlay()
     {
         if (_combinedOverlay != null) return;

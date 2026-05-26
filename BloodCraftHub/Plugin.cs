@@ -138,6 +138,11 @@ public class Plugin : BasePlugin
         // until armed and the UiBuildDelaySeconds window elapses.
         CoreUpdateBehavior.Actions.Add(UIManager.TickDeferredRestore);
 
+        // 0.17.3: keep the HIDDEN native chat from ever trapping input under takeover
+        // (e.g. the P-key social menu's right-click "Whisper" focusing it). No-op unless
+        // native-chat hide is active and the native chat somehow grabbed focus.
+        CoreUpdateBehavior.Actions.Add(UIManager.TickNativeChatGuard);
+
         // 0.17.2: selective patch manifest (was CreateAndPatchAll over the whole
         // assembly). Lets an affected player drop individual patch GROUPS via the
         // Compatibility config section to bisect the intermittent 0.16.x load crash.
