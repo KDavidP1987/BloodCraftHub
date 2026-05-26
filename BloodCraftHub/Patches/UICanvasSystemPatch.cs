@@ -29,16 +29,43 @@ public static class UICanvasSystemPatch
 
     private static bool _wasBehind;
 
+    // 0.17.2 CRASH FIX. UpdateHideIfDisabled is called per-canvas EVERY frame, and in
+    // dense bursts while the HUD rebuilds — on login, on waypoint teleport (area
+    // reload), and on starting V-Blood / boss TRACKING (which activates a
+    // TargetInfoPanel under this very UICanvasBase). The old postfix walked
+    // HUDMenuParent's children (a fresh IL2CPP Transform wrapper per child) AND every
+    // UniversalUI.uiBases entry on EVERY call. During those bursts the flood of
+    // short-lived interop object-wrappers tipped a latent Il2CppInterop GC-finalizer
+    // bug (GarbageCollector_RunFinalizer_Patch) — the 0.16.x "crash on load / on
+    // tracking / on teleport", which also corrupts the BepInEx interop cache so the
+    // client then crashes on every load until the cache is regenerated.
+    //
+    // We now re-evaluate at most ~10x/sec and only touch the canvases when the
+    // menu-open state actually changes (plus a throttled re-apply while behind to
+    // counter focus reorders). That drops the per-rebuild wrapper churn by 1-2 orders
+    // of magnitude. The layering looks identical: UIBase.SetOnTop reorders happen on
+    // focus/click, not per frame, so a 10 Hz re-apply keeps overlays behind the menu
+    // with no visible pop. Eclipse avoids the same trap by caching the canvas and
+    // reading it from a throttled coroutine rather than working per engine call.
+    private const double EVAL_INTERVAL_SECONDS = 0.1;   // ~10 Hz
+    private static double _lastEvalAt;
+
     [HarmonyPostfix]
     private static void Postfix(UICanvasBase canvas)
     {
         try
         {
+            double now = UnityEngine.Time.realtimeSinceStartupAsDouble;
+            if (now - _lastEvalAt < EVAL_INTERVAL_SECONDS) return;   // throttle: skip most calls
+            _lastEvalAt = now;
+
+            // Short-circuits BEFORE IsAnyMenuOpen (the child-walk) when the feature is
+            // off, so a disabled feature costs nothing beyond this throttle check.
             bool wantBehind = Settings.OverlaysBehindGameMenus && IsAnyMenuOpen(canvas);
 
             if (wantBehind)
             {
-                // Re-apply every frame while behind so a panel focus-reorder
+                // Re-apply (throttled) while behind so a panel focus-reorder
                 // (UIBase.SetOnTop resets canvases to TOP_SORTORDER) can't pop us
                 // back in front of the menu mid-interaction.
                 ApplySortBaseline(MENU_BEHIND_BASE);
