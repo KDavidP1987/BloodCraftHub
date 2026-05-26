@@ -118,6 +118,11 @@ public class ChatWindowOverlayPanel : ResizeablePanelBase
     private int _composeIndex;
     private string _composeSignature = ""; // rebuild guard (clan state + whisper partners)
     private Action _composeKeyTicker;
+    // Frames of "still counts as typing" grace after the input reports unfocused.
+    // The field's focus flag blips for a frame around a Tab press, which made every
+    // OTHER Tab a no-op (friend-test: Tab needed pressing twice to switch). The
+    // grace bridges that blip so each Tab press cycles exactly once.
+    private int _inputFocusGrace;
 
     public ChatWindowOverlayPanel(UIBase owner) : base(owner) { }
 
@@ -321,12 +326,14 @@ public class ChatWindowOverlayPanel : ResizeablePanelBase
 
     private void OnInputValueChanged(string v)
     {
-        // Tab is the compose-target cycle key, not a character — strip any that the
-        // input swallowed before our per-frame Tab handler ran. Re-setting Text
-        // re-fires this handler (now tab-free), which then sizes the row.
-        if (!string.IsNullOrEmpty(v) && v.IndexOf('\t') >= 0)
+        // Strip control chars that the field shouldn't hold: Tab (our compose-cycle
+        // key) and newlines/carriage returns. The Enter that opens/sends chat can
+        // leave a stray newline in the field (the "extra blank line" friend-test
+        // report) — chat is single-line + auto-wraps, so no real newline is wanted.
+        // Re-setting Text re-fires this handler (now clean), which then sizes the row.
+        if (!string.IsNullOrEmpty(v) && (v.IndexOf('\t') >= 0 || v.IndexOf('\n') >= 0 || v.IndexOf('\r') >= 0))
         {
-            _input.Text = v.Replace("\t", string.Empty);
+            _input.Text = v.Replace("\t", string.Empty).Replace("\r", string.Empty).Replace("\n", string.Empty);
             return;
         }
         UpdateInputHeight();
@@ -602,6 +609,9 @@ public class ChatWindowOverlayPanel : ResizeablePanelBase
             "+ Whisper…", 12, OnWhisperPickerChanged, options.ToArray());
         UIFactory.SetLayoutElement(ddObj, minWidth: 104, preferredWidth: 140, flexibleWidth: 0,
             minHeight: 20, preferredHeight: 20, flexibleHeight: 0);
+        // Without this the dropdown never closes — TMP's own blocker doesn't fire in
+        // our canvas, so the registry's per-frame outside-click check dismisses it.
+        BloodCraftHub.UI.Forms.FormDropdownRegistry.Register(_whisperPicker);
     }
 
     private void OnWhisperPickerChanged(int index)
@@ -741,29 +751,35 @@ public class ChatWindowOverlayPanel : ResizeablePanelBase
         ddObj.transform.SetSiblingIndex(0); // leftmost — before the input field + Send
         _composeDropdownObj = ddObj;
         _composeDropdown.SetValueWithoutNotify(sel);
+        // Outside-click close (TMP's own blocker doesn't fire in our canvas).
+        BloodCraftHub.UI.Forms.FormDropdownRegistry.Register(_composeDropdown);
         TooltipHover.Attach(ddObj, "Channel this message sends to. Click to pick, or press Tab while typing to cycle (Global / Local / Clan / active whispers).");
     }
 
     private void OnComposeChanged(int i) { if (i >= 0 && i < _composeTargets.Count) _composeIndex = i; }
 
     // Tab cycles the compose target (Global → Local → [Clan] → whisper partners → …).
+    // Does NOT re-resolve the target list here — that's done when the row is built —
+    // so a mid-cycle rebuild can't reset the index and eat a press.
     private void CycleCompose(int dir)
     {
-        EnsureComposeTargets();
         int n = _composeTargets.Count;
-        if (n == 0) return;
+        if (n == 0) { EnsureComposeTargets(); n = _composeTargets.Count; if (n == 0) return; }
         _composeIndex = ((_composeIndex + dir) % n + n) % n;
         if (_composeDropdown != null) _composeDropdown.SetValueWithoutNotify(_composeIndex);
     }
 
-    // Per-frame: on the All tab with our input focused, Tab cycles the send target.
+    // Per-frame: on the All tab while typing, Tab cycles the send target. Uses a
+    // short focus grace so the one-frame focus blip around a Tab press doesn't make
+    // every other press a no-op.
     private void TickComposeKeys()
     {
         try
         {
-            if (!Enabled || _activeTab != 0) return;
-            if (!IsInputFocused()) return;
-            if (UnityEngine.Input.GetKeyDown(KeyCode.Tab)) CycleCompose(+1);
+            if (!Enabled || _activeTab != 0) { _inputFocusGrace = 0; return; }
+            if (IsInputFocused()) _inputFocusGrace = 6;
+            else if (_inputFocusGrace > 0) _inputFocusGrace--;
+            if (_inputFocusGrace > 0 && UnityEngine.Input.GetKeyDown(KeyCode.Tab)) CycleCompose(+1);
         }
         catch { }
     }
