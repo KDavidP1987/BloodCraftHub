@@ -923,13 +923,14 @@ public class ChatWindowOverlayPanel : ResizeablePanelBase
         Render();
     }
 
-    // Dropdown listing players we've SEEN in chat (any channel) to start a new
-    // whisper. (The client holds a User entity only for the local player, so a
-    // roster query can't enumerate others — names+targets come from chat traffic
-    // via ChatRelayService.) Selecting a name opens that conversation immediately.
+    // Dropdown of players you can start a whisper with. 0.17.3 (#38): sourced from the
+    // FULL connected-player roster (PlayerRosterService — the non-culled UserInfoElement
+    // buffer, the same data the P-key social page shows), MERGED with anyone seen in
+    // chat (covers a partner who just disconnected). Deduped by name, online first.
+    // Selecting a name opens that conversation immediately.
     private void AddWhisperPicker()
     {
-        _pickerRoster = ChatRelayService.GetKnownPlayers();
+        _pickerRoster = BuildWhisperCandidates();
         var options = new List<string> { "+ Whisper…" };
         foreach (var p in _pickerRoster) options.Add(p.Name);
         var ddObj = UIFactory.CreateDropdown(_whisperSubRow, "WhisperPicker", out _whisperPicker,
@@ -940,6 +941,25 @@ public class ChatWindowOverlayPanel : ResizeablePanelBase
         // Without this the dropdown never closes — TMP's own blocker doesn't fire in
         // our canvas, so the registry's per-frame outside-click check dismisses it.
         BloodCraftHub.UI.Forms.FormDropdownRegistry.Register(_whisperPicker);
+    }
+
+    // 0.17.3 (#38): the whisper picker's candidate list — every connected player
+    // (full non-culled roster) plus anyone seen in chat, deduped by name (online
+    // roster wins, so it carries a current NetworkId), sorted A-Z.
+    private static List<PlayerRosterService.PlayerRef> BuildWhisperCandidates()
+    {
+        var list = new List<PlayerRosterService.PlayerRef>();
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        void Add(IEnumerable<PlayerRosterService.PlayerRef> src)
+        {
+            if (src == null) return;
+            foreach (var p in src)
+                if (!string.IsNullOrEmpty(p.Name) && seen.Add(p.Name)) list.Add(p);
+        }
+        try { Add(PlayerRosterService.GetOnlinePlayers()); } catch { }
+        try { Add(ChatRelayService.GetKnownPlayers()); } catch { }
+        list.Sort((a, b) => string.Compare(a.Name, b.Name, StringComparison.OrdinalIgnoreCase));
+        return list;
     }
 
     private void OnWhisperPickerChanged(int index)

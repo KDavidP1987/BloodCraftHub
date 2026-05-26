@@ -66,6 +66,8 @@ internal static class PlayerRosterService
             try { ents = _userInfoQuery.ToEntityArray(Allocator.Temp); }
             catch { _userInfoQueryReady = false; return result; } // rebuild next time (world reload)
 
+            int entCount = ents.Length, bufTotal = 0, connected = 0;
+            var sample = new List<string>();
             try
             {
                 var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
@@ -73,12 +75,16 @@ internal static class PlayerRosterService
                 {
                     if (!em.HasBuffer<UserInfoElement>(e)) continue;
                     var buf = em.GetBuffer<UserInfoElement>(e);
+                    bufTotal += buf.Length;
                     for (int i = 0; i < buf.Length; i++)
                     {
                         var ui = buf[i];
-                        if (!ui.IsConnected) continue;
-                        if (selfPlatform != 0 && ui.PlatformId == selfPlatform) continue; // skip self
                         var nm = ui.Name.ToString();
+                        if (sample.Count < 16)
+                            sample.Add($"{(string.IsNullOrEmpty(nm) ? "<noname>" : nm)}[conn={ui.IsConnected}]");
+                        if (!ui.IsConnected) continue;
+                        connected++;
+                        if (selfPlatform != 0 && ui.PlatformId == selfPlatform) continue; // skip self
                         if (string.IsNullOrEmpty(nm) || !seen.Add(nm)) continue;
                         result.Add(new PlayerRef(nm, ui.NetworkId));
                     }
@@ -86,7 +92,11 @@ internal static class PlayerRosterService
             }
             finally { ents.Dispose(); }
 
-            LogUtils.LogDebug($"[ChatRoster] UserInfoElement roster -> {result.Count} connected player(s).");
+            // One-line diagnostic (called on whisper actions, not per-frame): confirms
+            // whether the client actually carries the UserInfoElement roster. If
+            // entities=0 or buffer=0 in-game, the buffer isn't where we query it.
+            LogUtils.LogWarning($"[ChatRoster] UserInfoElement: singletonEntities={entCount}, bufferElems={bufTotal}, " +
+                $"connected={connected} -> roster={result.Count}. sample: {string.Join(", ", sample)}");
         }
         catch (Exception ex)
         {
