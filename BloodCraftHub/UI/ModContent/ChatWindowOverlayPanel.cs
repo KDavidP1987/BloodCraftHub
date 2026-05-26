@@ -69,6 +69,11 @@ public class ChatWindowOverlayPanel : ResizeablePanelBase
     private readonly List<ButtonRef> _whisperSubButtons = new();
     private readonly List<string> _whisperSubPartners = new(); // parallel to _whisperSubButtons; null = All
     private string _activeWhisperPartner; // null = All Whispers
+    // Players chosen from the picker but not yet messaged — kept so their sub-tab
+    // shows immediately (before any whisper line exists for them).
+    private readonly HashSet<string> _initiatedPartners = new();
+    private TMPro.TMP_Dropdown _whisperPicker;
+    private List<PlayerRosterService.PlayerRef> _pickerRoster;
     private static readonly int WhispersTabIndex = System.Array.FindIndex(TabDefs, t => t.Filter == ChatRelayService.Channel.Whisper);
     // 0.17.0: per-tab unread counts. A message for a channel you're NOT currently
     // viewing bumps that tab's count; selecting the tab resets it. The All tab
@@ -380,10 +385,13 @@ public class ChatWindowOverlayPanel : ResizeablePanelBase
     private void RebuildWhisperSubTabs()
     {
         if (_whisperSubRow == null) return;
-        foreach (var b in _whisperSubButtons)
-            if (b?.GameObject != null) UnityEngine.Object.Destroy(b.GameObject);
+        // Destroy ALL existing children (sub-tab buttons + the picker dropdown).
+        var t = _whisperSubRow.transform;
+        for (int i = t.childCount - 1; i >= 0; i--)
+            UnityEngine.Object.Destroy(t.GetChild(i).gameObject);
         _whisperSubButtons.Clear();
         _whisperSubPartners.Clear();
+        _whisperPicker = null;
 
         var partners = WhisperPartners();
         if (_activeWhisperPartner != null && !partners.Contains(_activeWhisperPartner))
@@ -391,7 +399,36 @@ public class ChatWindowOverlayPanel : ResizeablePanelBase
 
         AddWhisperSubButton(null, "All");
         foreach (var p in partners) AddWhisperSubButton(p, p);
+        AddWhisperPicker(); // "+ Whisper…" dropdown of online players
         HighlightWhisperSubTabs();
+    }
+
+    // Dropdown listing online players (queried from the client's User entities) to
+    // start a new whisper. Selecting a name opens that conversation immediately.
+    private void AddWhisperPicker()
+    {
+        _pickerRoster = PlayerRosterService.GetOnlinePlayers();
+        var options = new List<string> { "+ Whisper…" };
+        foreach (var p in _pickerRoster) options.Add(p.Name);
+        var ddObj = UIFactory.CreateDropdown(_whisperSubRow, "WhisperPicker", out _whisperPicker,
+            "+ Whisper…", 12, OnWhisperPickerChanged, options.ToArray());
+        UIFactory.SetLayoutElement(ddObj, minWidth: 104, preferredWidth: 140, flexibleWidth: 0,
+            minHeight: 20, preferredHeight: 20, flexibleHeight: 0);
+    }
+
+    private void OnWhisperPickerChanged(int index)
+    {
+        try
+        {
+            if (index <= 0 || _pickerRoster == null || index - 1 >= _pickerRoster.Count) return;
+            var pr = _pickerRoster[index - 1];
+            ChatRelayService.RememberWhisperTarget(pr.Name, pr.Id); // reply works before they message us
+            _initiatedPartners.Add(pr.Name);
+            _activeWhisperPartner = pr.Name;
+            RebuildWhisperSubTabs(); // adds their sub-tab + a fresh picker
+            Render();
+        }
+        catch (System.Exception ex) { Utils.LogUtils.LogError($"WhisperPicker: {ex}"); }
     }
 
     private void AddWhisperSubButton(string partner, string label)
@@ -404,8 +441,9 @@ public class ChatWindowOverlayPanel : ResizeablePanelBase
         _whisperSubPartners.Add(partner);
     }
 
-    // Distinct whisper conversation partners (the Sender of each whisper line).
-    private static List<string> WhisperPartners()
+    // Distinct whisper conversation partners: everyone with a whisper line (the
+    // Partner field), plus players picked from the dropdown but not yet messaged.
+    private List<string> WhisperPartners()
     {
         var list = new List<string>();
         var buf = ChatRelayService.Buffer;
@@ -415,6 +453,7 @@ public class ChatWindowOverlayPanel : ResizeablePanelBase
             if (ln.Channel != ChatRelayService.Channel.Whisper || string.IsNullOrEmpty(ln.Partner)) continue;
             if (!list.Contains(ln.Partner)) list.Add(ln.Partner);
         }
+        foreach (var p in _initiatedPartners) if (!list.Contains(p)) list.Add(p);
         return list;
     }
 
@@ -479,6 +518,8 @@ public class ChatWindowOverlayPanel : ResizeablePanelBase
         _tabButtons.Clear();
         _whisperSubButtons.Clear();
         _whisperSubPartners.Clear();
+        _initiatedPartners.Clear();
+        _whisperPicker = null;
         _whisperSubRow = null;
         _input = null;
         _log = null;

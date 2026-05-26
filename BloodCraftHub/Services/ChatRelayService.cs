@@ -59,6 +59,13 @@ internal static class ChatRelayService
     internal static bool TryGetWhisperTarget(string partner, out NetworkId id)
         => _whisperTargets.TryGetValue(partner ?? string.Empty, out id);
 
+    // Record a whisper target chosen from the player picker, so reply-send works
+    // even before that player has whispered us.
+    internal static void RememberWhisperTarget(string partner, NetworkId id)
+    {
+        if (!string.IsNullOrEmpty(partner)) _whisperTargets[partner] = id;
+    }
+
     internal static Channel MapChannel(ServerChatMessageType t) => t switch
     {
         ServerChatMessageType.Global      => Channel.Global,
