@@ -98,24 +98,7 @@ public static partial class MessageService
             LogUtils.LogWarning($"EnqueueMessage('{text}') ignored — character/user not bound yet.");
             return;
         }
-        if (ShouldHoldOutbound()) { _heldOutbound.Enqueue((text, false)); return; }
-        DispatchNow(text, silent: false);
-    }
-
-    // 0.17.1 (Eclipse coexistence): the actual arm-intercept + inject. Split out so
-    // both the immediate path and the deferred drain (ProcessAllMessages) share it.
-    private static void DispatchNow(string text, bool silent)
-    {
-        if (silent)
-        {
-            _nextCommandIsBchAuto = true;
-            NoteOutboundForIntercept(text);
-            _nextCommandIsBchAuto = false;
-        }
-        else
-        {
-            NoteOutboundForIntercept(text);
-        }
+        NoteOutboundForIntercept(text);
         SendMessage(text);
     }
 
@@ -147,8 +130,13 @@ public static partial class MessageService
         // and classifies the command as BchAuto category (rather than
         // running the prefix classifier), so the Chat Logging BchAuto
         // toggle controls visibility. Same partial-class field — no prefix.
-        if (ShouldHoldOutbound()) { _heldOutbound.Enqueue((text, true)); return; }
-        DispatchNow(text, silent: true);
+        _nextCommandIsBchAuto = true;
+        NoteOutboundForIntercept(text);
+        // Defensive reset: NoteOutboundForIntercept clears the flag after
+        // arming, but if the command didn't match any arming branch we
+        // need to clear so the next call isn't accidentally tagged auto.
+        _nextCommandIsBchAuto = false;
+        SendMessage(text);
     }
 
     public static void SetCharacter(Entity entity)
@@ -169,7 +157,6 @@ public static partial class MessageService
         if (ready && !_isInitialized)
         {
             _isInitialized = true;
-            _initRealtime = UnityEngine.Time.realtimeSinceStartup; // 0.17.1: start the Eclipse-coexistence hold window
             LogUtils.LogInfo("MessageService initialized (character + user bound).");
         }
     }
@@ -179,57 +166,23 @@ public static partial class MessageService
         _localCharacter = Entity.Null;
         _localUser      = Entity.Null;
         OutputMessages.Clear();
-        _heldOutbound.Clear();
         _isInitialized  = false;
     }
 
-    // 0.17.1 (Eclipse coexistence workaround): when the Eclipse MOD is also
-    // installed, BCH holds its outbound commands for a few seconds after login
-    // and then releases them ONE PER FRAME, instead of firing the usual startup
-    // burst immediately. Why: Eclipse's HUD coroutine reads a cached
-    // BufferLookup<ModifyUnitStatBuff_DOTS> that ANY structural ECS change
-    // invalidates; every BCH command is a CreateEntity (structural change), and
-    // BCH's login burst racing Eclipse's stale-lookup read crashes the client on
-    // load (AccessViolation in Eclipse.Services.CanvasService — see
-    // [[project_v016_crash_investigation]]). Spreading our commands out of the
-    // login window, and never bursting, keeps Eclipse's lookup stable. Costs only
-    // a short startup delay, and ONLY when Eclipse is present (no Eclipse = the
-    // immediate-send behavior is unchanged). Registration (SendRaw) is NOT held —
-    // it's a single inject and is how BCH starts receiving data.
-    private const float ECLIPSE_OUTBOUND_HOLD_SECONDS = 12f;
-    private static float _initRealtime;
-    private static readonly System.Collections.Generic.Queue<(string text, bool silent)> _heldOutbound = new();
-
-    private static bool ShouldHoldOutbound()
-    {
-        try
-        {
-            if (!EclipseProtocolService.IsEclipseModLoaded()) return false;
-            return UnityEngine.Time.realtimeSinceStartup < _initRealtime + ECLIPSE_OUTBOUND_HOLD_SECONDS;
-        }
-        catch { return false; }
-    }
-
     /// <summary>
-    /// Per-frame tick (CoreUpdateBehavior). Drains the legacy queue, and — once the
-    /// Eclipse-coexistence hold window has expired — releases held commands one per
-    /// frame so structural changes never bunch up against Eclipse's HUD lookup.
+    /// Per-frame tick still registered with CoreUpdateBehavior. Currently a no-op
+    /// because EnqueueMessage was switched to immediate send (Phase 5a). Kept as
+    /// a hook so we can re-introduce defensive batched throttling later if some
+    /// future code path enqueues many messages programmatically.
     /// </summary>
     public static void ProcessAllMessages()
     {
         if (!_isInitialized) return;
+        if (OutputMessages.Count == 0) return;
 
         // Drain anything that snuck in via the legacy queue path. Cheap; no throttle.
         while (OutputMessages.Count > 0)
             SendMessage(OutputMessages.Dequeue());
-
-        // 0.17.1: release ONE held (Eclipse-coexistence) command per frame after the
-        // hold window — staggered so each frame has at most one structural change.
-        if (_heldOutbound.Count > 0 && !ShouldHoldOutbound())
-        {
-            var item = _heldOutbound.Dequeue();
-            DispatchNow(item.text, item.silent);
-        }
     }
 
     /// <summary>
