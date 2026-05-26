@@ -285,6 +285,18 @@ public partial class MainPanel : ResizeablePanelBase
         },
         new TabGroupDef
         {
+            // 0.17: standalone client-side UI enhancements that work on ANY
+            // server, with no Bloodcraft/Kindred dependency. Always available
+            // (see IsTabGroupAvailable) so it shows even on vanilla servers.
+            Title = "Game UI",
+            StartExpanded = false,
+            Tabs = new[]
+            {
+                (PanelType.GameUITab, "Overview"),
+            },
+        },
+        new TabGroupDef
+        {
             // 0.9.8: was "Help"; renamed because friend-testing surfaced that
             // users didn't notice there was a Settings page under what looked
             // like a documentation-only group. The Settings tab is the more
@@ -1112,6 +1124,8 @@ public partial class MainPanel : ResizeablePanelBase
                     Settings.ModAvailability.Off  => false,
                     _ => true, // no probe wired - assume present
                 };
+            case "Game UI":
+                return true; // standalone client-side enhancements; no server probe
             default:
                 return true; // Help, future groups
         }
@@ -1366,6 +1380,9 @@ public partial class MainPanel : ResizeablePanelBase
                 case PanelType.VanillaAdminTab:
                     BuildVanillaAdminTab(page);
                     break;
+                case PanelType.GameUITab:
+                    BuildGameUITab(page);
+                    break;
                 default:
                     AddComingSoonBody(page, label);
                     break;
@@ -1406,6 +1423,144 @@ public partial class MainPanel : ResizeablePanelBase
             vlg.childAlignment = TextAnchor.UpperLeft;
         }
         return wrapper;
+    }
+
+    // 0.17: home tab for the standalone "Game UI" enhancement group. Client-side
+    // features that work on any server (no Bloodcraft/Kindred). Content fills in
+    // as each enhancement lands; today it introduces the section.
+    private void BuildGameUITab(GameObject page)
+    {
+        var card = AddCard(page, "GameUIIntroCard");
+        AddSectionHeading(card, "Standalone UI enhancements");
+        AddBodyText(card,
+            "Client-side improvements to the V Rising interface that work on any " +
+            "server — no Bloodcraft, KindredCommands, or KindredLogistics required. " +
+            "They live here so the hub stays useful even without the server mods.");
+        AddBodyText(card,
+            "Planned for this section:\n" +
+            "• Tabbed chat — split Global / Local / Clan / System / whisper into " +
+            "separate channels in the in-game chat.\n" +
+            "• Resource markers — high-contrast, colorblind-friendly indicators for " +
+            "nearby resource nodes.\n" +
+            "• Map info — castle-heart timers and plot size / availability on the map.");
+
+        // 0.17 increment 1: early preview of the tabbed chat window (read-only).
+        var chatCard = AddCard(page, "GameUIChatCard");
+        AddSectionHeading(chatCard, "Tabbed chat (preview)");
+        AddBodyText(chatCard,
+            "Mirrors the in-game chat into a movable, persistent window with " +
+            "per-channel tabs (All / Global / Local / Clan / System / Whispers). " +
+            "Early preview — read-only for now; typing and sending come next.");
+        var chatBtn = UIFactory.CreateButton(chatCard, "ToggleTabbedChatBtn", "Open / close tabbed chat window");
+        UIFactory.SetLayoutElement(chatBtn.GameObject,
+            minWidth: 200, preferredWidth: 280, flexibleWidth: 1,
+            minHeight: 30, preferredHeight: 30, flexibleHeight: 0);
+        chatBtn.OnClick = () =>
+        {
+            try { Plugin.UIManager?.ToggleOverlay(PanelType.ChatWindowOverlay); }
+            catch (System.Exception ex) { Utils.LogUtils.LogError($"Toggle tabbed chat failed: {ex}"); }
+        };
+        TooltipHover.Attach(chatBtn.GameObject,
+            "Show or hide the standalone tabbed chat window. Early preview (read-only); input + sending arrive in a later update.");
+        AddBodyText(chatCard,
+            "Tip: if the window won't move or resize, turn off \"Lock overlays\" " +
+            "(main panel footer, beside Auto-resize) — it locks every overlay.");
+
+        // Per-window customization (re-renders the live window immediately).
+        AddChatOptionToggle(chatCard, "Show timestamps",
+            Config.Settings.ChatShowTimestamps,
+            v => Config.Settings.SetChatShowTimestamps(v));
+        AddChatOptionToggle(chatCard, "Show channel labels",
+            Config.Settings.ChatShowChannelTags,
+            v => Config.Settings.SetChatShowChannelTags(v));
+        AddChatOptionToggle(chatCard, "Replace the game's chat (hide it; use this window)",
+            Config.Settings.HideNativeChat,
+            v => { Config.Settings.SetHideNativeChat(v); Plugin.UIManager?.ApplyNativeChatVisibility(); });
+        AddChatOptionToggle(chatCard, "On the All tab, send to Global by default (off = Local)",
+            Config.Settings.ChatAllTabDefaultGlobal,
+            v => Config.Settings.SetChatAllTabDefaultGlobal(v));
+
+        // 0.17.0: chat-only text size — independent of the "Overlay text size"
+        // row in Display settings (which previously also resized this window).
+        // Reuses the segmented Small/Standard/Large/X-Large control; refreshes
+        // the live chat window so the size change shows immediately.
+        AddTextScaleRow(chatCard, "Chat text size",
+            currentScaleSetting: () => Config.Settings.ChatTextScale,
+            applyScale: v => {
+                Config.Settings.SetChatTextScale(v);
+                Plugin.UIManager?.RefreshChatWindowOverlay();
+            });
+        AddChatOptionToggle(chatCard, "Newest message at the bottom (off = top)",
+            Config.Settings.ChatNewestAtBottom,
+            v => Config.Settings.SetChatNewestAtBottom(v));
+        AddChatOptionToggle(chatCard, "Auto-scroll to the newest message",
+            Config.Settings.ChatAutoScroll,
+            v => Config.Settings.SetChatAutoScroll(v));
+        AddChatOptionToggle(chatCard, "Spell out channel labels ([Global] instead of [G])",
+            Config.Settings.ChatChannelLabelsSpelledOut,
+            v => Config.Settings.SetChatChannelLabelsSpelledOut(v));
+        AddChatOptionToggle(chatCard, "Color tabs by channel",
+            Config.Settings.ChatColorTabs,
+            v => Config.Settings.SetChatColorTabs(v));
+
+        // Global channel color — used for its [G]/[Global] label tag AND its tab
+        // (when "Color tabs by channel" is on). The other channels have fixed
+        // colors; Global previously rendered plain white.
+        AddSectionHeading(chatCard, "Global channel color");
+        var globalColorRow = UIFactory.CreateHorizontalGroup(chatCard, "ChatGlobalColorRow",
+            forceExpandWidth: true, forceExpandHeight: false,
+            childControlWidth: true, childControlHeight: true,
+            spacing: 6, padding: new Vector4(2, 2, 2, 2));
+        UIFactory.SetLayoutElement(globalColorRow,
+            minWidth: 200, preferredWidth: 280, flexibleWidth: 1,
+            minHeight: 28, preferredHeight: 30, flexibleHeight: 0);
+        foreach (var preset in new[] {
+            ("Coral", Config.Settings.DEFAULT_CHAT_GLOBAL_HEX), ("White", "#FFFFFF"),
+            ("Amber", "#FFD479"), ("Cyan", "#66CCFF"), ("Violet", "#C9A0FF") })
+            AddPanelBgPresetButton(globalColorRow, preset.Item1, preset.Item2, ApplyChatGlobalColorHex);
+
+        // Chat window background — transparency + theme color, independent of the
+        // other overlays / the main panel (same controls as Settings → Display).
+        AddSectionHeading(chatCard, "Chat window background");
+        AddTransparencyRow(chatCard, "Transparency",
+            () => Config.Settings.ChatWindowOverlayTransparency,
+            v => Config.Settings.SetChatWindowOverlayTransparency(v));
+        AddPanelColorPresetRow(chatCard, "ChatBgPresetRow", ApplyChatWindowBgHex);
+    }
+
+    // 0.17.0: persist the chat window's own background color + live-refresh it.
+    private void ApplyChatWindowBgHex(string hex)
+    {
+        Config.Settings.SetChatWindowBackgroundColorHex(hex);
+        Plugin.UIManager?.RefreshChatWindowBackground();
+    }
+
+    // 0.17.0: persist the Global channel color + live-refresh the chat window so
+    // the label tags and colored tab update immediately.
+    private void ApplyChatGlobalColorHex(string hex)
+    {
+        Config.Settings.SetChatGlobalColorHex(hex);
+        Plugin.UIManager?.RefreshChatWindowOverlay();
+    }
+
+    // 0.17: small labeled toggle for the Game UI chat-window options. Persists
+    // via the supplied setter, then re-renders the live chat overlay so the
+    // change is visible immediately.
+    private void AddChatOptionToggle(GameObject parent, string label, bool initial, System.Action<bool> setter)
+    {
+        var t = UIFactory.CreateToggle(parent, label + "Toggle");
+        UIFactory.SetLayoutElement(t.GameObject,
+            minWidth: 200, preferredWidth: 280, flexibleWidth: 1,
+            minHeight: 24, preferredHeight: 24, flexibleHeight: 0);
+        t.Text.text = label;
+        t.Text.fontSize = Theme.ScaledUI(13);
+        t.Text.alignment = TextAlignmentOptions.MidlineLeft;
+        t.Toggle.isOn = initial;
+        t.OnValueChanged += v =>
+        {
+            setter(v);
+            Plugin.UIManager?.RefreshChatWindowOverlay();
+        };
     }
 
     private static void AddTabHeading(GameObject page, string text)

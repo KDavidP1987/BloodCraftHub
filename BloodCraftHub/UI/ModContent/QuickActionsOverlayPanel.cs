@@ -23,8 +23,11 @@ public class QuickActionsOverlayPanel : ResizeablePanelBase
     public override string PanelId => "QuickActionsOverlay";
     public override PanelType PanelType => PanelType.QuickActionsOverlay;
 
-    public override int MinWidth  => 160;
-    public override int MinHeight => 80;
+    // 0.16.1: smaller floor so the overlay can actually be shrunk (friend-test:
+    // the Stash All button felt oversized and wouldn't shrink — the old 160x80
+    // floor + the button's own minimums kept it big).
+    public override int MinWidth  => 104;
+    public override int MinHeight => 58;
 
     public override Vector2 DefaultAnchorMin => new(0.5f, 0.5f);
     public override Vector2 DefaultAnchorMax => new(0.5f, 0.5f);
@@ -49,9 +52,11 @@ public class QuickActionsOverlayPanel : ResizeablePanelBase
         // ContentRoot already carries a VerticalLayoutGroup (UIFactory.CreatePanel)
         // and the title bar above; buttons added here stack beneath it.
         var stashBtn = UIFactory.CreateButton(ContentRoot, "StashAllButton", "Stash All");
+        // 0.16.1: smaller default + lower minimums so the button shrinks with the
+        // overlay instead of staying oversized (friend-test feedback).
         UIFactory.SetLayoutElement(stashBtn.GameObject,
-            minWidth: 120, preferredWidth: 160, flexibleWidth: 1,
-            minHeight: 34, preferredHeight: 34, flexibleHeight: 0);
+            minWidth: 64, preferredWidth: 100, flexibleWidth: 1,
+            minHeight: 24, preferredHeight: 26, flexibleHeight: 0);
         stashBtn.OnClick = () =>
         {
             try { MessageService.EnqueueMessage(MessageService.BCCOM_KL_STASH_ALL); }

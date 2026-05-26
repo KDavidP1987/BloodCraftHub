@@ -219,4 +219,61 @@ public static partial class MessageService
             LogUtils.LogError($"MessageService.SendMessage failed: {ex}");
         }
     }
+
+    // 0.17: send a chat message on a specific channel (Global / Local / Team).
+    // Used by the tabbed chat window's input box. No intercept arming — this is
+    // real player chat, not a command awaiting a parsed reply.
+    // 0.17: send chat on a channel (Global / Local / Team). Mirrors the proven
+    // command-send path (self ReceiverEntity — same as Eclipse/FamBook). NOTE:
+    // broadcast chat sent via this raw ChatMessageEvent injection is under
+    // investigation — COMMANDS round-trip fine through it, but plain broadcast
+    // chat hasn't surfaced yet; diagnosing whether it needs the native send path.
+    public static void SendChat(string text, ChatMessageType type)
+    {
+        if (!_isInitialized || string.IsNullOrEmpty(text)) return;
+        try
+        {
+            var chatMessageEvent = new ChatMessageEvent
+            {
+                MessageText    = text,
+                MessageType    = type,
+                ReceiverEntity = _localUser.Read<NetworkId>(),
+            };
+
+            Entity networkEntity = EntityManager.CreateEntity(NetworkEventComponents);
+            networkEntity.Write(new FromCharacter { Character = _localCharacter, User = _localUser });
+            networkEntity.Write(NetworkEventType);
+            networkEntity.Write(chatMessageEvent);
+        }
+        catch (Exception ex)
+        {
+            LogUtils.LogError($"MessageService.SendChat failed: {ex}");
+        }
+    }
+
+    // 0.17.0: send a WHISPER to a specific player. target is the recipient's
+    // NetworkId (captured from an incoming whisper's FromUser). Same injection as
+    // SendChat but MessageType=Whisper and ReceiverEntity=the target, not self.
+    public static void SendWhisper(string text, NetworkId target)
+    {
+        if (!_isInitialized || string.IsNullOrEmpty(text)) return;
+        try
+        {
+            var chatMessageEvent = new ChatMessageEvent
+            {
+                MessageText    = text,
+                MessageType    = ChatMessageType.Whisper,
+                ReceiverEntity = target,
+            };
+
+            Entity networkEntity = EntityManager.CreateEntity(NetworkEventComponents);
+            networkEntity.Write(new FromCharacter { Character = _localCharacter, User = _localUser });
+            networkEntity.Write(NetworkEventType);
+            networkEntity.Write(chatMessageEvent);
+        }
+        catch (Exception ex)
+        {
+            LogUtils.LogError($"MessageService.SendWhisper failed: {ex}");
+        }
+    }
 }

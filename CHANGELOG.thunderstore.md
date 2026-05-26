@@ -7,6 +7,57 @@
 > bundled copy summarizes earlier versions and reproduces the most
 > recent release in full.
 
+## 0.17.0 — Standalone "Game UI" group + tabbed chat window
+
+A large client-side release — all of it works on **any** server (no Bloodcraft /
+Kindred required).
+
+- **New "Game UI" tab group** for client-side interface enhancements.
+- **Tabbed chat window** — movable / resizable / persistent, with per-channel
+  tabs (All / Global / Local / Clan / System / Whispers), every player's resolved
+  name, and unread badges.
+  - Send on the active channel; on the All tab a compact "send to" dropdown +
+    **Tab to cycle** Global / Local / Clan / active whispers (like native chat).
+  - **Whisper conversations**: per-person sub-tabs, reply, initiate from a
+    dropdown of players seen in chat, and close ("x") a conversation.
+  - **Optional native-chat takeover** (off by default) — hide the game's chat and
+    type in the tabbed window; gameplay/menu input is suppressed while typing and
+    Escape always frees you.
+  - **Customization**: chat-only text size, newest-at-bottom/top, auto-scroll,
+    word-wrapping input, timestamps, `[G]` vs `[Global]` labels, colored tabs, a
+    configurable Global color, and the chat window's own transparency + theme
+    color. Readable dark typing field.
+- Folds in the **0.16.1 stability hardening** (custom recipes default-off +
+  deferred, recipe shape-checks, gated SHIFT-icon read).
+- **Eclipse:** coexistence not yet re-verified against Eclipse's latest — keep
+  Eclipse disabled while using BloodCraftHub for now.
+
+## 0.16.1 — Crash hotfix (intermittent load crash)
+
+Fixes an **intermittent crash a few seconds after loading into a game** that
+some players hit on 0.16.0 (others on the same build never saw it). It showed up
+as a NullReferenceException deep inside Il2CppInterop's GC
+(`GarbageCollector_RunFinalizer_Patch`) — a known-unstable piece of the interop
+layer, not BCH code. BCH wasn't failing; it was *triggering* that latent bug by
+doing too much GC-pressuring work in the busy login window — chiefly applying
+custom recipes (a burst of ECS structural changes) right as login traffic
+landed.
+
+- **Custom recipes now default OFF and apply deferred.** `EnableCustomRecipes`
+  now defaults to **false** (turn it on to opt in). When on, recipes are applied
+  a few seconds after login on a quiet frame instead of inline, keeping the
+  structural-change burst out of the volatile load window. The mutation is also
+  hardened (isolated per-block, shape-checked) when enabled.
+- **SHIFT-spell icon** lookup is now gated behind the SHIFT overlay being shown,
+  `ShowShiftSpellIcon` is a real kill-switch, stale entities are skipped, and a
+  circuit-breaker latches it off after repeated faults (cooldown unaffected).
+- **Quick Actions "Stash All"** overlay starts smaller and can be shrunk further.
+
+This is a probability reduction for a non-deterministic interop-layer race, not a
+guaranteed fix — keeping your BepInEx (V Rising) pack up to date is recommended.
+Existing configs that already set `EnableCustomRecipes = true` keep that value; if
+you still crash, set it to `false`.
+
 ## 0.16.0 — Input suppression, custom recipes, SHIFT-spell icon, exoform fix, Quick Actions overlay, overlay layering + resize discoverability
 
 A player-feedback release. Marquee addition: an optional setting that freezes

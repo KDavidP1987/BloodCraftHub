@@ -42,6 +42,10 @@ public enum PanelType
     AboutTab,
     SettingsTab,
 
+    // Standalone enhancement tabs (client-side; work on any server, no
+    // Bloodcraft / Kindred required). 0.17+.
+    GameUITab,              // 0.17: home for standalone V Rising UI enhancements
+
     // Secondary overlays (independent draggable panels):
     ExperienceOverlay,
     FamiliarOverlay,
@@ -50,6 +54,7 @@ public enum PanelType
     ShiftSpellOverlay,      // 0.11.0: visual cooldown ring/bar for the shift slot (Eclipse-style)
     CombinedOverlay,        // 0.14.0: single combined info overlay (XP + Familiar + Wep + Blood + Prof + Quests)
     QuickActionsOverlay,    // 0.16: configurable one-click Kindred action buttons (Stash All)
+    ChatWindowOverlay,      // 0.17: standalone tabbed chat window (Game UI group)
 
     // Legacy panel identities from BloodCraftUI — kept so the existing
     // ResizeablePanelBase config keys (Panels/<PanelType>) survive a port.

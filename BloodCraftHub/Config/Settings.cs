@@ -135,6 +135,7 @@ public class Settings
     public static float FamiliarBrowserTransparency  => GetFloat(nameof(FamiliarBrowserTransparency),  UITransparency);
     public static float ShiftSpellOverlayTransparency => GetFloat(nameof(ShiftSpellOverlayTransparency), UITransparency);
     public static float QuickActionsOverlayTransparency => GetFloat(nameof(QuickActionsOverlayTransparency), UITransparency);
+    public static float ChatWindowOverlayTransparency => GetFloat(nameof(ChatWindowOverlayTransparency), UITransparency);
     public static float DailyQuestTransparency       => GetFloat(nameof(DailyQuestTransparency),       UITransparency);
     public static float ProfessionOverlayTransparency => GetFloat(nameof(ProfessionOverlayTransparency), UITransparency);
     public static void SetXPOverlayTransparency(float v)        => SetFloat(nameof(XPOverlayTransparency), v);
@@ -142,6 +143,7 @@ public class Settings
     public static void SetFamiliarBrowserTransparency(float v)  => SetFloat(nameof(FamiliarBrowserTransparency), v);
     public static void SetShiftSpellOverlayTransparency(float v) => SetFloat(nameof(ShiftSpellOverlayTransparency), v);
     public static void SetQuickActionsOverlayTransparency(float v) => SetFloat(nameof(QuickActionsOverlayTransparency), v);
+    public static void SetChatWindowOverlayTransparency(float v) => SetFloat(nameof(ChatWindowOverlayTransparency), v);
     public static void SetDailyQuestTransparency(float v)       => SetFloat(nameof(DailyQuestTransparency), v);
     public static void SetProfessionOverlayTransparency(float v) => SetFloat(nameof(ProfessionOverlayTransparency), v);
 
@@ -566,10 +568,74 @@ public class Settings
     public static bool ShowProfessionOverlay   => (ConfigEntries[nameof(ShowProfessionOverlay)]   as ConfigEntry<bool>)?.Value ?? false;
     public static bool ShowShiftSpellOverlay   => (ConfigEntries[nameof(ShowShiftSpellOverlay)]   as ConfigEntry<bool>)?.Value ?? false;
     public static bool ShowQuickActionsOverlay => (ConfigEntries[nameof(ShowQuickActionsOverlay)] as ConfigEntry<bool>)?.Value ?? false;
+    public static bool ShowChatWindowOverlay => (ConfigEntries[nameof(ShowChatWindowOverlay)] as ConfigEntry<bool>)?.Value ?? false;
+    public static bool ChatShowTimestamps => (ConfigEntries[nameof(ChatShowTimestamps)] as ConfigEntry<bool>)?.Value ?? true;
+    public static bool ChatShowChannelTags => (ConfigEntries[nameof(ChatShowChannelTags)] as ConfigEntry<bool>)?.Value ?? true;
+    public static bool HideNativeChat => (ConfigEntries[nameof(HideNativeChat)] as ConfigEntry<bool>)?.Value ?? false;
+    // 0.17.0: on the All tab, send to Global (true) or Local (false) by default.
+    public static bool ChatAllTabDefaultGlobal => (ConfigEntries[nameof(ChatAllTabDefaultGlobal)] as ConfigEntry<bool>)?.Value ?? false;
+    // 0.17.0: chat-window text size, INDEPENDENT of OverlayTextScale. The chat
+    // log used to be sized via Theme.ScaledOverlay (the shared overlay
+    // multiplier), so enlarging chat text also enlarged every OTHER overlay
+    // (friend-test report). This dedicated multiplier scales ONLY the tabbed
+    // chat window. Clamped 0.5..3.0 so a bad .cfg edit can't produce illegible
+    // or absurd sizes.
+    public static float ChatTextScale =>
+        UnityEngine.Mathf.Clamp(GetFloat(nameof(ChatTextScale), 1.0f), 0.5f, 3.0f);
+    public static void SetChatTextScale(float v) =>
+        SetFloat(nameof(ChatTextScale), UnityEngine.Mathf.Clamp(v, 0.5f, 3.0f));
+    // 0.17.0: newest chat line at the BOTTOM (true, default — game-like) or TOP (false).
+    public static bool ChatNewestAtBottom => (ConfigEntries[nameof(ChatNewestAtBottom)] as ConfigEntry<bool>)?.Value ?? true;
+    public static void SetChatNewestAtBottom(bool v) => SetBool(nameof(ChatNewestAtBottom), v);
+    // 0.17.0: auto-scroll the chat log to keep the newest message in view as lines arrive.
+    public static bool ChatAutoScroll => (ConfigEntries[nameof(ChatAutoScroll)] as ConfigEntry<bool>)?.Value ?? true;
+    public static void SetChatAutoScroll(bool v) => SetBool(nameof(ChatAutoScroll), v);
+    // 0.17.0: channel label format — short acronym ([G]/[L]/[Sys]/[W], false/default)
+    // or the spelled-out name ([Global]/[Local]/[System]/[Whisper], true).
+    public static bool ChatChannelLabelsSpelledOut => (ConfigEntries[nameof(ChatChannelLabelsSpelledOut)] as ConfigEntry<bool>)?.Value ?? false;
+    public static void SetChatChannelLabelsSpelledOut(bool v) => SetBool(nameof(ChatChannelLabelsSpelledOut), v);
+    // 0.17.0: tint each channel tab's label in that channel's color (Global in the
+    // Global color, Local in its blue, Clan green, etc.). The All tab stays neutral.
+    public static bool ChatColorTabs => (ConfigEntries[nameof(ChatColorTabs)] as ConfigEntry<bool>)?.Value ?? true;
+    public static void SetChatColorTabs(bool v) => SetBool(nameof(ChatColorTabs), v);
+    // 0.17.0: configurable color for the GLOBAL channel (label tag + tab). Global
+    // had no distinct color before (rendered plain white); default is a warm coral
+    // that stands apart from Local-blue / Clan-green / System-gold / Whisper-pink.
+    public const string DEFAULT_CHAT_GLOBAL_HEX = "#FF8A5B";
+    public static string ChatGlobalColorHex =>
+        (ConfigEntries.TryGetValue(nameof(ChatGlobalColorHex), out var e) && e is ConfigEntry<string> s && !string.IsNullOrWhiteSpace(s.Value))
+            ? s.Value : DEFAULT_CHAT_GLOBAL_HEX;
+    public static void SetChatGlobalColorHex(string hex)
+    {
+        if (ConfigEntries.TryGetValue(nameof(ChatGlobalColorHex), out var e) && e is ConfigEntry<string> s)
+            s.Value = hex;
+    }
+    // 0.17.0: chat window's OWN background theme color, independent of the main
+    // panel's PanelBackgroundColorHex (so the chat window can be themed separately).
+    // Same preset palette as the main panel picker. Default matches the panel default.
+    public static string ChatWindowBackgroundColorHex =>
+        (ConfigEntries.TryGetValue(nameof(ChatWindowBackgroundColorHex), out var e) && e is ConfigEntry<string> s && !string.IsNullOrWhiteSpace(s.Value))
+            ? s.Value : DEFAULT_PANEL_BG_HEX;
+    public static void SetChatWindowBackgroundColorHex(string hex)
+    {
+        if (ConfigEntries.TryGetValue(nameof(ChatWindowBackgroundColorHex), out var e) && e is ConfigEntry<string> s)
+            s.Value = hex;
+    }
+    public static UnityEngine.Color ChatWindowBackgroundColor
+    {
+        get
+        {
+            if (UnityEngine.ColorUtility.TryParseHtmlString(ChatWindowBackgroundColorHex, out var c))
+                return new UnityEngine.Color(c.r, c.g, c.b, 1f);
+            if (UnityEngine.ColorUtility.TryParseHtmlString(DEFAULT_PANEL_BG_HEX, out var fb))
+                return new UnityEngine.Color(fb.r, fb.g, fb.b, 1f);
+            return new UnityEngine.Color(0.07f, 0.07f, 0.07f, 1f);
+        }
+    }
     public static bool ShiftSpellOverlayShowDiagnostics => (ConfigEntries[nameof(ShiftSpellOverlayShowDiagnostics)] as ConfigEntry<bool>)?.Value ?? false;
     public static bool ShowShiftSpellIcon      => (ConfigEntries[nameof(ShowShiftSpellIcon)]      as ConfigEntry<bool>)?.Value ?? true;
     public static bool OverlaysBehindGameMenus => (ConfigEntries[nameof(OverlaysBehindGameMenus)] as ConfigEntry<bool>)?.Value ?? true;
-    public static bool EnableCustomRecipes     => (ConfigEntries[nameof(EnableCustomRecipes)]     as ConfigEntry<bool>)?.Value ?? true;
+    public static bool EnableCustomRecipes     => (ConfigEntries[nameof(EnableCustomRecipes)]     as ConfigEntry<bool>)?.Value ?? false;
     public static bool SuppressGameInputWhileUIOpen => (ConfigEntries[nameof(SuppressGameInputWhileUIOpen)] as ConfigEntry<bool>)?.Value ?? false;
 
     public static void SetShowExperienceOverlay(bool v) => SetBool(nameof(ShowExperienceOverlay), v);
@@ -579,6 +645,11 @@ public class Settings
     public static void SetShowProfessionOverlay(bool v) => SetBool(nameof(ShowProfessionOverlay), v);
     public static void SetShowShiftSpellOverlay(bool v) => SetBool(nameof(ShowShiftSpellOverlay), v);
     public static void SetShowQuickActionsOverlay(bool v) => SetBool(nameof(ShowQuickActionsOverlay), v);
+    public static void SetShowChatWindowOverlay(bool v) => SetBool(nameof(ShowChatWindowOverlay), v);
+    public static void SetChatShowTimestamps(bool v) => SetBool(nameof(ChatShowTimestamps), v);
+    public static void SetChatShowChannelTags(bool v) => SetBool(nameof(ChatShowChannelTags), v);
+    public static void SetHideNativeChat(bool v) => SetBool(nameof(HideNativeChat), v);
+    public static void SetChatAllTabDefaultGlobal(bool v) => SetBool(nameof(ChatAllTabDefaultGlobal), v);
     public static void SetOverlaysBehindGameMenus(bool v) => SetBool(nameof(OverlaysBehindGameMenus), v);
     public static void SetSuppressGameInputWhileUIOpen(bool v) => SetBool(nameof(SuppressGameInputWhileUIOpen), v);
 
@@ -794,10 +865,22 @@ public class Settings
         InitConfigEntry(OVERLAY_SETTINGS_GROUP, nameof(ShowProfessionOverlay),       false, "Whether the Professions overlay (Bloodcraft profession levels) was visible at last logout.");
         InitConfigEntry(OVERLAY_SETTINGS_GROUP, nameof(ShowShiftSpellOverlay),       false, "Whether the Shift-spell cooldown overlay (Eclipse-style visual readout for the slot-3 ability) was visible at last logout.");
         InitConfigEntry(OVERLAY_SETTINGS_GROUP, nameof(ShowQuickActionsOverlay),     false, "Whether the Quick Actions overlay (one-click Kindred command buttons, e.g. Stash All) was visible at last logout.");
+        InitConfigEntry(OVERLAY_SETTINGS_GROUP, nameof(ShowChatWindowOverlay),       false, "Whether the standalone tabbed chat window (Game UI) was visible at last logout.");
+        InitConfigEntry(OVERLAY_SETTINGS_GROUP, nameof(ChatShowTimestamps),          true,  "Show the [HH:mm] timestamp on each line in the tabbed chat window.");
+        InitConfigEntry(OVERLAY_SETTINGS_GROUP, nameof(ChatShowChannelTags),         true,  "Show the channel label ([G]/[L]/[Clan]/[Sys]/[W]) on each line in the tabbed chat window.");
+        InitConfigEntry(OVERLAY_SETTINGS_GROUP, nameof(HideNativeChat),              false, "Replace the game's default chat with the tabbed chat window: hide the native chat (invisible + non-interactive) while the tabbed window is open. Default off. The native chat returns when the tabbed window is closed.");
+        InitConfigEntry(OVERLAY_SETTINGS_GROUP, nameof(ChatAllTabDefaultGlobal),     false, "On the tabbed chat's All tab, send typed messages to Global (true) or Local (false) by default. Default Local.");
+        InitConfigEntry(OVERLAY_SETTINGS_GROUP, nameof(ChatTextScale),               1.0f,  "Font size multiplier for the tabbed chat window ONLY — independent of 'Overlay text size'. (Small=0.85, Standard=1.0, Large=1.2, X-Large=1.5.) Lets you enlarge chat text without enlarging the XP / Familiar / etc. overlays. Changes apply immediately.");
+        InitConfigEntry(OVERLAY_SETTINGS_GROUP, nameof(ChatNewestAtBottom),          true,  "Tabbed chat: show the newest message at the BOTTOM (true, like the game's own chat) or at the TOP (false).");
+        InitConfigEntry(OVERLAY_SETTINGS_GROUP, nameof(ChatAutoScroll),              true,  "Tabbed chat: automatically scroll to keep the newest message in view as new lines arrive (to the bottom or top per the 'newest at bottom' setting). Turn off to scroll back through history freely without being snapped to the newest line.");
+        InitConfigEntry(OVERLAY_SETTINGS_GROUP, nameof(ChatChannelLabelsSpelledOut), false, "Tabbed chat: spell out channel labels in full ([Global] / [Local] / [Clan] / [System] / [Whisper]) instead of the short acronyms ([G] / [L] / [Clan] / [Sys] / [W]). Only applies when 'Show channel labels' is on.");
+        InitConfigEntry(OVERLAY_SETTINGS_GROUP, nameof(ChatColorTabs),                true,  "Tabbed chat: tint each channel tab's label in that channel's color (Global / Local / Clan / System / Whispers). The All tab stays neutral. Off = all tab labels use the default text color.");
+        InitConfigEntry(OVERLAY_SETTINGS_GROUP, nameof(ChatGlobalColorHex),           DEFAULT_CHAT_GLOBAL_HEX, "Tabbed chat: color for the Global channel — used for its [G]/[Global] label tag AND its tab when 'Color tabs by channel' is on. Hex string (e.g. #FF8A5B coral default, #FFFFFF white, #66CCFF blue). The other channels' colors are fixed (Local blue, Clan green, System gold, Whisper pink).");
+        InitConfigEntry(OVERLAY_SETTINGS_GROUP, nameof(ChatWindowBackgroundColorHex), DEFAULT_PANEL_BG_HEX, "Tabbed chat window background theme color (independent of the main panel color). Hex string; same presets as Settings → Display panel color. Default #121212 near-black. Transparency is set separately by the chat window transparency control.");
         InitConfigEntry(OVERLAY_SETTINGS_GROUP, nameof(ShiftSpellOverlayShowDiagnostics), false, "Show the small italic 'pf/cg/si/end/srv' debug line under the Shift overlay's SHIFT label. Off by default; flip on if you need to debug why the cooldown isn't updating.");
         InitConfigEntry(OVERLAY_SETTINGS_GROUP, nameof(ShowShiftSpellIcon),               true,  "Show the slotted spell's actual icon on the Shift-spell overlay tile (like Eclipse). When off, the overlay shows the plain colored cooldown tile instead.");
         InitConfigEntry(OVERLAY_SETTINGS_GROUP, nameof(OverlaysBehindGameMenus),          true,  "When an in-game menu (inventory, character sheet, map, etc.) is open, drop BCH's overlays/panels BEHIND it instead of floating over the top. Set false to keep them always on top (the pre-0.16 behavior).");
-        InitConfigEntry(GENERAL_SETTINGS_GROUP, nameof(EnableCustomRecipes),               true,  "Show Bloodcraft's custom crafting recipes (vampiric dust, copper wires, soul-shard extraction, primal jewel, etc.) in the in-game crafting stations when the server has them enabled. Client-side display only; automatically skipped if the Eclipse mod is installed (it applies them itself).");
+        InitConfigEntry(GENERAL_SETTINGS_GROUP, nameof(EnableCustomRecipes),               false, "Show Bloodcraft's custom crafting recipes (vampiric dust, copper wires, soul-shard extraction, primal jewel, etc.) in the in-game crafting stations when the server has them enabled. Client-side display only; automatically skipped if the Eclipse mod is installed (it applies them itself). DEFAULT OFF as of 0.16.1: applying these recipes does a burst of ECS structural changes at login that can trigger a rare, non-deterministic Il2CppInterop GC crash on some machines. Turn ON to opt in; when on, application is deferred to a quiet frame a few seconds after login to minimize that risk.");
         InitConfigEntry(GENERAL_SETTINGS_GROUP, nameof(SuppressGameInputWhileUIOpen),       false, "Stop your character moving / attacking / casting (incl. hotkeyed commands) while the BCH main panel is open, so background actions don't fire while you click buttons or type into forms. Default OFF — enable to try it. Blanks your input data AFTER the game reads it (never blocks the input system), so it cannot freeze the UI like the removed 0.1.x attempt did.");
         InitConfigEntry(UI_SETTINGS_GROUP,      nameof(IsPanelAutoResizeEnabled),    true,  "Auto-resize the main panel vertically to fit the active tab's content (capped at 90% of screen height).");
         InitConfigEntry(UI_SETTINGS_GROUP,      nameof(UITextScale),                 1.0f,  "Font scale multiplier for the main panel (Small=0.85, Standard=1.0, Large=1.2, X-Large=1.5). Changes apply when the panel is closed and reopened.");
@@ -813,6 +896,7 @@ public class Settings
         InitConfigEntry(OVERLAY_SETTINGS_GROUP, nameof(ProfessionOverlayTransparency), 0.4f, "Profession overlay background transparency.");
         InitConfigEntry(OVERLAY_SETTINGS_GROUP, nameof(ShiftSpellOverlayTransparency), 0.4f, "Shift-spell cooldown overlay background transparency (0.0=solid, 1.0=invisible).");
         InitConfigEntry(OVERLAY_SETTINGS_GROUP, nameof(QuickActionsOverlayTransparency), 0.4f, "Quick Actions overlay background transparency (0.0=solid, 1.0=invisible).");
+        InitConfigEntry(OVERLAY_SETTINGS_GROUP, nameof(ChatWindowOverlayTransparency), 0.3f, "Tabbed chat window background transparency (0.0=solid, 1.0=invisible).");
         // 0.14.0: combined overlay registration.
         InitConfigEntry(OVERLAY_SETTINGS_GROUP, nameof(ShowCombinedOverlay),         false, "Show the combined overlay — one panel with XP / Familiar / Weapon / Blood / Professions / Quests sections. When on, the individual info overlays auto-hide. Toggle in Settings → Display.");
         InitConfigEntry(OVERLAY_SETTINGS_GROUP, nameof(CombinedOverlayShowXP),        true,  "Combined overlay: include the XP / Experience section.");

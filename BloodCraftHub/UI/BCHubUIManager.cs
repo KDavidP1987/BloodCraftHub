@@ -35,6 +35,8 @@ public class BCHubUIManager : UIManagerBase
     private ProfessionOverlayPanel _professionOverlay;
     private ShiftSpellOverlayPanel _shiftSpellOverlay;
     private QuickActionsOverlayPanel _quickActionsOverlay; // 0.16: one-click Kindred action buttons (Stash All)
+    private ChatWindowOverlayPanel _chatWindowOverlay; // 0.17: standalone tabbed chat window
+    private ProjectM.UI.HUDChatWindow _nativeChat; // 0.17: cached native chat window (for the takeover)
     // 0.14.0: single combined info overlay. Mutually exclusive with the 4
     // standalone info overlays (XP / Familiar / Daily Quest / Profession);
     // when ShowCombinedOverlay is true, those are hidden regardless of
@@ -86,6 +88,7 @@ public class BCHubUIManager : UIManagerBase
         ApplyPinnedTo(_professionOverlay, pinned);
         ApplyPinnedTo(_shiftSpellOverlay, pinned);
         ApplyPinnedTo(_quickActionsOverlay, pinned);
+        ApplyPinnedTo(_chatWindowOverlay, pinned);
         ApplyPinnedTo(_combinedOverlay, pinned);
     }
 
@@ -226,6 +229,12 @@ public class BCHubUIManager : UIManagerBase
                 _quickActionsOverlay.SetActive(!_quickActionsOverlay.Enabled);
                 BloodCraftHub.Config.Settings.SetShowQuickActionsOverlay(_quickActionsOverlay.Enabled);
                 break;
+            case PanelType.ChatWindowOverlay:
+                EnsureChatWindowOverlay();
+                _chatWindowOverlay.SetActive(!_chatWindowOverlay.Enabled);
+                BloodCraftHub.Config.Settings.SetShowChatWindowOverlay(_chatWindowOverlay.Enabled);
+                ApplyNativeChatVisibility();
+                break;
             case PanelType.CombinedOverlay:
                 // 0.14.0: toggling combined-mode swaps which set of overlays
                 // is visible. ApplyCombinedOverlayMutualExclusion does the
@@ -357,6 +366,11 @@ public class BCHubUIManager : UIManagerBase
             EnsureQuickActionsOverlay();
             _quickActionsOverlay.SetActive(true);
         }
+        if (BloodCraftHub.Config.Settings.ShowChatWindowOverlay)
+        {
+            EnsureChatWindowOverlay();
+            _chatWindowOverlay.SetActive(true);
+        }
     }
 
     /// <summary>
@@ -416,6 +430,12 @@ public class BCHubUIManager : UIManagerBase
             EnsureQuickActionsOverlay();
             _quickActionsOverlay.SetActive(true);
         }
+        if (BloodCraftHub.Config.Settings.ShowChatWindowOverlay)
+        {
+            EnsureChatWindowOverlay();
+            _chatWindowOverlay.SetActive(true);
+        }
+        ApplyNativeChatVisibility();
         // 0.14.0: re-show combined overlay last, after the un-suppress walk
         // through individual overlays — ApplyCombinedOverlayMutualExclusion
         // will hide whichever individuals it conflicts with.
@@ -432,6 +452,7 @@ public class BCHubUIManager : UIManagerBase
         PanelType.ProfessionOverlay      => _professionOverlay?.Enabled ?? false,
         PanelType.ShiftSpellOverlay      => _shiftSpellOverlay?.Enabled ?? false,
         PanelType.QuickActionsOverlay    => _quickActionsOverlay?.Enabled ?? false,
+        PanelType.ChatWindowOverlay      => _chatWindowOverlay?.Enabled ?? false,
         PanelType.CombinedOverlay        => _combinedOverlay?.Enabled ?? false,
         _ => false,
     };
@@ -500,6 +521,86 @@ public class BCHubUIManager : UIManagerBase
         _quickActionsOverlay.SetActive(false);
     }
 
+    private void EnsureChatWindowOverlay()
+    {
+        if (_chatWindowOverlay != null) return;
+        _chatWindowOverlay = new ChatWindowOverlayPanel(UiBase);
+        _panels.Add(_chatWindowOverlay);
+        _chatWindowOverlay.SetActive(false);
+    }
+
+    // 0.17: let the Game UI customization toggles re-render the live chat window.
+    public void RefreshChatWindowOverlay() => _chatWindowOverlay?.Refresh();
+
+    // 0.17 (2c): replace the game's chat with the tabbed window. When the tabbed
+    // chat window is open AND Settings.HideNativeChat is on, hide the native chat
+    // by zeroing its ContentCanvasGroup (alpha + raycasts + interactable). This
+    // keeps the native ClientChatSystem RUNNING — so our FormatFullChatMessage
+    // capture of other players' messages keeps working — while the native UI is
+    // invisible and non-interactive. Restored when the tabbed window closes or
+    // the setting is off, so there's always a chat available.
+    private bool _nativeHidden;
+
+    // True while the tabbed chat window is taking over (open + HideNativeChat on).
+    public bool IsNativeChatHideActive()
+        => (_chatWindowOverlay?.Enabled ?? false) && BloodCraftHub.Config.Settings.HideNativeChat;
+
+    // Focus the tabbed chat window's input — the divert target for the chat-open key.
+    public void FocusChatInput() => _chatWindowOverlay?.FocusInput();
+
+    // 0.17.0 escape hatch: force-release our chat input (Escape). Clears focus +
+    // ChatInputActive so suppressed gameplay/menu input is restored — the user can
+    // never be trapped focused (e.g. in the coffin).
+    public void ReleaseChatInput() => _chatWindowOverlay?.ReleaseInput();
+
+    // Diagnostic: is the native chat window currently focused?
+    public bool IsNativeChatFocused()
+    {
+        try { return _nativeChat != null && _nativeChat.IsChatFocused; }
+        catch { return false; }
+    }
+
+    // 0.17.0: is OUR tabbed-chat input currently focused? Polled each frame to
+    // drive InputSuppression.ChatInputActive, so suppression reflects reality.
+    public bool IsChatInputFocused()
+        => (_chatWindowOverlay?.Enabled ?? false) && (_chatWindowOverlay?.IsInputFocused() ?? false);
+
+    public void ApplyNativeChatVisibility()
+    {
+        try
+        {
+            bool hide = IsNativeChatHideActive();
+            if (!hide && !_nativeHidden) return; // not hiding and wasn't — nothing to do
+
+            if (_nativeChat == null)
+                _nativeChat = UnityEngine.Object.FindObjectOfType<ProjectM.UI.HUDChatWindow>();
+            if (_nativeChat == null) return;
+
+            var cg = _nativeChat.ContentCanvasGroup;
+            if (cg != null)
+            {
+                cg.alpha          = hide ? 0f : 1f;
+                cg.blocksRaycasts = !hide;
+                // NEVER set interactable=false here: doing so trapped the native
+                // chat in a focused-but-uncloseable state and froze ALL game input.
+                // Focus is prevented via the SetFocused prefix + the force-unfocus
+                // safety net below instead.
+            }
+
+            // Freeze-safety net: if the native chat is somehow focused while we're
+            // taking over, force it unfocused so V Rising's ChatInputFocused flag
+            // can't stay stuck (the cause of the movement/actions/menus freeze).
+            if (hide && _nativeChat.IsChatFocused)
+                _nativeChat.SetFocused(false);
+
+            _nativeHidden = hide;
+        }
+        catch (System.Exception ex)
+        {
+            BloodCraftHub.Utils.LogUtils.LogDebug($"ApplyNativeChatVisibility: {ex.Message}");
+        }
+    }
+
     private void EnsureCombinedOverlay()
     {
         if (_combinedOverlay != null) return;
@@ -535,10 +636,15 @@ public class BCHubUIManager : UIManagerBase
         _professionOverlay?.RefreshOpacity();
         _shiftSpellOverlay?.RefreshOpacity();
         _quickActionsOverlay?.RefreshOpacity();
+        _chatWindowOverlay?.RefreshOpacity();   // 0.17.0: chat window honors its transparency live
         _combinedOverlay?.RefreshOpacity();
         _mainPanel?.RefreshOpacity();
         _floatingButton?.RefreshOpacity();
     }
+
+    // 0.17.0: re-apply just the chat window's own background theme color (used by
+    // the Game UI chat color picker so the change shows immediately).
+    public void RefreshChatWindowBackground() => _chatWindowOverlay?.RefreshBackgroundColor();
 
     /// <summary>0.12.0: push the user's Settings.PanelBackgroundColor
     /// (RGB only — alpha is owned by the transparency settings) onto every
@@ -555,6 +661,7 @@ public class BCHubUIManager : UIManagerBase
         _professionOverlay?.RefreshBackgroundColor();
         _shiftSpellOverlay?.RefreshBackgroundColor();
         _quickActionsOverlay?.RefreshBackgroundColor();
+        _chatWindowOverlay?.RefreshBackgroundColor();
         _combinedOverlay?.RefreshBackgroundColor();
         // Floating button intentionally excluded — it's a single-button
         // strip without a chrome backdrop the user would want themed.
@@ -659,6 +766,7 @@ public class BCHubUIManager : UIManagerBase
         RebuildOverlay(ref _professionOverlay,      !combined && BloodCraftHub.Config.Settings.ShowProfessionOverlay, b => new ProfessionOverlayPanel(b));
         RebuildOverlay(ref _shiftSpellOverlay,      BloodCraftHub.Config.Settings.ShowShiftSpellOverlay,              b => new ShiftSpellOverlayPanel(b));
         RebuildOverlay(ref _quickActionsOverlay,    BloodCraftHub.Config.Settings.ShowQuickActionsOverlay,            b => new QuickActionsOverlayPanel(b));
+        RebuildOverlay(ref _chatWindowOverlay,      BloodCraftHub.Config.Settings.ShowChatWindowOverlay,              b => new ChatWindowOverlayPanel(b));
         // 0.14.0: combined overlay is now part of the rebuild so its text
         // scale changes when the user toggles overlay text size. Pre-fix
         // the panel's labels stayed at construct-time font size because

@@ -453,7 +453,8 @@ public static class EclipseProtocolService
             && bool.TryParse(parts[7], out bool extraRecipes) && extraRecipes)
         {
             int primalHash = parts.Length > 8 ? PlayerStateService.ParseInt(parts[8]) : 0;
-            RecipeService.ApplyOnce(new Stunlock.Core.PrefabGUID(primalHash));
+            // 0.16.1: defer off this (login-critical) frame — see RecipeService.ScheduleApply.
+            RecipeService.ScheduleApply(new Stunlock.Core.PrefabGUID(primalHash));
         }
     }
 

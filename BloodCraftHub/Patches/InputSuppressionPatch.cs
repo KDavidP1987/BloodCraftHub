@@ -42,10 +42,33 @@ internal static class InputSuppression
 {
     private static double _lastDiagAt;
 
+    // 0.17: set true by the tabbed chat window's input field while it has focus,
+    // so gameplay input (movement / abilities / menu hotkeys) is suppressed while
+    // you type — independent of the SuppressGameInputWhileUIOpen setting, since
+    // you never want to move mid-type.
+    internal static bool ChatInputActive;
+
+    // 0.17.0 (fix): poll the chat-input focus EVERY frame from CoreUpdateBehavior,
+    // not from ClientChatSystem.OnUpdate. That system doesn't reliably tick every
+    // frame, so the flag went stale and menu hotkeys (M/B/I/…) leaked through
+    // mid-typing (friend-test). The Escape hatch lives here too so it fires on a
+    // guaranteed cadence. Registered once in Plugin.Load.
+    internal static void TickChatFocus()
+    {
+        try
+        {
+            ChatInputActive = Plugin.UIManager?.IsChatInputFocused() ?? false;
+            if (ChatInputActive && UnityEngine.Input.GetKeyDown(UnityEngine.KeyCode.Escape))
+                Plugin.UIManager?.ReleaseChatInput();
+        }
+        catch { ChatInputActive = false; } // never let a poll error pin suppression on
+    }
+
     internal static bool ShouldBlock()
     {
         try
         {
+            if (ChatInputActive) return true;
             if (!Config.Settings.SuppressGameInputWhileUIOpen) return false;
             return Plugin.UIManager?.IsMainPanelOpen ?? false;
         }
@@ -54,6 +77,15 @@ internal static class InputSuppression
             return false;
         }
     }
+
+    // 0.17.0: menu-hotkey gate for MenuInputSystem + OpenHUDMenuSystem. While
+    // typing in chat we DO block the menu hotkeys (map = M, build = B, inventory,
+    // …) so keystrokes don't open menus behind the chat. That can't trap the
+    // player: ChatInputActive only stays true while our input is actually focused
+    // (polled from isFocused), and pressing Escape force-releases the chat input
+    // (ClientChatPatch.OnUpdate_Prefix) regardless of which systems are blocked,
+    // since it reads the raw Escape key. So this is just ShouldBlock.
+    internal static bool ShouldBlockMenus() => ShouldBlock();
 
     internal static void Diag(string msg)
     {
@@ -174,7 +206,8 @@ public static class MenuInputSuppressionPatch
     {
         try
         {
-            if (!InputSuppression.ShouldBlock()) return true;
+            // ShouldBlockMenus (NOT ShouldBlock): chat typing must not block menus/escape.
+            if (!InputSuppression.ShouldBlockMenus()) return true;
             InputSuppression.Diag("blocking MenuInputSystem.OnUpdate (panel open).");
             return false;
         }
@@ -216,7 +249,8 @@ public static class OpenHUDMenuSuppressionPatch
     {
         try
         {
-            if (!InputSuppression.ShouldBlock()) return true;
+            // ShouldBlockMenus (NOT ShouldBlock): chat typing must not block menus/escape.
+            if (!InputSuppression.ShouldBlockMenus()) return true;
 
             // Drain pending menu-open requests so they don't fire on unblock.
             try
@@ -238,6 +272,31 @@ public static class OpenHUDMenuSuppressionPatch
             }
 
             InputSuppression.Diag("blocking OpenHUDMenuSystem.OnUpdate + draining OpenMenuEvent/GoToHUDMenu (panel open).");
+            return false;
+        }
+        catch
+        {
+            return true;
+        }
+    }
+}
+
+// 0.17.0: the radial Action Wheel is its OWN system, NOT routed through
+// OpenHUDMenuSystem, so it slipped past the menu block and opened while typing in
+// chat (friend-test: a modifier key — e.g. Ctrl, which the user wants free for
+// Ctrl+A select-all in the field — popped this wheel). Skip its OnUpdate while the
+// menu block is active so the wheel can't open mid-type. Safe: when not blocking it
+// runs normally; any exception falls through to running the original.
+[HarmonyPatch(typeof(ActionWheelSystem), nameof(ActionWheelSystem.OnUpdate))]
+public static class ActionWheelSuppressionPatch
+{
+    [HarmonyPrefix]
+    private static bool Prefix()
+    {
+        try
+        {
+            if (!InputSuppression.ShouldBlockMenus()) return true;
+            InputSuppression.Diag("blocking ActionWheelSystem.OnUpdate (typing/panel open).");
             return false;
         }
         catch

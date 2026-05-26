@@ -55,6 +55,13 @@ public static class UICanvasSystemPatch
         catch { /* never let a cosmetic layering tweak disrupt the game's canvas update */ }
     }
 
+    // 0.17: menu children that should NOT push BCH overlays behind — the coffin
+    // (its child is named "SpawnMenu") and the full-screen darkening
+    // ("FullscreenMenu"). In those states you can still chat / use overlays
+    // (like the native chat), so overlays must stay on top + clickable. Inventory
+    // / character / map / build menus have their own names and still push behind.
+    private static readonly string[] _keepOverlaysOnTopFor = { "SpawnMenu", "FullscreenMenu" };
+
     private static bool IsAnyMenuOpen(UICanvasBase canvas)
     {
         if (canvas == null) return false;
@@ -63,8 +70,19 @@ public static class UICanvasSystemPatch
         for (int i = 0; i < parent.childCount; i++)
         {
             var child = parent.GetChild(i);
-            if (child != null && child.gameObject.activeSelf) return true;
+            if (child == null || !child.gameObject.activeSelf) continue;
+            if (IsKeepOnTop(child.gameObject.name)) continue; // coffin / fullscreen — keep overlays usable
+            return true;
         }
+        return false;
+    }
+
+    private static bool IsKeepOnTop(string childName)
+    {
+        if (string.IsNullOrEmpty(childName)) return false;
+        for (int i = 0; i < _keepOverlaysOnTopFor.Length; i++)
+            if (childName.StartsWith(_keepOverlaysOnTopFor[i], System.StringComparison.OrdinalIgnoreCase))
+                return true;
         return false;
     }
 
