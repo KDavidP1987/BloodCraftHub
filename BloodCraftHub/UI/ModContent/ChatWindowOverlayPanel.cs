@@ -175,6 +175,14 @@ public class ChatWindowOverlayPanel : ResizeablePanelBase
             UIFactory.SetLayoutElement(btn.GameObject,
                 minWidth: 36, preferredWidth: 60, flexibleWidth: 1,
                 minHeight: 22, preferredHeight: 22, flexibleHeight: 0);
+            // 0.17.3: keep the label (incl. the unread badge "Clan (3)") on ONE line.
+            // At larger chat text it used to word-wrap to two lines and overlap the
+            // rows below; ellipsis truncates horizontally instead of spilling.
+            if (btn.ButtonText != null)
+            {
+                btn.ButtonText.enableWordWrapping = false;
+                btn.ButtonText.overflowMode = TextOverflowModes.Ellipsis;
+            }
             btn.OnClick = () =>
             {
                 _activeTab = idx;
@@ -329,6 +337,17 @@ public class ChatWindowOverlayPanel : ResizeablePanelBase
         }
         catch { /* never let chat rendering throw into the inbound pump */ }
     }
+
+    // 0.17.3: whether a channel is shown in the consolidated All tab (per settings).
+    private static bool AllTabIncludes(ChatRelayService.Channel c) => c switch
+    {
+        ChatRelayService.Channel.Global  => Settings.AllTabShowGlobal,
+        ChatRelayService.Channel.Local   => Settings.AllTabShowLocal,
+        ChatRelayService.Channel.Clan    => Settings.AllTabShowClan,
+        ChatRelayService.Channel.System  => Settings.AllTabShowSystem,
+        ChatRelayService.Channel.Whisper => Settings.AllTabShowWhisper,
+        _ => true,
+    };
 
     // The channel tab index for a captured line's channel, or -1 (All / unmapped).
     private static int TabIndexForChannel(ChatRelayService.Channel c)
@@ -651,6 +670,7 @@ public class ChatWindowOverlayPanel : ResizeablePanelBase
             "+ Whisper…", 12, OnWhisperPickerChanged, options.ToArray());
         UIFactory.SetLayoutElement(ddObj, minWidth: 104, preferredWidth: 140, flexibleWidth: 0,
             minHeight: 20, preferredHeight: 20, flexibleHeight: 0);
+        ApplyDropdownNoWrap(_whisperPicker); // 0.17.3: long names stay one line
         // Without this the dropdown never closes — TMP's own blocker doesn't fire in
         // our canvas, so the registry's per-frame outside-click check dismisses it.
         BloodCraftHub.UI.Forms.FormDropdownRegistry.Register(_whisperPicker);
@@ -676,7 +696,14 @@ public class ChatWindowOverlayPanel : ResizeablePanelBase
     {
         var btn = UIFactory.CreateButton(_whisperSubRow, $"WhisperSub_{label}", label);
         UIFactory.SetLayoutElement(btn.GameObject,
-            minWidth: 40, preferredWidth: 70, flexibleWidth: 1, minHeight: 20, preferredHeight: 20, flexibleHeight: 0);
+            minWidth: 40, preferredWidth: 90, flexibleWidth: 1, minHeight: 20, preferredHeight: 20, flexibleHeight: 0);
+        // 0.17.3: long partner names used to word-wrap inside the sub-tab cell and
+        // look odd — keep them on one line, truncating with an ellipsis instead.
+        if (btn.ButtonText != null)
+        {
+            btn.ButtonText.enableWordWrapping = false;
+            btn.ButtonText.overflowMode = TextOverflowModes.Ellipsis;
+        }
         btn.OnClick = () => { _activeWhisperPartner = partner; HighlightWhisperSubTabs(); Render(); };
         _whisperSubButtons.Add(btn);
         _whisperSubPartners.Add(partner);
@@ -787,9 +814,12 @@ public class ChatWindowOverlayPanel : ResizeablePanelBase
         int sel = Mathf.Clamp(_composeIndex, 0, options.Length - 1);
         var ddObj = UIFactory.CreateDropdown(_inputRow, "ComposeDropdown", out _composeDropdown,
             options[sel], 11, OnComposeChanged, options);
+        // 0.17.3: wider so a whisper target "@LongName" fits, and never word-wrap the
+        // caption or list items (long names used to wrap inside the cell and look odd).
         UIFactory.SetLayoutElement(ddObj,
-            minWidth: 64, preferredWidth: 80, flexibleWidth: 0,
+            minWidth: 80, preferredWidth: 116, flexibleWidth: 0,
             minHeight: 24, preferredHeight: 24, flexibleHeight: 0);
+        ApplyDropdownNoWrap(_composeDropdown);
         ddObj.transform.SetSiblingIndex(0); // leftmost — before the input field + Send
         _composeDropdownObj = ddObj;
         _composeDropdown.SetValueWithoutNotify(sel);
@@ -799,6 +829,19 @@ public class ChatWindowOverlayPanel : ResizeablePanelBase
     }
 
     private void OnComposeChanged(int i) { if (i >= 0 && i < _composeTargets.Count) _composeIndex = i; }
+
+    // 0.17.3: keep a dropdown's caption + list items on ONE line (ellipsis), so a long
+    // whisper target / player name doesn't word-wrap inside the cell and look odd.
+    private static void ApplyDropdownNoWrap(TMP_Dropdown dd)
+    {
+        try
+        {
+            if (dd == null) return;
+            if (dd.captionText != null) { dd.captionText.enableWordWrapping = false; dd.captionText.overflowMode = TextOverflowModes.Ellipsis; }
+            if (dd.itemText != null)    { dd.itemText.enableWordWrapping    = false; dd.itemText.overflowMode    = TextOverflowModes.Ellipsis; }
+        }
+        catch { }
+    }
 
     // Tab cycles the compose target (Global → Local → [Clan] → whisper partners → …).
     // Does NOT re-resolve the target list here — that's done when the row is built —
@@ -860,6 +903,9 @@ public class ChatWindowOverlayPanel : ResizeablePanelBase
         {
             var ln = buf[i];
             if (filter.HasValue && ln.Channel != filter.Value) continue;
+            // 0.17.3: All-tab per-channel filter (settings). Excluded channels are
+            // hidden from the All aggregate; each channel's own tab is unaffected.
+            if (!filter.HasValue && !AllTabIncludes(ln.Channel)) continue;
             if (whisperPartnerFilter && ln.Partner != _activeWhisperPartner) continue;
             line.Clear();
             if (showTime) line.Append("<color=#808080>").Append(ln.Received.ToString("HH:mm")).Append("</color> ");

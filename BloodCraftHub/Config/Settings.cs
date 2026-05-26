@@ -604,6 +604,19 @@ public class Settings
     // Global color, Local in its blue, Clan green, etc.). The All tab stays neutral.
     public static bool ChatColorTabs => (ConfigEntries[nameof(ChatColorTabs)] as ConfigEntry<bool>)?.Value ?? true;
     public static void SetChatColorTabs(bool v) => SetBool(nameof(ChatColorTabs), v);
+    // 0.17.3: per-channel inclusion in the consolidated "All" tab. All default TRUE
+    // (All shows everything, as before). Uncheck one to hide that channel from the
+    // All aggregate only — its own dedicated tab is unaffected.
+    public static bool AllTabShowGlobal  => (ConfigEntries[nameof(AllTabShowGlobal)]  as ConfigEntry<bool>)?.Value ?? true;
+    public static void SetAllTabShowGlobal(bool v)  => SetBool(nameof(AllTabShowGlobal), v);
+    public static bool AllTabShowLocal   => (ConfigEntries[nameof(AllTabShowLocal)]   as ConfigEntry<bool>)?.Value ?? true;
+    public static void SetAllTabShowLocal(bool v)   => SetBool(nameof(AllTabShowLocal), v);
+    public static bool AllTabShowClan    => (ConfigEntries[nameof(AllTabShowClan)]    as ConfigEntry<bool>)?.Value ?? true;
+    public static void SetAllTabShowClan(bool v)    => SetBool(nameof(AllTabShowClan), v);
+    public static bool AllTabShowSystem  => (ConfigEntries[nameof(AllTabShowSystem)]  as ConfigEntry<bool>)?.Value ?? true;
+    public static void SetAllTabShowSystem(bool v)  => SetBool(nameof(AllTabShowSystem), v);
+    public static bool AllTabShowWhisper => (ConfigEntries[nameof(AllTabShowWhisper)] as ConfigEntry<bool>)?.Value ?? true;
+    public static void SetAllTabShowWhisper(bool v) => SetBool(nameof(AllTabShowWhisper), v);
     // 0.17.0: configurable color for the GLOBAL channel (label tag + tab). Global
     // had no distinct color before (rendered plain white); default is a warm coral
     // that stands apart from Local-blue / Clan-green / System-gold / Whisper-pink.
@@ -924,6 +937,11 @@ public class Settings
         InitConfigEntry(OVERLAY_SETTINGS_GROUP, nameof(ChatColorTabs),                true,  "Tabbed chat: tint each channel tab's label in that channel's color (Global / Local / Clan / System / Whispers). The All tab stays neutral. Off = all tab labels use the default text color.");
         InitConfigEntry(OVERLAY_SETTINGS_GROUP, nameof(ChatGlobalColorHex),           DEFAULT_CHAT_GLOBAL_HEX, "Tabbed chat: color for the Global channel — used for its [G]/[Global] label tag AND its tab when 'Color tabs by channel' is on. Hex string (e.g. #FF8A5B coral default, #FFFFFF white, #66CCFF blue). The other channels' colors are fixed (Local blue, Clan green, System gold, Whisper pink).");
         InitConfigEntry(OVERLAY_SETTINGS_GROUP, nameof(ChatWindowBackgroundColorHex), DEFAULT_PANEL_BG_HEX, "Tabbed chat window background theme color (independent of the main panel color). Hex string; same presets as Settings → Display panel color. Default #121212 near-black. Transparency is set separately by the chat window transparency control.");
+        InitConfigEntry(OVERLAY_SETTINGS_GROUP, nameof(AllTabShowGlobal),             true,  "Tabbed chat: include GLOBAL messages in the consolidated 'All' tab. Uncheck to hide Global from All (its own Global tab is unaffected).");
+        InitConfigEntry(OVERLAY_SETTINGS_GROUP, nameof(AllTabShowLocal),              true,  "Tabbed chat: include LOCAL messages in the 'All' tab. Uncheck to hide Local from All (its own Local tab is unaffected).");
+        InitConfigEntry(OVERLAY_SETTINGS_GROUP, nameof(AllTabShowClan),               true,  "Tabbed chat: include CLAN messages in the 'All' tab. Uncheck to hide Clan from All (its own Clan tab is unaffected).");
+        InitConfigEntry(OVERLAY_SETTINGS_GROUP, nameof(AllTabShowSystem),             true,  "Tabbed chat: include SYSTEM messages in the 'All' tab. Uncheck to hide system/server messages from All (its own System tab is unaffected).");
+        InitConfigEntry(OVERLAY_SETTINGS_GROUP, nameof(AllTabShowWhisper),            true,  "Tabbed chat: include WHISPERS in the 'All' tab. Uncheck to hide whispers from All (the Whispers tab is unaffected).");
         InitConfigEntry(OVERLAY_SETTINGS_GROUP, nameof(ShiftSpellOverlayShowDiagnostics), false, "Show the small italic 'pf/cg/si/end/srv' debug line under the Shift overlay's SHIFT label. Off by default; flip on if you need to debug why the cooldown isn't updating.");
         InitConfigEntry(OVERLAY_SETTINGS_GROUP, nameof(ShowShiftSpellIcon),               true,  "Show the slotted spell's actual icon on the Shift-spell overlay tile (like Eclipse). When off, the overlay shows the plain colored cooldown tile instead.");
         InitConfigEntry(OVERLAY_SETTINGS_GROUP, nameof(OverlaysBehindGameMenus),          true,  "When an in-game menu (inventory, character sheet, map, etc.) is open, drop BCH's overlays/panels BEHIND it instead of floating over the top. Set false to keep them always on top (the pre-0.16 behavior).");

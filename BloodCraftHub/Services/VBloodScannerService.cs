@@ -354,9 +354,12 @@ public static class VBloodScannerService
         if (localizedName.StartsWith(primalPrefix, StringComparison.OrdinalIgnoreCase))
         {
             string suffix = localizedName.Substring(primalPrefix.Length).Trim();
-            if (VBloodRegistry.Contains(suffix))
+            // 0.17.3: ResolveCanonical accepts exact registry names AND aliases
+            // (full in-game names like "Nibbles the Putrid Rat" → "Putrid Rat").
+            var resolvedPrimal = VBloodRegistry.ResolveCanonical(suffix);
+            if (resolvedPrimal != null)
             {
-                baseName = VBloodRegistry.CanonicalNameOf(suffix);
+                baseName = resolvedPrimal;
                 isPrimal = true;
                 return true;
             }
@@ -368,9 +371,12 @@ public static class VBloodScannerService
             }
             return false;
         }
-        if (VBloodRegistry.Contains(localizedName))
+        // 0.17.3: alias-aware match fixes the Putrid Rat miscapture — the box list
+        // carries "Nibbles the Putrid Rat" but the registry key is "Putrid Rat".
+        var resolved = VBloodRegistry.ResolveCanonical(localizedName);
+        if (resolved != null)
         {
-            baseName = VBloodRegistry.CanonicalNameOf(localizedName);
+            baseName = resolved;
             isPrimal = false;
             return true;
         }

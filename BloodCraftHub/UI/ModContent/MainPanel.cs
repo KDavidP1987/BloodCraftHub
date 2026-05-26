@@ -1542,6 +1542,16 @@ public partial class MainPanel : ResizeablePanelBase
             Config.Settings.ChatColorTabs,
             v => Config.Settings.SetChatColorTabs(v));
 
+        // 0.17.3: per-channel filter for the consolidated "All" tab. All default on
+        // (All shows everything). Unchecking a channel hides it from the All tab only
+        // — its own dedicated tab still shows it. AddChatOptionToggle re-renders live.
+        AddSectionHeading(chatCard, "Channels shown in the All tab");
+        AddChatOptionToggle(chatCard, "Global",   Config.Settings.AllTabShowGlobal,  v => Config.Settings.SetAllTabShowGlobal(v));
+        AddChatOptionToggle(chatCard, "Local",    Config.Settings.AllTabShowLocal,   v => Config.Settings.SetAllTabShowLocal(v));
+        AddChatOptionToggle(chatCard, "Clan",     Config.Settings.AllTabShowClan,    v => Config.Settings.SetAllTabShowClan(v));
+        AddChatOptionToggle(chatCard, "System",   Config.Settings.AllTabShowSystem,  v => Config.Settings.SetAllTabShowSystem(v));
+        AddChatOptionToggle(chatCard, "Whispers", Config.Settings.AllTabShowWhisper, v => Config.Settings.SetAllTabShowWhisper(v));
+
         // Global channel color — used for its [G]/[Global] label tag AND its tab
         // (when "Color tabs by channel" is on). The other channels have fixed
         // colors; Global previously rendered plain white.
@@ -7004,6 +7014,10 @@ public partial class MainPanel : ResizeablePanelBase
         ("Forest",  "#0A1A0B"),
         ("Indigo",  "#0E0A1F"),
         ("Crimson", "#3B0B0F"),
+        // 0.17.3: approximates V Rising's native tooltip/quest-box blue (the dark
+        // navy Eclipse's quest panel shows — Eclipse reuses the game's FakeTooltip
+        // prefab, so there's no literal value to copy; tune via the hex field).
+        ("Eclipse", "#16243F"),
     };
     private static readonly (string Label, string Hex)[] DefaultBrightPresets = new[]
     {
@@ -7014,6 +7028,7 @@ public partial class MainPanel : ResizeablePanelBase
         ("Forest",  "#2A6E2E"),  // moss green
         ("Indigo",  "#3D2D80"),  // royal indigo
         ("Crimson", "#A30000"),  // exactly Theme.Level1 — the pre-0.12.0 framework red
+        ("Eclipse", "#2B4A7A"),  // brighter twin of the quest-box navy
     };
 
     // "Current: #hex" label + Reset button row. Returns the TMP_Text so the

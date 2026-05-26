@@ -240,6 +240,32 @@ public static class VBloodRegistry
         return name;
     }
 
+    // 0.17.3: in-game display names that DON'T exactly equal a registry entry,
+    // mapped to their canonical registry name. The registry mirrors Bloodcraft's
+    // VBloodNamePrefabGuidMap keys (a short form for some units), but Bloodcraft's
+    // localized capture/box-list replies carry the FULL in-game name — so those
+    // captures silently failed to register. Reported case: the Putrid Rat is
+    // "Nibbles the Putrid Rat" in game but "Putrid Rat" in the registry, so a
+    // captured "Nibbles the Putrid Rat" never matched. Add aliases here as more
+    // discrepancies surface.
+    private static readonly Dictionary<string, string> _aliases =
+        new(System.StringComparer.OrdinalIgnoreCase)
+        {
+            { "Nibbles the Putrid Rat", "Putrid Rat" },
+        };
+
+    /// <summary>0.17.3: resolve an in-game display name to its canonical registry
+    /// name, accepting both exact registry names AND known aliases (full in-game
+    /// names that differ from the registry form). Returns null when unrecognized.</summary>
+    public static string ResolveCanonical(string ingameName)
+    {
+        if (string.IsNullOrEmpty(ingameName)) return null;
+        var n = ingameName.Trim();
+        if (_set.Contains(n)) return CanonicalNameOf(n);
+        if (_aliases.TryGetValue(n, out var canonical)) return canonical;
+        return null;
+    }
+
     /// <summary>0.10.2: page/region order key for the Location sort. Returns 99
     /// (sinks to bottom) for any name not in the map — defensive, the static
     /// list should cover every entry in <see cref="All"/>.</summary>
