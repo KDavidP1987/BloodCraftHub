@@ -4,6 +4,7 @@ using BloodCraftHub.Utils;
 using Il2CppInterop.Runtime;
 using ProjectM;
 using ProjectM.Network;
+using Stunlock.Core;
 using Unity.Collections;
 using Unity.Entities;
 
@@ -32,8 +33,6 @@ internal static class PlayerRosterService
 
     private static EntityQuery _userQuery;
     private static bool _queryReady;
-    private static EntityQuery _userInfoQuery;
-    private static bool _userInfoQueryReady;
 
     // Online players (excluding self), sorted by name. Prefers the full (non-culled)
     // UserInfoElement roster; falls back to the nearby-only User query. Best-effort:
@@ -46,6 +45,10 @@ internal static class PlayerRosterService
     }
 
     // 0.17.3 (#38): the full connected-player roster from the UserInfoElement buffer.
+    // The buffer lives on the UserInfoBufferSingleton entity, which V Rising parks on a
+    // DISABLED entity — a plain CreateEntityQuery skips disabled entities (we saw
+    // singletonEntities=0 in-game). The game's own Stunlock.Core.SingletonAccessor<T>
+    // queries with the right options, so we use it (the same call Bloodcraft uses).
     internal static List<PlayerRef> GetConnectedUsers()
     {
         var result = new List<PlayerRef>();
@@ -53,50 +56,41 @@ internal static class PlayerRosterService
         {
             if (Plugin.IsClientNull()) return result;
             var em = Plugin.EntityManager;
-            if (!_userInfoQueryReady)
-            {
-                _userInfoQuery = em.CreateEntityQuery(ComponentType.ReadOnly(Il2CppType.Of<UserInfoBufferSingleton>()));
-                _userInfoQueryReady = true;
-            }
 
             ulong selfPlatform = 0;
             try { selfPlatform = MessageService.LocalUser.Read<User>().PlatformId; } catch { /* leave 0 */ }
 
-            NativeArray<Entity> ents;
-            try { ents = _userInfoQuery.ToEntityArray(Allocator.Temp); }
-            catch { _userInfoQueryReady = false; return result; } // rebuild next time (world reload)
+            Entity singleton = Entity.Null;
+            bool found = false;
+            try { found = SingletonAccessor<UserInfoBufferSingleton>.TryGetSingletonEntityWasteful(em, out singleton); }
+            catch (Exception ex) { LogUtils.LogDebug($"GetConnectedUsers accessor: {ex.Message}"); }
 
-            int entCount = ents.Length, bufTotal = 0, connected = 0;
+            bool hasBuf = found && singleton != Entity.Null && em.HasBuffer<UserInfoElement>(singleton);
+            int bufTotal = 0, connected = 0;
             var sample = new List<string>();
-            try
+            if (hasBuf)
             {
+                var buf = em.GetBuffer<UserInfoElement>(singleton);
+                bufTotal = buf.Length;
                 var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-                foreach (var e in ents)
+                for (int i = 0; i < buf.Length; i++)
                 {
-                    if (!em.HasBuffer<UserInfoElement>(e)) continue;
-                    var buf = em.GetBuffer<UserInfoElement>(e);
-                    bufTotal += buf.Length;
-                    for (int i = 0; i < buf.Length; i++)
-                    {
-                        var ui = buf[i];
-                        var nm = ui.Name.ToString();
-                        if (sample.Count < 16)
-                            sample.Add($"{(string.IsNullOrEmpty(nm) ? "<noname>" : nm)}[conn={ui.IsConnected}]");
-                        if (!ui.IsConnected) continue;
-                        connected++;
-                        if (selfPlatform != 0 && ui.PlatformId == selfPlatform) continue; // skip self
-                        if (string.IsNullOrEmpty(nm) || !seen.Add(nm)) continue;
-                        result.Add(new PlayerRef(nm, ui.NetworkId));
-                    }
+                    var ui = buf[i];
+                    var nm = ui.Name.ToString();
+                    if (sample.Count < 16)
+                        sample.Add($"{(string.IsNullOrEmpty(nm) ? "<noname>" : nm)}[conn={ui.IsConnected}]");
+                    if (!ui.IsConnected) continue;
+                    connected++;
+                    if (selfPlatform != 0 && ui.PlatformId == selfPlatform) continue; // skip self
+                    if (string.IsNullOrEmpty(nm) || !seen.Add(nm)) continue;
+                    result.Add(new PlayerRef(nm, ui.NetworkId));
                 }
             }
-            finally { ents.Dispose(); }
 
             // One-line diagnostic (called on whisper actions, not per-frame): confirms
-            // whether the client actually carries the UserInfoElement roster. If
-            // entities=0 or buffer=0 in-game, the buffer isn't where we query it.
-            LogUtils.LogWarning($"[ChatRoster] UserInfoElement: singletonEntities={entCount}, bufferElems={bufTotal}, " +
-                $"connected={connected} -> roster={result.Count}. sample: {string.Join(", ", sample)}");
+            // whether the client carries the UserInfoElement roster via the accessor.
+            LogUtils.LogWarning($"[ChatRoster] UserInfoElement (accessor): foundEntity={found}, hasBuffer={hasBuf}, " +
+                $"bufferElems={bufTotal}, connected={connected} -> roster={result.Count}. sample: {string.Join(", ", sample)}");
         }
         catch (Exception ex)
         {

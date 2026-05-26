@@ -1352,8 +1352,16 @@ public class ChatWindowOverlayPanel : ResizeablePanelBase
         if (!Settings.ChatDoubleClickNameWhisper) { line.Append(sender); return; }
         string plain = StripRichTags(sender).Replace("\"", string.Empty).Trim();
         if (string.IsNullOrEmpty(plain)) { line.Append(sender); return; }
-        line.Append("<link=\"").Append(plain).Append("\">").Append(sender).Append("</link>");
+        // Style clickable names like a hyperlink — underlined + "link blue" — so it's
+        // obvious a double-click whispers them. We render the PLAIN name (the game's own
+        // color is dropped here on purpose) so our color actually takes effect rather
+        // than being overridden by a nested color tag. Link ID is the plain name.
+        line.Append("<link=\"").Append(plain).Append("\"><u><color=").Append(WhisperLinkColorHex).Append(">")
+            .Append(plain).Append("</color></u></link>");
     }
+
+    // "Link blue" for clickable (double-click-to-whisper) names in the chat log.
+    private const string WhisperLinkColorHex = "#7FB6FF";
 
     // Strip TMP rich-text tags (<...>) to recover a plain name for matching/link IDs.
     private static string StripRichTags(string s)
