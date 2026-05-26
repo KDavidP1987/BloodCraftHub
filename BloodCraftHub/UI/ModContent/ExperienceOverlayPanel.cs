@@ -525,6 +525,9 @@ public class ExperienceOverlayPanel : ResizeablePanelBase
         string label = e.Prestige > 0
             ? $"Weapon: {e.Type}  Lv {e.Level} ({e.Progress * 100f:0.#}%)   Pr {e.Prestige}"
             : $"Weapon: {e.Type}  Lv {e.Level} ({e.Progress * 100f:0.#}%)";
+        // 0.17.3: you have expertise but haven't chosen its bonus stats — free damage.
+        if (Services.ProgressionHints.ExpertiseStatsMissing())
+            label += "  " + Services.ProgressionHints.Colored("⚔ pick stats");
         _weaponLabel.TextMesh.text = label;
 
         // 0.14.0 friend-test v2: per-system bar toggle controls both standalone + combined.
@@ -569,6 +572,9 @@ public class ExperienceOverlayPanel : ResizeablePanelBase
         string label = l.Prestige > 0
             ? $"Legacy: {l.Type}  Lv {l.Level} ({l.Progress * 100f:0.#}%)   Pr {l.Prestige}"
             : $"Legacy: {l.Type}  Lv {l.Level} ({l.Progress * 100f:0.#}%)";
+        // 0.17.3: legacy is leveling but its bonus stats aren't chosen — free power.
+        if (Services.ProgressionHints.LegacyStatsMissing())
+            label += "  " + Services.ProgressionHints.Colored("⚔ pick stats");
         _legacyLabel.TextMesh.text = label;
 
         // 0.14.0 friend-test v2: per-system bar toggle.
@@ -868,7 +874,11 @@ public class ExperienceOverlayPanel : ResizeablePanelBase
         _levelLabel.TextMesh.text = levelText;
 
         _progressLabel.TextMesh.text = $"XP {(s.Progress * 100f):0.#}%";
-        _classLabel.TextMesh.text    = $"Class: {s.Class}";
+        // 0.17.3: nudge new players to pick a class (free power). ClassMissing() already
+        // checks the hint setting + that the server has the Class system enabled.
+        _classLabel.TextMesh.text = Services.ProgressionHints.ClassMissing()
+            ? $"Class: None  {Services.ProgressionHints.Colored("⚔ pick one")}"
+            : $"Class: {s.Class}";
 
         // 0.9.2 / 0.14.0: progress-bar visibility + fill. Per-system XP bar
         // flag (unified between standalone and combined overlay).

@@ -661,7 +661,9 @@ public class CombinedOverlayPanel : ResizeablePanelBase
         // helper the standalone Wep tab uses (MainPanel:3286).
         var stats = PlayerStateService.DecodeWeaponBonusStats(s.BonusStatsRaw);
         _wepStatsLine.text = (stats == null || stats.Count == 0)
-            ? "Stats: (none chosen)"
+            ? (Services.ProgressionHints.ExpertiseStatsMissing()
+                ? Services.ProgressionHints.Colored("Stats: none — ⚔ pick for free damage")
+                : "Stats: (none chosen)")
             : $"Stats: {string.Join(", ", stats)}";
         SyncBar(_wepBar, _wepBarFill, s.Progress, Settings.ShowProgressBarExpertise);
 
@@ -693,7 +695,9 @@ public class CombinedOverlayPanel : ResizeablePanelBase
         // 0.14.0 friend-test: decode same as Expertise above.
         var stats = PlayerStateService.DecodeBloodBonusStats(s.BonusStatsRaw);
         _blStatsLine.text = (stats == null || stats.Count == 0)
-            ? "Stats: (none chosen)"
+            ? (Services.ProgressionHints.LegacyStatsMissing()
+                ? Services.ProgressionHints.Colored("Stats: none — ⚔ pick for free power")
+                : "Stats: (none chosen)")
             : $"Stats: {string.Join(", ", stats)}";
         SyncBar(_blBar, _blBarFill, s.Progress, Settings.ShowProgressBarLegacy);
 

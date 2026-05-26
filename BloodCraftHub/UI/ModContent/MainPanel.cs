@@ -99,6 +99,11 @@ public partial class MainPanel : ResizeablePanelBase
     // Class-tab live labels
     private TextMeshProUGUI _classNameLabel;
     private TextMeshProUGUI _classLevelLabel;
+    // 0.17.3: "you're missing this element (free power)" nudge labels, one per page.
+    // Updated in RenderClass / RenderExpertise / RenderBloodLegacy via ProgressionHints.
+    private TextMeshProUGUI _classHintLabel;
+    private TextMeshProUGUI _wepHintLabel;
+    private TextMeshProUGUI _blHintLabel;
     // 0.13.0: class-details body in the Active Class card. Re-rendered on
     // class change via RenderClass → FormatClassDetailsBlock.
     private TextMeshProUGUI _classDetailsLabel;
@@ -1550,6 +1555,9 @@ public partial class MainPanel : ResizeablePanelBase
         AddChatOptionToggle(chatCard, "Double-click a name in chat to whisper them",
             Config.Settings.ChatDoubleClickNameWhisper,
             v => Config.Settings.SetChatDoubleClickNameWhisper(v));
+        AddChatOptionToggle(chatCard, "Show \"missing class / expertise / legacy — free power\" hints (Class, Weapon, Blood pages + overlays)",
+            Config.Settings.ShowMissingElementHints,
+            v => Config.Settings.SetShowMissingElementHints(v));
 
         // 0.17.3: per-channel filter for the consolidated "All" tab. All default on
         // (All shows everything). Unchecking a channel hides it from the All tab only
@@ -2470,6 +2478,10 @@ public partial class MainPanel : ResizeablePanelBase
         AddSectionHeading(currentCard, "Active Class");
         _classNameLabel  = AddInfoLabel(currentCard, "ClassName",  "—",       FontStyles.Bold,   fontSize: Theme.ScaledUI(18));
         _classLevelLabel = AddInfoLabel(currentCard, "ClassLevel", "Level —", FontStyles.Normal, fontSize: Theme.ScaledUI(14));
+        // 0.17.3: missing-class nudge (hidden unless no class is selected + the hint
+        // setting is on + the server has the Class system enabled). Set in RenderClass.
+        _classHintLabel  = AddInfoLabel(currentCard, "ClassHint", string.Empty, FontStyles.Italic, fontSize: Theme.ScaledUI(13));
+        _classHintLabel.gameObject.SetActive(false);
 
         // 0.13.0: live class-details block — archetype + tagline + weapon
         // synergies + blood synergies + on-hit debuff. Replaces nothing —
@@ -2585,6 +2597,18 @@ public partial class MainPanel : ResizeablePanelBase
             _wepClassSynergyLabel.text = FormatClassWeaponSynergyHint(s.Class);
         if (_blClassSynergyLabel != null)
             _blClassSynergyLabel.text = FormatClassBloodSynergyHint(s.Class);
+
+        UpdateMissingHint(_classHintLabel, Services.ProgressionHints.ClassHint());
+    }
+
+    // 0.17.3: show/hide a "missing element — free power" nudge label. Hidden entirely
+    // (no empty row) when there's nothing to show or the hint setting is off.
+    private static void UpdateMissingHint(TextMeshProUGUI label, string hintMarkup)
+    {
+        if (label == null) return;
+        bool show = !string.IsNullOrEmpty(hintMarkup);
+        if (show) label.text = hintMarkup;
+        if (label.gameObject.activeSelf != show) label.gameObject.SetActive(show);
     }
 
     // 0.13.0: shared Bloodcraft class data — single source of truth used by
@@ -3412,6 +3436,9 @@ public partial class MainPanel : ResizeablePanelBase
         _wepTypeLabel     = AddInfoLabel(currentCard, "WepType",     "—",                  FontStyles.Bold,   fontSize: Theme.ScaledUI(18));
         _wepProgressLabel = AddInfoLabel(currentCard, "WepProgress", "Level —",            FontStyles.Normal, fontSize: Theme.ScaledUI(14));
         _wepBonusLabel    = AddInfoLabel(currentCard, "WepBonus",    "Bonus Stats: —",     FontStyles.Normal, fontSize: Theme.ScaledUI(13));
+        // 0.17.3: missing-expertise-stats nudge (set in RenderExpertise; hidden otherwise).
+        _wepHintLabel     = AddInfoLabel(currentCard, "WepHint", string.Empty, FontStyles.Italic, fontSize: Theme.ScaledUI(13));
+        _wepHintLabel.gameObject.SetActive(false);
         _wepStatsValuesLabel = AddInfoLabel(currentCard, "WepStatsValues", "", FontStyles.Italic, fontSize: Theme.ScaledUI(12));
         _wepStatsValuesLabel.gameObject.SetActive(false);
         _wepStatsValuesLabel.enableWordWrapping = true;
@@ -3583,6 +3610,9 @@ public partial class MainPanel : ResizeablePanelBase
         ApplyStrongAccentOutline(_blTypeLabel);
         _blProgressLabel = AddInfoLabel(currentCard, "BlProgress", "Level —",            FontStyles.Normal, fontSize: Theme.ScaledUI(14));
         _blBonusLabel    = AddInfoLabel(currentCard, "BlBonus",    "Bonus Stats: —",     FontStyles.Normal, fontSize: Theme.ScaledUI(13));
+        // 0.17.3: missing-legacy-stats nudge (set in RenderBloodLegacy; hidden otherwise).
+        _blHintLabel     = AddInfoLabel(currentCard, "BlHint", string.Empty, FontStyles.Italic, fontSize: Theme.ScaledUI(13));
+        _blHintLabel.gameObject.SetActive(false);
         _blStatsValuesLabel = AddInfoLabel(currentCard, "BlStatsValues", "", FontStyles.Italic, fontSize: Theme.ScaledUI(12));
         _blStatsValuesLabel.gameObject.SetActive(false);
         ApplyStrongAccentOutline(_blStatsValuesLabel);
@@ -3817,6 +3847,8 @@ public partial class MainPanel : ResizeablePanelBase
         _blBonusLabel.text = named.Count > 0
             ? $"Bonus Stats: {string.Join(", ", named)}"
             : "Bonus Stats: (none yet — use the form below to choose)";
+
+        UpdateMissingHint(_blHintLabel, Services.ProgressionHints.LegacyHint());
     }
 
     // -----------------------------------------------------------------------
@@ -7875,6 +7907,8 @@ public partial class MainPanel : ResizeablePanelBase
                 ? $"Bonus Stats: {string.Join(", ", named)}"
                 : "Bonus Stats: (none yet)";
         }
+
+        UpdateMissingHint(_wepHintLabel, Services.ProgressionHints.ExpertiseHint());
     }
 
     private void RenderFamiliar(PlayerStateService.FamiliarState s)

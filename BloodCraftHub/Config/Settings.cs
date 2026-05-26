@@ -619,6 +619,12 @@ public class Settings
     // the input). Default TRUE.
     public static bool ChatDoubleClickNameWhisper => (ConfigEntries[nameof(ChatDoubleClickNameWhisper)] as ConfigEntry<bool>)?.Value ?? true;
     public static void SetChatDoubleClickNameWhisper(bool v) => SetBool(nameof(ChatDoubleClickNameWhisper), v);
+    // 0.17.3: show a short "you're missing X (free power)" hint on the Class / Weapon
+    // Expertise / Blood Legacy pages + overlays when that element isn't set up yet. Helps
+    // new players; off for those who intentionally skip a system and don't want the nudge.
+    // Default TRUE. Only ever shown for systems the server actually has enabled.
+    public static bool ShowMissingElementHints => (ConfigEntries[nameof(ShowMissingElementHints)] as ConfigEntry<bool>)?.Value ?? true;
+    public static void SetShowMissingElementHints(bool v) => SetBool(nameof(ShowMissingElementHints), v);
     // 0.17.3: per-channel inclusion in the consolidated "All" tab. All default TRUE
     // (All shows everything, as before). Uncheck one to hide that channel from the
     // All aggregate only — its own dedicated tab is unaffected.
@@ -965,6 +971,7 @@ public class Settings
         InitConfigEntry(OVERLAY_SETTINGS_GROUP, nameof(ChatTabularLayout),             false, "Tabbed chat: render messages in aligned COLUMNS (time | channel + sender | message) with wrapped lines hanging-indented under the message column — cleaner for the mixed All tab. Off by default (free-flowing text). Best with timestamps + channel labels on.");
         InitConfigEntry(OVERLAY_SETTINGS_GROUP, nameof(ChatTabularSeparateChannelName), true,  "Tabbed chat (tabular layout only): put the channel label and the player name in SEPARATE columns (time | channel | name | message). Turn off to combine them into one column (time | channel+name | message). Default on.");
         InitConfigEntry(OVERLAY_SETTINGS_GROUP, nameof(ChatDoubleClickNameWhisper),    true,  "Tabbed chat: double-click a player's name in the chat log to start a whisper to them (jumps to the All tab with that whisper selected and focuses the input). Default on.");
+        InitConfigEntry(OVERLAY_SETTINGS_GROUP, nameof(ShowMissingElementHints),       true,  "Show a short 'you're missing this — free power' hint on the Class / Weapon Expertise / Blood Legacy pages and overlays when you haven't set that element up yet (no class chosen, or no expertise/legacy bonus stats picked). Helpful for new players; turn off if you intentionally skip a system. Only shown for systems your server has enabled.");
         InitConfigEntry(OVERLAY_SETTINGS_GROUP, nameof(ChatGlobalColorHex),           DEFAULT_CHAT_GLOBAL_HEX, "Tabbed chat: color for the Global channel — used for its [G]/[Global] label tag AND its tab when 'Color tabs by channel' is on. Hex string (e.g. #FF8A5B coral default, #FFFFFF white, #66CCFF blue). The other channels' colors are fixed (Local blue, Clan green, System gold, Whisper pink).");
         InitConfigEntry(OVERLAY_SETTINGS_GROUP, nameof(ChatWindowBackgroundColorHex), DEFAULT_PANEL_BG_HEX, "Tabbed chat window background theme color (independent of the main panel color). Hex string; same presets as Settings → Display panel color. Default #121212 near-black. Transparency is set separately by the chat window transparency control.");
         InitConfigEntry(OVERLAY_SETTINGS_GROUP, nameof(AllTabShowGlobal),             true,  "Tabbed chat: include GLOBAL messages in the consolidated 'All' tab. Uncheck to hide Global from All (its own Global tab is unaffected).");
