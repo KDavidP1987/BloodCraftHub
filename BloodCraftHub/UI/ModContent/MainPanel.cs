@@ -5195,7 +5195,7 @@ public partial class MainPanel : ResizeablePanelBase
 
         // ── Region 1 ─────────────────────────────────────────────────────
         AddGuideSection(page,
-            $"BloodCraftHub  v{MyPluginInfo.PLUGIN_VERSION}",
+            $"BloodCraftHub  v{MyPluginInfo.PLUGIN_VERSION}{(BloodCraftHub.Config.BuildVariant.IsTestVariant ? $"   [{BloodCraftHub.Config.BuildVariant.Tag}]" : string.Empty)}",
             "A unified CLIENT UI for the Bloodcraft suite of V Rising " +
             "server mods. Surfaces every Bloodcraft, KindredCommands, and " +
             "KindredLogistics chat command as buttons and forms — no more " +

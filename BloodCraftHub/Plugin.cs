@@ -187,17 +187,26 @@ public class Plugin : BasePlugin
     // no active [HarmonyPatch] targets, so they're intentionally absent here.
     private void ApplyPatches(Harmony h)
     {
+        // 0.17.2 crash-bisect TEST variants compile a constant that force-disables a
+        // group regardless of config (BloodCraftHub.Config.BuildVariant). Normal builds: all false.
+        if (BloodCraftHub.Config.BuildVariant.IsTestVariant)
+            Log.LogWarning($"*** BloodCraftHub CRASH-TEST VARIANT: {BloodCraftHub.Config.BuildVariant.Tag} — NOT a normal release; one patch group is compiled OFF. ***");
+
+        bool chat   = Settings.EnableChatSystemHooks        && !BloodCraftHub.Config.BuildVariant.ForceChatHooksOff;
+        bool input  = Settings.EnableInputSuppressionPatches && !BloodCraftHub.Config.BuildVariant.ForceInputSuppressionOff;
+        bool layer  = Settings.EnableOverlayLayeringPatch    && !BloodCraftHub.Config.BuildVariant.ForceOverlayLayeringOff;
+
         h.CreateClassProcessor(typeof(Patches.InitializationPatch)).Patch();
 
-        if (Settings.EnableChatSystemHooks)
+        if (chat)
         {
             h.CreateClassProcessor(typeof(Patches.ClientChatPatch)).Patch();
             Log.LogInfo("[compat] Chat-system patches APPLIED (inbound parsing + tabbed chat window).");
         }
         else
-            Log.LogWarning("[compat] Chat-system patches SKIPPED (EnableChatSystemHooks=false) — tabbed chat + command-reply parsing are DISABLED. Diagnostic setting; turn back on for normal use.");
+            Log.LogWarning("[compat] Chat-system patches SKIPPED — tabbed chat + command-reply parsing are DISABLED. Diagnostic; expected to be ON for normal use.");
 
-        if (Settings.EnableInputSuppressionPatches)
+        if (input)
         {
             h.CreateClassProcessor(typeof(Patches.GameplayInputSuppressionPatch)).Patch();
             h.CreateClassProcessor(typeof(Patches.AbilityInputSuppressionPatch)).Patch();
@@ -207,15 +216,15 @@ public class Plugin : BasePlugin
             Log.LogInfo("[compat] Input-suppression patches APPLIED (5 systems).");
         }
         else
-            Log.LogWarning("[compat] Input-suppression patches SKIPPED (EnableInputSuppressionPatches=false) — keystrokes may drive your character while typing. Diagnostic setting; turn back on for normal use.");
+            Log.LogWarning("[compat] Input-suppression patches SKIPPED — keystrokes may drive your character while typing. Diagnostic; expected to be ON for normal use.");
 
-        if (Settings.EnableOverlayLayeringPatch)
+        if (layer)
         {
             h.CreateClassProcessor(typeof(Patches.UICanvasSystemPatch)).Patch();
             Log.LogInfo("[compat] Overlay-layering patch APPLIED (overlays-behind-menus).");
         }
         else
-            Log.LogWarning("[compat] Overlay-layering patch SKIPPED (EnableOverlayLayeringPatch=false) — overlays always render on top. Diagnostic setting; turn back on for normal use.");
+            Log.LogWarning("[compat] Overlay-layering patch SKIPPED — overlays always render on top. Diagnostic; expected to be ON for normal use.");
     }
 
     /// <summary>Called from GameManagerPatch once the client World is available.</summary>
