@@ -125,6 +125,11 @@ public static partial class MessageService
             LogUtils.LogWarning($"EnqueueMessageSilent('{text}') ignored — character/user not bound yet.");
             return;
         }
+        // 0.17.1 EXPERIMENT: in Eclipse stand-down, suppress BCH's passive/auto
+        // silent traffic (bonus-stats refresh, V-blood auto-scan, tab auto-refresh,
+        // familiar probe) so BCH does no background Bloodcraft ECS work alongside
+        // Eclipse. User-clicked commands use EnqueueMessage and are unaffected.
+        if (EclipseProtocolService.StandDownForEclipse()) return;
         // 0.10.6: _nextCommandIsBchAuto replaces the prior
         // _suppressNextCaptureChat flag. The intercept arming reads this
         // and classifies the command as BchAuto category (rather than
