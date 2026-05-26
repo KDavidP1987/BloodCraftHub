@@ -388,42 +388,54 @@ public class BCHubUIManager : UIManagerBase
         // independent of combined-mode.
         // 0.15.0: feature-flag gating on each restore was reverted — see
         // ApplyServerFeatureFlagsToOverlays.
-        if (BloodCraftHub.Config.Settings.ShowCombinedOverlay)
+        // 0.17.1: when Eclipse is present, BCH stands down from its STREAM-DRIVEN
+        // stat overlays (XP / Familiar-active / Daily Quest / Professions / Shift /
+        // Combined) — Eclipse shows that live data, and BCH gets no stream in
+        // stand-down so these would be empty anyway. We only SKIP showing them; the
+        // user's saved Show* preference is untouched, so a later session WITHOUT
+        // Eclipse restores them. The Familiar Browser, Quick Actions (Kindred), and
+        // Chat Window overlays don't use the stream and stay available.
+        bool standDown = Services.EclipseProtocolService.StandDownForEclipse();
+        if (!standDown)
         {
-            ApplyCombinedOverlayMutualExclusion();
+            if (BloodCraftHub.Config.Settings.ShowCombinedOverlay)
+            {
+                ApplyCombinedOverlayMutualExclusion();
+            }
+            else
+            {
+                if (BloodCraftHub.Config.Settings.ShowExperienceOverlay)
+                {
+                    EnsureExperienceOverlay();
+                    _experienceOverlay.SetActive(true);
+                }
+                if (BloodCraftHub.Config.Settings.ShowFamiliarOverlay)
+                {
+                    EnsureFamiliarOverlay();
+                    _familiarOverlay.SetActive(true);
+                }
+                if (BloodCraftHub.Config.Settings.ShowDailyQuestOverlay)
+                {
+                    EnsureDailyQuestOverlay();
+                    _dailyQuestOverlay.SetActive(true);
+                }
+                if (BloodCraftHub.Config.Settings.ShowProfessionOverlay)
+                {
+                    EnsureProfessionOverlay();
+                    _professionOverlay.SetActive(true);
+                }
+            }
+            if (BloodCraftHub.Config.Settings.ShowShiftSpellOverlay)
+            {
+                EnsureShiftSpellOverlay();
+                _shiftSpellOverlay.SetActive(true);
+            }
         }
-        else
-        {
-            if (BloodCraftHub.Config.Settings.ShowExperienceOverlay)
-            {
-                EnsureExperienceOverlay();
-                _experienceOverlay.SetActive(true);
-            }
-            if (BloodCraftHub.Config.Settings.ShowFamiliarOverlay)
-            {
-                EnsureFamiliarOverlay();
-                _familiarOverlay.SetActive(true);
-            }
-            if (BloodCraftHub.Config.Settings.ShowDailyQuestOverlay)
-            {
-                EnsureDailyQuestOverlay();
-                _dailyQuestOverlay.SetActive(true);
-            }
-            if (BloodCraftHub.Config.Settings.ShowProfessionOverlay)
-            {
-                EnsureProfessionOverlay();
-                _professionOverlay.SetActive(true);
-            }
-        }
+        // Always-available overlays (no Bloodcraft stream → safe alongside Eclipse).
         if (BloodCraftHub.Config.Settings.ShowFamiliarBrowser)
         {
             EnsureFamiliarBrowserOverlay();
             _familiarBrowserOverlay.SetActive(true);
-        }
-        if (BloodCraftHub.Config.Settings.ShowShiftSpellOverlay)
-        {
-            EnsureShiftSpellOverlay();
-            _shiftSpellOverlay.SetActive(true);
         }
         if (BloodCraftHub.Config.Settings.ShowQuickActionsOverlay)
         {
@@ -439,7 +451,9 @@ public class BCHubUIManager : UIManagerBase
         // 0.14.0: re-show combined overlay last, after the un-suppress walk
         // through individual overlays — ApplyCombinedOverlayMutualExclusion
         // will hide whichever individuals it conflicts with.
-        if (BloodCraftHub.Config.Settings.ShowCombinedOverlay)
+        // 0.17.1: but not under Eclipse stand-down (the combined overlay is a
+        // stream-driven stat overlay — Eclipse shows that data).
+        if (BloodCraftHub.Config.Settings.ShowCombinedOverlay && !standDown)
             ApplyCombinedOverlayMutualExclusion();
     }
 

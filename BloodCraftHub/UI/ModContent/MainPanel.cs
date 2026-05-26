@@ -2733,7 +2733,10 @@ public partial class MainPanel : ResizeablePanelBase
         AddSectionHeading(headerCard, "V-Blood Collection");
         AddBodyText(headerCard,
             "One row per captured V-Blood variant (basic / shiny / primal / primal shiny). " +
-            $"Scan walks each of your familiar boxes once via {Mono(".fam boxes")} + {Mono(".fam l")} — your active box is restored when it finishes. " +
+            "This list fills in <b>passively</b> as you browse your familiar boxes (via the " +
+            "Familiar Browser or Boxes tab) — every box you open is recorded automatically. " +
+            $"<b>Scan all</b> walks <i>every</i> box once via {Mono(".fam boxes")} + {Mono(".fam l")} (restoring your active box afterward) " +
+            "to capture boxes you haven't visited and to reconcile any you've cleared out. " +
             "Filter shows All / Captured / Missing / Shiny only.");
 
         AddSpacer(page, 6);
