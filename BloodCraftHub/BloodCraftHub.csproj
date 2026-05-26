@@ -12,7 +12,7 @@
     <RootNamespace>BloodCraftHub</RootNamespace>
     <Authors>kdpen</Authors>
     <Description>Unified client UI for V Rising's Bloodcraft mod. Surfaces every Bloodcraft, KindredCommands, and KindredLogistics chat command as buttons + forms.</Description>
-    <Version>0.17.1</Version>
+    <Version>0.17.2</Version>
     <PackageId>$(Authors).$(AssemblyName)</PackageId>
     <PackageProjectUrl>https://github.com/KDavidP1987/BloodCraftHub</PackageProjectUrl>
 
@@ -56,6 +56,14 @@
 
   <PropertyGroup Condition=" '$(Configuration)' == 'Debug' ">
     <DebugType>Full</DebugType>
+  </PropertyGroup>
+
+  <!-- 0.17.2 crash-bisect TEST variants. Pass -p:CrashVariant=NOINPUT|NOCHAT|NOLAYER|NOPATCHES
+       to compile a build that HARD-disables one patch group regardless of the user's
+       config (see Config/BuildVariant.cs + tools/package-test-variants.ps1). Appends to
+       the existing defines; empty (a normal release) adds nothing. -->
+  <PropertyGroup Condition=" '$(CrashVariant)' != '' ">
+    <DefineConstants>$(DefineConstants);BCH_VARIANT_$(CrashVariant)</DefineConstants>
   </PropertyGroup>
 
   <Import Project="Manifest.props" />

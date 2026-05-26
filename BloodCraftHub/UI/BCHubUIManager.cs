@@ -384,6 +384,47 @@ public class BCHubUIManager : UIManagerBase
     /// Settings.Show* values back when the user toggled, AND nobody read them
     /// on init either. Both halves of the loop are wired now.
     /// </summary>
+    // -----------------------------------------------------------------------
+    // 0.17.2: deferred overlay restore — push overlay construction off the login
+    // frame onto a quiet one. Armed by Plugin.UIOnInitialize; ticked every frame by
+    // CoreUpdateBehavior (registered in Plugin.Load). No-op until armed and the
+    // UiBuildDelaySeconds window elapses. A delay of 0 restores immediately.
+    // -----------------------------------------------------------------------
+    private bool _restoreArmed;
+    private double _restoreFireAt;
+
+    public void ScheduleOverlayRestore()
+    {
+        int delay = BloodCraftHub.Config.Settings.UiBuildDelaySeconds;
+        if (delay <= 0)
+        {
+            DoDeferredBringUp();   // legacy: build immediately on the spawn frame
+            return;
+        }
+        _restoreFireAt = UnityEngine.Time.realtimeSinceStartupAsDouble + delay;
+        _restoreArmed = true;
+        BloodCraftHub.Utils.LogUtils.LogDiagnostic($"Overlay restore deferred {delay}s past login.");
+    }
+
+    public void TickDeferredRestore()
+    {
+        if (!_restoreArmed) return;
+        if (UnityEngine.Time.realtimeSinceStartupAsDouble < _restoreFireAt) return;
+        _restoreArmed = false;   // disarm before running so a build exception can't re-fire
+        DoDeferredBringUp();
+    }
+
+    private void DoDeferredBringUp()
+    {
+        // Bring back any overlays the user had visible at last logout (0.6.0+).
+        try { RestoreOverlaysFromSettings(); }
+        catch (System.Exception ex) { BloodCraftHub.Utils.LogUtils.LogError($"Deferred overlay restore failed: {ex}"); }
+        // 0.10.3: V-Blood scanner init (subscribes to MessageService.FamSearchCompleted).
+        // By now LocalCharacter is bound and the ECS World is fully available.
+        try { Services.VBloodScannerService.Initialize(); }
+        catch (System.Exception ex) { BloodCraftHub.Utils.LogUtils.LogError($"Deferred V-Blood scanner init failed: {ex}"); }
+    }
+
     public void RestoreOverlaysFromSettings()
     {
         // 0.14.0: combined-mode short-circuits the standalone-info restore.

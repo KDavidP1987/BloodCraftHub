@@ -128,7 +128,21 @@ public class Plugin : BasePlugin
         // so menu hotkeys leaked through while typing). Cheap when chat is closed.
         CoreUpdateBehavior.Actions.Add(Patches.InputSuppression.TickChatFocus);
 
-        _harmony = Harmony.CreateAndPatchAll(Assembly.GetExecutingAssembly(), MyPluginInfo.PLUGIN_GUID);
+        // 0.17.2: safe menu-open suppression while typing — replaces the 3 menu Harmony
+        // patches that caused the V-Blood-tracking load crash. Drains menu-open request
+        // entities only while menus should be blocked; no detour on the hot menu systems.
+        CoreUpdateBehavior.Actions.Add(Patches.InputSuppression.DrainMenuOpenRequests);
+
+        // 0.17.2: drive the deferred overlay restore (armed by UIOnInitialize). Pushes
+        // overlay construction off the volatile login frame onto a quiet one. No-op
+        // until armed and the UiBuildDelaySeconds window elapses.
+        CoreUpdateBehavior.Actions.Add(UIManager.TickDeferredRestore);
+
+        // 0.17.2: selective patch manifest (was CreateAndPatchAll over the whole
+        // assembly). Lets an affected player drop individual patch GROUPS via the
+        // Compatibility config section to bisect the intermittent 0.16.x load crash.
+        _harmony = new Harmony(MyPluginInfo.PLUGIN_GUID);
+        ApplyPatches(_harmony);
 
         IsInitialized = true;
         Log.LogInfo($"Plugin {MyPluginInfo.PLUGIN_GUID} v{MyPluginInfo.PLUGIN_VERSION} loaded.");
@@ -149,20 +163,83 @@ public class Plugin : BasePlugin
     public static void UIOnInitialize()
     {
         if (UIManager.IsInitialized) return;
+        // SetupAndShowUI is light (canvas + floating launcher) and sets IsInitialized,
+        // which CommonClientDataSystem_OnUpdate_Postfix needs to begin capturing
+        // LocalCharacter/LocalUser — so it stays synchronous on the spawn frame.
         UIManager.SetupAndShowUI();
-        // Bring back any overlays the user had visible at last logout. Wired
-        // in 0.6.0 — pre-0.6.0 every overlay defaulted to off on every login
-        // even if the user had toggled them on.
-        UIManager.RestoreOverlaysFromSettings();
-        // 0.10.3: V-Blood scanner initialization moved here from Plugin.Load.
-        // Subscribing to MessageService.FamSearchCompleted at Load triggered
-        // MessageService's cctor before ECS was up, crashing plugin load.
-        // By the time UIOnInitialize fires, LocalCharacter is bound and the
-        // ECS World is fully available — both MessageService's lazy fields
-        // and the scanner's per-frame Tick (already registered on the
-        // CoreUpdateBehavior in Plugin.Load) are safe to use.
-        Services.VBloodScannerService.Initialize();
+        // 0.17.2: the overlay restore (rebuild every overlay the user had visible at
+        // last logout) and the V-Blood scanner init used to run synchronously right
+        // here, on the same frame the player spawns. For users with several overlays
+        // enabled that's a burst of IL2CPP-wrapper allocation in the volatile login
+        // window — combined with other client mods' churn it helped tip the 0.16.x
+        // GC-finalizer crash. ScheduleOverlayRestore defers both onto a quiet frame
+        // (Settings.UiBuildDelaySeconds); a delay of 0 runs them immediately (legacy).
+        // (The scanner deferral also keeps the old 0.10.3 invariant — by the time it
+        // fires, LocalCharacter is bound and the ECS World is fully available.)
+        UIManager.ScheduleOverlayRestore();
         LogUtils.LogInfo("UI Manager initialized.");
+    }
+
+    // 0.17.2: selective Harmony patch manifest. Replaces CreateAndPatchAll over the
+    // whole assembly so each always-on patch GROUP can be dropped independently via
+    // the Compatibility config section. This is the bisect lever for the 0.16.x load
+    // crash: a prior "all features off" diagnostic still crashed, which points at the
+    // always-on patches (applied at load regardless of any feature setting) rather
+    // than a toggleable feature. Skipping a group means the Harmony detour is never
+    // installed at all — not merely a no-op prefix — so the test is meaningful.
+    // InitializationPatch is mandatory (it boots the UI + binds the player) and is
+    // always applied. EscapeMenuPatch / VersionStringPatch / GameManagerPatch carry
+    // no active [HarmonyPatch] targets, so they're intentionally absent here.
+    private void ApplyPatches(Harmony h)
+    {
+        // 0.17.2 crash-bisect TEST variants compile a constant that force-disables a
+        // group regardless of config (BloodCraftHub.Config.BuildVariant). Normal builds: all false.
+        if (BloodCraftHub.Config.BuildVariant.IsTestVariant)
+            Log.LogWarning($"*** BloodCraftHub CRASH-TEST VARIANT: {BloodCraftHub.Config.BuildVariant.Tag} — NOT a normal release; one patch group is compiled OFF. ***");
+
+        bool chat   = Settings.EnableChatSystemHooks        && !BloodCraftHub.Config.BuildVariant.ForceChatHooksOff;
+        bool layer  = Settings.EnableOverlayLayeringPatch    && !BloodCraftHub.Config.BuildVariant.ForceOverlayLayeringOff;
+        // 0.17.2: the input-suppression group is split into "movement/ability" and
+        // "menu" sub-groups so each can be dropped independently — the bisect pinned
+        // this group as the crash culprit and we want to keep the safe half.
+        bool inputBase = Settings.EnableInputSuppressionPatches && !BloodCraftHub.Config.BuildVariant.ForceInputSuppressionOff;
+        bool moveInput = inputBase && !BloodCraftHub.Config.BuildVariant.ForceMoveInputOff;
+
+        h.CreateClassProcessor(typeof(Patches.InitializationPatch)).Patch();
+
+        if (chat)
+        {
+            h.CreateClassProcessor(typeof(Patches.ClientChatPatch)).Patch();
+            Log.LogInfo("[compat] Chat-system patches APPLIED (inbound parsing + tabbed chat window).");
+        }
+        else
+            Log.LogWarning("[compat] Chat-system patches SKIPPED — tabbed chat + command-reply parsing are DISABLED. Diagnostic; expected to be ON for normal use.");
+
+        if (moveInput)
+        {
+            h.CreateClassProcessor(typeof(Patches.GameplayInputSuppressionPatch)).Patch();
+            h.CreateClassProcessor(typeof(Patches.AbilityInputSuppressionPatch)).Patch();
+            Log.LogInfo("[compat] Input-suppression (movement/ability) APPLIED.");
+        }
+        else
+            Log.LogWarning("[compat] Input-suppression (movement/ability) SKIPPED — your character may move/cast while you type. Diagnostic.");
+
+        // 0.17.2 CRASH FIX: the 3 menu-suppression patches (MenuInputSystem /
+        // OpenHUDMenuSystem / ActionWheelSystem) are deliberately NOT attached —
+        // the bisect proved they cause the V-Blood-tracking / map-open load crash.
+        // Menu-open suppression while typing is now done safely by
+        // InputSuppression.DrainMenuOpenRequests (registered on CoreUpdateBehavior),
+        // which drains the menu-open request entities instead of detouring those hot
+        // systems. The three patch classes remain in source but are intentionally
+        // never patched.
+
+        if (layer)
+        {
+            h.CreateClassProcessor(typeof(Patches.UICanvasSystemPatch)).Patch();
+            Log.LogInfo("[compat] Overlay-layering patch APPLIED (overlays-behind-menus).");
+        }
+        else
+            Log.LogWarning("[compat] Overlay-layering patch SKIPPED — overlays always render on top. Diagnostic; expected to be ON for normal use.");
     }
 
     /// <summary>Called from GameManagerPatch once the client World is available.</summary>

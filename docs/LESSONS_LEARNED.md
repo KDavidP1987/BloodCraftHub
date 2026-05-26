@@ -135,6 +135,44 @@ There's no non-destructive switch. The Boxes tab and Familiar Browser
 overlay surface this with a two-click confirm + clear messaging — never
 silently destroy.
 
+### The 0.16.x intermittent load crash is an upstream Il2CppInterop GC bug
+
+Some players crashed a few seconds after loading into a server on 0.16.0/0.16.1;
+others (incl. the dev) never did. The fault is
+`Il2CppInterop.Runtime.Injection.Hooks.GarbageCollector_RunFinalizer_Patch` — a
+since-removed-upstream interop GC-finalizer hook — with **no managed exception in
+BCH's log**. It's non-deterministic and environment-specific: BCH alone is stable,
+but it shows up for players running BCH **plus other client mods**, where the
+combined IL2CPP allocation/finalizer churn in the busy login window tips the latent
+bug. A diagnostic build with **every feature defaulted off still crashed**, which
+ruled out the toggleable features (recipes, shift icon, overlay layering) and
+pointed at BCH's **always-on Harmony patches** (applied at load regardless of any
+setting). It is NOT the same fault as the BCH+Eclipse crash (that one is in
+Eclipse's `CanvasService` BufferLookup and IS in the stack — see the v0.16/v0.17
+crash-investigation memory).
+
+**0.17.2 mitigations (two levers, not a proven fix):**
+
+1. **Selective patch manifest** — `Plugin.ApplyPatches` replaced
+   `CreateAndPatchAll(Assembly)`. `InitializationPatch` is always applied;
+   `ClientChatPatch`, the five input-suppression patches, and `UICanvasSystemPatch`
+   are each gated behind a `[Compatibility]` config switch. Switching one off means
+   the Harmony detour is **never installed** (not a no-op prefix), so an affected
+   tester can bisect which always-on group triggers the crash. NOTE: the complete
+   actively-patching inventory is those classes — `EscapeMenuPatch`,
+   `VersionStringPatch`, `GameManagerPatch` carry no live `[HarmonyPatch]` targets,
+   and there are NO Harmony patches in the vendored UniverseLib framework. If you
+   add a new patch class, add it to `ApplyPatches` or it won't be applied.
+2. **Deferred overlay restore** — `RestoreOverlaysFromSettings` + scanner init moved
+   off the spawn frame to a quiet one `UiBuildDelaySeconds` later (default 3, 0 =
+   legacy). `SetupAndShowUI` (canvas + launcher) stays synchronous because it sets
+   `IsInitialized`, which `CommonClientDataSystem_OnUpdate_Postfix` needs to capture
+   `LocalCharacter`/`LocalUser`.
+
+**The actual root fix is user-side:** delete `BepInEx/interop` + `BepInEx/cache`
+(they rebuild) and update the BepInEx (V Rising) pack — newer interop dropped the
+buggy finalizer hook.
+
 ## Process gotchas
 
 ### Audit-via-agent is unreliable — verify with grep

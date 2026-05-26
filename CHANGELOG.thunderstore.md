@@ -7,6 +7,34 @@
 > bundled copy summarizes earlier versions and reproduces the most
 > recent release in full.
 
+## 0.17.2 — Fixes the load / V-Blood-tracking / waypoint-teleport crash
+
+Fixes the 0.16.x crash that hit some players a few seconds after loading in, the
+moment they started **tracking a V-Blood / boss**, or on a **waypoint teleport**
+(and which then made the client crash on every load afterward).
+
+- **Root cause:** BCH's "don't open menus while typing" feature patched three of the
+  game's menu-input systems; detouring those during the HUD rebuild on login /
+  tracking / teleport tipped a bug in the BepInEx IL2CPP interop layer (a
+  garbage-collector finalizer fault) — a native crash with no error in BCH's log that
+  also corrupted the interop cache.
+- **Fix:** removed those three patches. Menu-open suppression while typing is now done
+  safely (clearing the queued menu request) without hooking those systems. The "don't
+  move / cast while typing" suppression is kept.
+- **Known minor gap:** typing into a main-panel FORM field can still let a menu hotkey
+  (M / B / I) open a menu — press Escape. (It works fine in the tabbed chat.) A safe
+  fix is planned for later.
+- **Also:** overlays now rebuild a few seconds after login on a quiet frame
+  (`UiBuildDelaySeconds`, default 3); new `[Compatibility]` config switches let you
+  disable individual BCH hooks to isolate a conflict; the layering update is throttled.
+- **Reverted for stability:** an attempt to also suppress menus while typing in form
+  fields (via Unity EventSystem focus) was backed out — it could leave your character
+  looping an action when leaving chat.
+
+**Crashing on every load from an earlier version?** Close the game, delete
+`BepInEx/interop` + `BepInEx/cache` in your profile (they rebuild), and update your
+BepInEx (V Rising) pack — that clears the corrupted interop cache.
+
 ## 0.17.1 — Run alongside Eclipse (command-console mode)
 
 BloodCraftHub + [Eclipse](https://thunderstore.io/c/v-rising/p/zfolmt/Eclipse/)
