@@ -2,6 +2,20 @@
 
 Unified client-side V Rising UI mod that surfaces every chat command of the [Bloodcraft](https://thunderstore.io/c/v-rising/p/zfolmt/Bloodcraft/) server mod — with first-class support for [KindredCommands](https://thunderstore.io/c/v-rising/p/odjit/KindredCommands/) and [KindredLogistics](https://thunderstore.io/c/v-rising/p/odjit/KindredLogistics/) on the same server.
 
+> ## ⚠ Pre-1.0 public beta — please read
+>
+> BloodCraftHub is **pre-1.0 and still in active testing.** It's daily-driven on a live server, but it's a client-side UI mod that hooks the game and runs alongside other mods — so **you may run into mod incompatibilities or other issues**, especially right after a version update or when combining it with other client-side mods.
+>
+> **If you hit anything — a crash, a conflict, weird UI/input behavior — please tell us.** The fastest way is the **[The Shadow Realm Discord](https://discord.gg/usC9QgBrXK)**; written-up [GitHub issues](https://github.com/KDavidP1987/BloodCraftHub/issues) also work. A crash log (from `BepInEx/LogOutput.log`) or a clear repro helps enormously and usually gets a fix into the next release quickly.
+>
+> ### Rolling back if a version update causes problems
+>
+> You can always drop back to an earlier version:
+>
+> - **In your mod manager (Thunderstore Mod Manager / r2modman):** select BloodCraftHub in your profile, open its **version dropdown**, pick the previous version, and let it download + swap automatically. Fully quit V Rising first.
+> - **Manually:** download an older build from the [Thunderstore page](https://thunderstore.io/c/v-rising/p/kdpen/BloodCraftHub/) or [GitHub releases](https://github.com/KDavidP1987/BloodCraftHub/releases), then in your profile's `BepInEx/plugins` folder **delete the BloodCraftHub folder and replace it** with the older one (game closed).
+> - **If the client crashes on load after any version change:** close the game and delete the `BepInEx/interop` and `BepInEx/cache` folders in your profile — they rebuild automatically on the next launch and clear any stale/corrupted interop state.
+
 ---
 
 ## ⚠ Heads-up before you install
@@ -31,12 +45,13 @@ If you want full BCH functionality on a Quests-only / Professions-only server, a
 ---
 
 **Repo:** https://github.com/KDavidP1987/BloodCraftHub
-**Status:** v0.17.1 — **pre-1.0 public beta**, actively developed (APIs and UI may still shift before 1.0).
+**Status:** v0.17.2 — **pre-1.0 public beta**, actively developed (APIs and UI may still shift before 1.0).
 
 **At a glance:** a "Game UI" group (works on any server, no server mods needed) + BLOODCRAFT / KINDRED / SETTINGS-AND-HELP tabs · a standalone tabbed chat window · secondary info overlays · every chat command from the 3 backing server mods surfaced as forms + buttons (~250+ commands).
 
 **New in v0.17.x** — a big client-side release:
 
+- **0.17.2 — fixed the load / V-Blood-tracking / waypoint-teleport crash.** Some 0.16.x players crashed on login, on starting to track a V-Blood/boss, or on a waypoint teleport (and then on every load after). The cause was BCH's "don't open menus while typing" feature detouring three of the game's menu-input systems, which tipped a BepInEx IL2CPP interop bug during HUD rebuilds. Those three patches are removed — menu suppression while typing now uses a safe approach instead — while the "don't move / cast while typing" suppression stays. Overlays also now build on a quiet frame a few seconds after login. *Minor known gap:* menu keys can still open a menu while typing into a **main-panel form** (press Escape); a safe fix is planned. *(A form-typing experiment was reverted for stability — see the changelog.)*
 - **Standalone "Game UI" group + tabbed chat window** — a movable, persistent, per-channel chat window (All / Global / Local / Clan / System / Whispers) with sender names, whisper conversations, an optional native-chat takeover, an All-tab "send to" dropdown + Tab-to-cycle, per-channel colored tabs, configurable colors, chat-only text size, word-wrap input, and its own transparency + theme. Works on **any** server.
 - **Runs alongside Eclipse (command-console mode)** — install both and BCH auto-detects Eclipse, stands down from its own live readouts (Eclipse shows those), and keeps its command buttons, chat window, Familiar Browser, and V-Bloods scanning working. No more load crash.
 - Folds in the **0.16.1 stability hardening** (custom recipes default-off + deferred; gated SHIFT-icon read).
@@ -45,7 +60,7 @@ Full per-version history lives in [`CHANGELOG.md`](CHANGELOG.md).
 
 ## Screenshots
 
-*All captures below are from v0.13.0 — every UI piece shown still applies in v0.17.1. Newer work (v0.16's input-suppression + Quick Actions overlay, and v0.17's Game UI group + tabbed chat window + Eclipse command-console mode) is largely invisible until triggered; the screenshots below still represent the day-to-day look of the panel.*
+*All captures below are from v0.13.0 — every UI piece shown still applies in v0.17.2. Newer work (v0.16's input-suppression + Quick Actions overlay, and v0.17's Game UI group + tabbed chat window + Eclipse command-console mode) is largely invisible until triggered; the screenshots below still represent the day-to-day look of the panel.*
 
 ![Class tab — class-synergy card (v0.13.0)](https://raw.githubusercontent.com/KDavidP1987/BloodCraftHub/main/docs/screenshots/v0.13.0%20Screenshots/BloodCraftHub_Screenshot_v0.13.0-IMG4.png)
 *Class tab — Active Class card now includes the live class-details block (Death Mage shown here, with archetype + tagline + weapon/blood synergies + on-hit debuff). The Last server response strip at the bottom shows the same data the Bloodcraft `.class lst` reply carries, with stat synergies color-coded by Weapon / Blood. Settings → Display → Combined overlay carries the same data into the combined HUD overlay's Weapon and Blood sections.*

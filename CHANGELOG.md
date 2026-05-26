@@ -1,40 +1,58 @@
 # Changelog
-## 0.17.2 — Load-crash mitigation + compatibility switches
+## 0.17.2 — Fixes the load / V-Blood-tracking / waypoint-teleport crash
 
-Targets the intermittent crash a few seconds after loading into a server that
-some players hit on 0.16.0/0.16.1 — especially players running **other client
-mods alongside** BloodCraftHub. The underlying fault is in the BepInEx IL2CPP
-interop layer (a garbage-collector finalizer bug), which BCH only *tips over* by
-adding work to the busy login window; it never reproduces for everyone and leaves
-no error in BCH's own log.
+Some players on 0.16.x crashed a few seconds after loading into a server, the
+moment they started **tracking a V-Blood / boss**, or when using a **waypoint
+teleporter** — and once it happened, the client often crashed on **every load**
+afterward. 0.17.2 fixes it.
 
-**Smoother, safer login:**
+**Root cause.** BCH's "don't open in-game menus while you're typing" feature
+patched three of the game's menu-input systems. Those patches were harmless in
+isolation, but *detouring those particular systems* during the heavy HUD rebuild
+that happens on login, on V-Blood tracking, and on teleport tipped a latent bug in
+the BepInEx IL2CPP interop layer (its garbage-collector finalizer). The result was
+a hard native crash with **no error in BCH's own log** — and it corrupted the
+BepInEx interop cache, which is why an affected client then failed to load until
+the cache was rebuilt. (Tracked down by reproducing it locally and bisecting BCH's
+hooks one at a time.)
 
-- BCH now **defers rebuilding your overlays** until a few seconds after you spawn,
-  onto a quiet frame instead of the crowded login moment. Configurable
-  (`UiBuildDelaySeconds`, default 3 seconds; set 0 for the old instant behavior).
-  The launcher button still appears immediately.
+**The fix.**
 
-**New "Compatibility" settings (for diagnosing a crash — leave ON for normal play):**
+- **Removed those three menu-input patches entirely.** Menu-open suppression while
+  typing is now done a safe way — by clearing the queued menu-open request before
+  the game processes it, without hooking those systems. No more crash.
+- **Kept the "don't move or cast while typing" suppression** (a separate,
+  proven-safe set of patches), so you still won't run off or fire an ability while
+  typing in the tabbed chat.
+- **Known minor gap:** menu suppression while typing works in the **tabbed chat**,
+  but typing into a **main-panel form field** can still let a menu hotkey
+  (M / B / I) open a menu — just press **Escape** to close it. A safe fix for that
+  is planned for a later version (see "Reverted for stability" below).
 
-If you still crash on load, these let you switch off pieces of BCH one at a time
-to find the culprit, **without uninstalling**. Edit
-`BepInEx/config/kdpen.BloodCraftHub.cfg`, change a value under `[Compatibility]`,
-and relaunch:
+**Startup hardening (also in 0.17.2).**
 
-- `EnableChatSystemHooks` — turn OFF to disable BCH's chat integration (the tabbed
-  chat window + command-reply parsing stop working).
-- `EnableInputSuppressionPatches` — turn OFF to disable the "don't move/cast while
-  typing" behavior.
-- `EnableOverlayLayeringPatch` — turn OFF to stop BCH from layering overlays behind
-  in-game menus (they'll always draw on top).
+- Overlays are now rebuilt a few seconds **after** you load in, on a quiet frame,
+  instead of during the crowded login moment. Configurable with `UiBuildDelaySeconds`
+  (default 3; set 0 for the old instant behavior). The launcher button still appears
+  right away.
+- New **`[Compatibility]` config switches** (all default ON) so you can disable
+  individual BCH hooks to isolate a conflict without uninstalling — edit
+  `BepInEx/config/kdpen.BloodCraftHub.cfg`: `EnableChatSystemHooks`,
+  `EnableInputSuppressionPatches`, `EnableOverlayLayeringPatch`.
+- Internal: the overlays-behind-menus layering update is throttled to cut overhead.
 
-All default ON, so a normal install behaves exactly as before.
+**Reverted for stability.** A follow-up attempt to *also* suppress menus while
+typing in main-panel form fields (by tracking focus through Unity's EventSystem)
+was backed out before release — it destabilized the typing-suppression and could
+leave your character stuck repeating an action when you left chat. That's why the
+form-typing gap above remains for now; it'll be solved more carefully (event-driven)
+in a later version.
 
-**If you crash on load — try this first (fixes most cases):** close the game,
-delete `BepInEx/interop` and `BepInEx/cache` in your profile (they rebuild on next
-launch), and make sure your **BepInEx (V Rising) pack is up to date**. That clears
-the underlying interop bug directly.
+**Bricked client from an earlier crash?** If you crashed on 0.16.x and now crash on
+every load, close the game, delete `BepInEx/interop` and `BepInEx/cache` in your
+profile (they rebuild on next launch), and make sure your BepInEx (V Rising) pack is
+up to date — that clears the corrupted interop cache. (Not needed for a fresh
+0.17.2 install.)
 
 ## 0.17.1 — Run alongside Eclipse (command-console mode)
 
