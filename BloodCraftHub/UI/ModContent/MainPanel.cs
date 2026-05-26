@@ -2332,6 +2332,18 @@ public partial class MainPanel : ResizeablePanelBase
 
     private void OnFamiliarClicked(int index)
     {
+        // 0.17.1: under Eclipse stand-down BCH has no active familiar from the
+        // stream, so the arm-to-swap UX can't fire. Switch directly: unbind active
+        // (server no-op if none) then bind the clicked one. Mirrors the Familiar
+        // Browser. Pure unbind (no rebind) is the "Unbind" command button.
+        if (Services.EclipseProtocolService.StandDownForEclipse())
+        {
+            ClearPendingSwap();
+            EnqueueOrWarn(MessageService.BCCOM_FAM_UNBIND);
+            EnqueueOrWarn(string.Format(MessageService.BCCOM_FAM_BIND_BY_INDEX_FORMAT, index));
+            return;
+        }
+
         // No active familiar → straight bind. (Familiar.Name is empty when
         // PlayerStateService has no active familiar yet.)
         bool hasActive = !string.IsNullOrEmpty(PlayerStateService.Familiar.Name);
