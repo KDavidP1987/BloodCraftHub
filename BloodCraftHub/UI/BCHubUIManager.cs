@@ -624,6 +624,14 @@ public class BCHubUIManager : UIManagerBase
     public bool IsChatInputFocused()
         => (_chatWindowOverlay?.Enabled ?? false) && (_chatWindowOverlay?.IsInputFocused() ?? false);
 
+    // 0.17.3: is the cursor over the open chat window? Drives attack-suppression so a
+    // click on the chat (tabs / input) can't leak into the world as a stuck attack.
+    public bool IsPointerOverChatWindow()
+    {
+        try { return _chatWindowOverlay?.IsPointerOverWindow() ?? false; }
+        catch { return false; }
+    }
+
     public void ApplyNativeChatVisibility()
     {
         try

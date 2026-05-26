@@ -87,6 +87,21 @@ internal static class InputSuppression
     // since it reads the raw Escape key. So this is just ShouldBlock.
     internal static bool ShouldBlockMenus() => ShouldBlock();
 
+    // 0.17.3: ability/attack suppression ALSO engages while the cursor is over the chat
+    // window, so a left-click on the chat (its tabs or input box) never leaks into the
+    // world as a primary attack — which was getting the character STUCK repeating a
+    // basic attack (the click's button-release went to the UI, so the game never saw
+    // it and kept "attacking"). Pointer-over is a targeted rect test — true only when
+    // the cursor is literally over the chat window, never during combat — and it feeds
+    // ONLY ability suppression (not movement, not ChatInputActive), so it can't cause
+    // the movement action-loop the 0.17.2 revert fixed.
+    internal static bool ShouldBlockAbilities()
+    {
+        if (ShouldBlock()) return true;
+        try { return Plugin.UIManager?.IsPointerOverChatWindow() ?? false; }
+        catch { return false; }
+    }
+
     // 0.17.3: is a BCH text field (the chat input OR a main-panel form field) the
     // focused UI selection? Used ONLY to decide whether to drain menu-open requests —
     // NOT to drive ChatInputActive. ChatInputActive feeds the movement/ability patches,
@@ -240,7 +255,10 @@ public static class AbilityInputSuppressionPatch
     {
         try
         {
-            if (!InputSuppression.ShouldBlock()) return true; // run normally
+            // 0.17.3: ShouldBlockAbilities (not ShouldBlock) — also blocks while the
+            // cursor is over the chat window, so clicking the chat never fires/sticks
+            // a primary attack.
+            if (!InputSuppression.ShouldBlockAbilities()) return true; // run normally
 
             try
             {

@@ -624,7 +624,7 @@ public class Settings
     public static void SetChatTabHotkeysEnabled(bool v) => SetBool(nameof(ChatTabHotkeysEnabled), v);
     public static string ChatTabHotkeyModifier =>
         (ConfigEntries.TryGetValue(nameof(ChatTabHotkeyModifier), out var e) && e is ConfigEntry<string> s && !string.IsNullOrWhiteSpace(s.Value))
-            ? s.Value : "Shift";
+            ? s.Value : "Alt";
     public static void SetChatTabHotkeyModifier(string v)
     {
         if (ConfigEntries.TryGetValue(nameof(ChatTabHotkeyModifier), out var e) && e is ConfigEntry<string> s) s.Value = v;
@@ -955,7 +955,7 @@ public class Settings
         InitConfigEntry(OVERLAY_SETTINGS_GROUP, nameof(AllTabShowSystem),             true,  "Tabbed chat: include SYSTEM messages in the 'All' tab. Uncheck to hide system/server messages from All (its own System tab is unaffected).");
         InitConfigEntry(OVERLAY_SETTINGS_GROUP, nameof(AllTabShowWhisper),            true,  "Tabbed chat: include WHISPERS in the 'All' tab. Uncheck to hide whispers from All (the Whispers tab is unaffected).");
         InitConfigEntry(OVERLAY_SETTINGS_GROUP, nameof(ChatTabHotkeysEnabled),        true,  "Tabbed chat: switch tabs with hotkeys (a modifier + number 1-6) while the chat window is open and you are NOT typing in it. Tab order: 1=All, 2=Global, 3=Local, 4=Clan, 5=System, 6=Whispers.");
-        InitConfigEntry(OVERLAY_SETTINGS_GROUP, nameof(ChatTabHotkeyModifier),        "Shift", "Tabbed chat: modifier held with number keys 1-6 to switch tabs. One of: Shift, Ctrl, Alt, None. Default Shift (so Shift+1..6). Change it if Shift+number conflicts with another binding for you.");
+        InitConfigEntry(OVERLAY_SETTINGS_GROUP, nameof(ChatTabHotkeyModifier),        "Alt",   "Tabbed chat: modifier held with number keys 1-6 to switch tabs. One of: Shift, Ctrl, Alt, None. Default Alt (so Alt+1..6) — Shift+number is the game's consumable bar and Ctrl pops the action wheel, so Alt is the safest free default. Change it here if Alt also conflicts for you.");
         InitConfigEntry(OVERLAY_SETTINGS_GROUP, nameof(ShiftSpellOverlayShowDiagnostics), false, "Show the small italic 'pf/cg/si/end/srv' debug line under the Shift overlay's SHIFT label. Off by default; flip on if you need to debug why the cooldown isn't updating.");
         InitConfigEntry(OVERLAY_SETTINGS_GROUP, nameof(ShowShiftSpellIcon),               true,  "Show the slotted spell's actual icon on the Shift-spell overlay tile (like Eclipse). When off, the overlay shows the plain colored cooldown tile instead.");
         InitConfigEntry(OVERLAY_SETTINGS_GROUP, nameof(OverlaysBehindGameMenus),          true,  "When an in-game menu (inventory, character sheet, map, etc.) is open, drop BCH's overlays/panels BEHIND it instead of floating over the top. Set false to keep them always on top (the pre-0.16 behavior).");

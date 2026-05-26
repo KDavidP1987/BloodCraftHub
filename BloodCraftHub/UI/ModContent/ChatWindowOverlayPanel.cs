@@ -462,9 +462,9 @@ public class ChatWindowOverlayPanel : ResizeablePanelBase
             string name = after.Substring(0, sp2);
             string rest = after.Substring(sp2 + 1);
             if (TryStartWhisperByName(name)) { remainder = rest; return true; }
-            // Unresolved: tell the user and consume the command so it doesn't re-fire.
-            ChatRelayService.CaptureLocalEcho(ChatRelayService.Channel.System,
-                $"No player \"{name}\" found to whisper — they must be nearby or have spoken in chat.");
+            // Unresolved: tell the user (with who IS whisperable) and consume the
+            // command so it doesn't re-fire each keystroke.
+            ReportWhisperResolveFailure(name);
             remainder = string.Empty;
             return true;
         }
@@ -530,6 +530,40 @@ public class ChatWindowOverlayPanel : ResizeablePanelBase
         foreach (var p in pool)
             if (!string.IsNullOrEmpty(p.Name) && p.Name.StartsWith(typed, StringComparison.OrdinalIgnoreCase)) { name = p.Name; id = p.Id; return true; }
         return false;
+    }
+
+    // 0.17.3: the distinct set of players the client can currently whisper (have a
+    // NetworkId): seen in chat + the nearby/online roster. Used for the helpful
+    // "who CAN I whisper" feedback when a typed name doesn't resolve.
+    private static List<string> ResolvablePlayerNames()
+    {
+        var names = new List<string>();
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        void Add(IEnumerable<PlayerRosterService.PlayerRef> src)
+        {
+            foreach (var p in src) if (!string.IsNullOrEmpty(p.Name) && seen.Add(p.Name)) names.Add(p.Name);
+        }
+        try { Add(ChatRelayService.GetKnownPlayers()); } catch { }
+        try { Add(PlayerRosterService.GetOnlinePlayers()); } catch { }
+        names.Sort(StringComparer.OrdinalIgnoreCase);
+        return names;
+    }
+
+    // 0.17.3: explain a failed whisper resolution AND list who's actually whisperable,
+    // so the user (and we) can see whether the target is simply outside the client's
+    // known set. A whisper needs the target's NetworkId, which the client only has for
+    // nearby players + anyone who's spoken — a truly-remote silent player can't be
+    // resolved client-side (V Rising has no server-side whisper-by-name).
+    private static void ReportWhisperResolveFailure(string typed)
+    {
+        var names = ResolvablePlayerNames();
+        string list = names.Count == 0
+            ? "(none known yet — no one nearby has spoken)"
+            : (names.Count <= 15 ? string.Join(", ", names)
+                                 : string.Join(", ", names.GetRange(0, 15)) + $", +{names.Count - 15} more");
+        ChatRelayService.CaptureLocalEcho(ChatRelayService.Channel.System,
+            $"No whisper match for \"{typed}\". Players I can whisper now: {list}. (The client can only whisper players who are nearby or have spoken in chat.)");
+        Utils.LogUtils.LogInfo($"[Whisper] resolve failed for '{typed}'. Whisperable ({names.Count}): {string.Join(", ", names)}");
     }
 
     // 0.17.0: size the input row to fit the wrapped text — one line at rest,
@@ -600,6 +634,24 @@ public class ChatWindowOverlayPanel : ResizeablePanelBase
     internal bool IsInputFocused()
     {
         try { return _input?.Component != null && _input.Component.isFocused; }
+        catch { return false; }
+    }
+
+    // 0.17.3: is the mouse cursor currently over the chat window? Used to suppress the
+    // game's primary ATTACK while you click the window (tabs / input), so the click
+    // doesn't leak into the world as an attack and get the character stuck repeating
+    // it. Targeted rect test (not the whole EventSystem), so it's only ever true when
+    // the cursor is literally over this window — never during combat.
+    internal bool IsPointerOverWindow()
+    {
+        try
+        {
+            if (!Enabled) return false;
+            var rt = uiRoot != null ? uiRoot.GetComponent<RectTransform>() : null;
+            if (rt == null) return false;
+            // ScreenSpaceOverlay canvas → null camera.
+            return UnityEngine.RectTransformUtility.RectangleContainsScreenPoint(rt, UnityEngine.Input.mousePosition, null);
+        }
         catch { return false; }
     }
 
@@ -745,12 +797,12 @@ public class ChatWindowOverlayPanel : ResizeablePanelBase
 
     private static bool ModifierHeld(string mod)
     {
-        switch ((mod ?? "Shift").Trim().ToLowerInvariant())
+        switch ((mod ?? "Alt").Trim().ToLowerInvariant())
         {
-            case "none":               return true;
+            case "none":                 return true;
             case "ctrl": case "control": return UnityEngine.Input.GetKey(KeyCode.LeftControl) || UnityEngine.Input.GetKey(KeyCode.RightControl);
-            case "alt":                return UnityEngine.Input.GetKey(KeyCode.LeftAlt) || UnityEngine.Input.GetKey(KeyCode.RightAlt);
-            default:                   return UnityEngine.Input.GetKey(KeyCode.LeftShift) || UnityEngine.Input.GetKey(KeyCode.RightShift);
+            case "shift":                return UnityEngine.Input.GetKey(KeyCode.LeftShift) || UnityEngine.Input.GetKey(KeyCode.RightShift);
+            default:                     return UnityEngine.Input.GetKey(KeyCode.LeftAlt) || UnityEngine.Input.GetKey(KeyCode.RightAlt); // Alt (default)
         }
     }
 
@@ -802,8 +854,7 @@ public class ChatWindowOverlayPanel : ResizeablePanelBase
             if (string.IsNullOrEmpty(typed)) return;
             if (!ResolvePlayer(typed, out var name, out var id))
             {
-                ChatRelayService.CaptureLocalEcho(ChatRelayService.Channel.System,
-                    $"No player \"{typed}\" found to whisper — they must be nearby or have spoken in chat.");
+                ReportWhisperResolveFailure(typed);
                 return;
             }
             ChatRelayService.RememberWhisperTarget(name, id);
