@@ -87,6 +87,52 @@ internal static class InputSuppression
     // since it reads the raw Escape key. So this is just ShouldBlock.
     internal static bool ShouldBlockMenus() => ShouldBlock();
 
+    // 0.17.2 CRASH FIX — safe replacement for the three menu-suppression Harmony
+    // patches (MenuInputSystem / OpenHUDMenuSystem / ActionWheelSystem prefixes).
+    // The 0.16.x crash bisect pinned those three as the trigger: detouring those hot
+    // menu ECS systems tipped a latent Il2CppInterop GC-finalizer bug during the
+    // entity/HUD churn of opening the map to track a V-Blood (and on login while
+    // already tracking) — a native crash that also corrupts the BepInEx interop cache
+    // so the client then fails to load. Movement/ability suppression
+    // (GameplayInputSystem / AbilityInputSystem) was proven safe and stays patched.
+    //
+    // Instead of detouring the menu systems, we DRAIN the menu-open REQUEST entities
+    // (OpenMenuEvent / GoToHUDMenu — the same ones OpenHUDMenuSuppressionPatch used to
+    // destroy) from our own per-frame MonoBehaviour tick while menus should be blocked
+    // (typing in the BCH chat, or the BCH panel open with SuppressGameInputWhileUIOpen).
+    // No detour on the menu systems => the crash can't happen. It also only does any
+    // work WHILE blocking, which is never while tracking, so it can't coincide with the
+    // tracking GC. M/B/I/etc. all create one of these request components, so destroying
+    // them before OpenHUDMenuSystem consumes them keeps the menu from opening.
+    private static EntityQuery _drainOpenMenuQuery;
+    private static EntityQuery _drainGoToHudQuery;
+    private static bool _drainQueriesReady;
+
+    internal static void DrainMenuOpenRequests()
+    {
+        try
+        {
+            if (!Config.Settings.EnableInputSuppressionPatches) return; // master kill-switch
+            if (!ShouldBlockMenus()) return;                            // only while typing / panel open
+            if (Plugin.IsClientNull()) return;
+
+            var em = Plugin.EntityManager;
+            if (!_drainQueriesReady)
+            {
+                _drainOpenMenuQuery = em.CreateEntityQuery(ComponentType.ReadOnly(Il2CppType.Of<OpenMenuEvent>()));
+                _drainGoToHudQuery  = em.CreateEntityQuery(ComponentType.ReadOnly(Il2CppType.Of<GoToHUDMenu>()));
+                _drainQueriesReady  = true;
+            }
+            // DestroyEntity(query) is a no-op when the query is empty.
+            em.DestroyEntity(_drainOpenMenuQuery);
+            em.DestroyEntity(_drainGoToHudQuery);
+        }
+        catch
+        {
+            _drainQueriesReady = false; // rebuild next frame (e.g. after a world reload)
+        }
+    }
+
     internal static void Diag(string msg)
     {
         double now = UnityEngine.Time.realtimeSinceStartupAsDouble;

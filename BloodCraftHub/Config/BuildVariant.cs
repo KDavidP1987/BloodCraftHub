@@ -14,32 +14,62 @@ namespace BloodCraftHub.Config;
 //
 // These force-off flags are ANDed with the config switches in Plugin.ApplyPatches, so
 // a variant can only ever turn a group OFF, never force one on.
+//
+// 0.17.2 bisect RESULT: the input-suppression group is the crash culprit (TEST-A =
+// input off survived V-Blood tracking; chat/layering off did not). The NOMENUINPUT /
+// NOMOVEINPUT variants split that group to find whether it's the menu patches
+// (MenuInput/OpenHUDMenu/ActionWheel) or the movement patches (Gameplay/Ability) —
+// so we can keep as much of the "don't act while typing" feature as is safe.
 internal static class BuildVariant
 {
 #if BCH_VARIANT_NOINPUT
     public const string Tag = "TEST-A · input-suppression OFF";
     public const bool ForceInputSuppressionOff = true;
+    public const bool ForceMenuInputOff        = false;
+    public const bool ForceMoveInputOff        = false;
     public const bool ForceChatHooksOff        = false;
     public const bool ForceOverlayLayeringOff  = false;
 #elif BCH_VARIANT_NOCHAT
     public const string Tag = "TEST-B · chat hooks OFF";
     public const bool ForceInputSuppressionOff = false;
+    public const bool ForceMenuInputOff        = false;
+    public const bool ForceMoveInputOff        = false;
     public const bool ForceChatHooksOff        = true;
     public const bool ForceOverlayLayeringOff  = false;
 #elif BCH_VARIANT_NOLAYER
     public const string Tag = "TEST-C · overlay-layering OFF";
     public const bool ForceInputSuppressionOff = false;
+    public const bool ForceMenuInputOff        = false;
+    public const bool ForceMoveInputOff        = false;
     public const bool ForceChatHooksOff        = false;
     public const bool ForceOverlayLayeringOff  = true;
+#elif BCH_VARIANT_NOMENUINPUT
+    public const string Tag = "TEST-E · menu input-suppression OFF (movement/ability ON)";
+    public const bool ForceInputSuppressionOff = false;
+    public const bool ForceMenuInputOff        = true;
+    public const bool ForceMoveInputOff        = false;
+    public const bool ForceChatHooksOff        = false;
+    public const bool ForceOverlayLayeringOff  = false;
+#elif BCH_VARIANT_NOMOVEINPUT
+    public const string Tag = "TEST-F · movement/ability suppression OFF (menu ON)";
+    public const bool ForceInputSuppressionOff = false;
+    public const bool ForceMenuInputOff        = false;
+    public const bool ForceMoveInputOff        = true;
+    public const bool ForceChatHooksOff        = false;
+    public const bool ForceOverlayLayeringOff  = false;
 #elif BCH_VARIANT_NOPATCHES
     public const string Tag = "TEST-D · all optional patches OFF";
     public const bool ForceInputSuppressionOff = true;
+    public const bool ForceMenuInputOff        = true;
+    public const bool ForceMoveInputOff        = true;
     public const bool ForceChatHooksOff        = true;
     public const bool ForceOverlayLayeringOff  = true;
 #else
     // Normal release build — no group forced off; config rules.
     public const string Tag = null;
     public const bool ForceInputSuppressionOff = false;
+    public const bool ForceMenuInputOff        = false;
+    public const bool ForceMoveInputOff        = false;
     public const bool ForceChatHooksOff        = false;
     public const bool ForceOverlayLayeringOff  = false;
 #endif

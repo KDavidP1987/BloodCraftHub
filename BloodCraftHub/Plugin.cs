@@ -128,6 +128,11 @@ public class Plugin : BasePlugin
         // so menu hotkeys leaked through while typing). Cheap when chat is closed.
         CoreUpdateBehavior.Actions.Add(Patches.InputSuppression.TickChatFocus);
 
+        // 0.17.2: safe menu-open suppression while typing — replaces the 3 menu Harmony
+        // patches that caused the V-Blood-tracking load crash. Drains menu-open request
+        // entities only while menus should be blocked; no detour on the hot menu systems.
+        CoreUpdateBehavior.Actions.Add(Patches.InputSuppression.DrainMenuOpenRequests);
+
         // 0.17.2: drive the deferred overlay restore (armed by UIOnInitialize). Pushes
         // overlay construction off the volatile login frame onto a quiet one. No-op
         // until armed and the UiBuildDelaySeconds window elapses.
@@ -193,8 +198,12 @@ public class Plugin : BasePlugin
             Log.LogWarning($"*** BloodCraftHub CRASH-TEST VARIANT: {BloodCraftHub.Config.BuildVariant.Tag} — NOT a normal release; one patch group is compiled OFF. ***");
 
         bool chat   = Settings.EnableChatSystemHooks        && !BloodCraftHub.Config.BuildVariant.ForceChatHooksOff;
-        bool input  = Settings.EnableInputSuppressionPatches && !BloodCraftHub.Config.BuildVariant.ForceInputSuppressionOff;
         bool layer  = Settings.EnableOverlayLayeringPatch    && !BloodCraftHub.Config.BuildVariant.ForceOverlayLayeringOff;
+        // 0.17.2: the input-suppression group is split into "movement/ability" and
+        // "menu" sub-groups so each can be dropped independently — the bisect pinned
+        // this group as the crash culprit and we want to keep the safe half.
+        bool inputBase = Settings.EnableInputSuppressionPatches && !BloodCraftHub.Config.BuildVariant.ForceInputSuppressionOff;
+        bool moveInput = inputBase && !BloodCraftHub.Config.BuildVariant.ForceMoveInputOff;
 
         h.CreateClassProcessor(typeof(Patches.InitializationPatch)).Patch();
 
@@ -206,17 +215,23 @@ public class Plugin : BasePlugin
         else
             Log.LogWarning("[compat] Chat-system patches SKIPPED — tabbed chat + command-reply parsing are DISABLED. Diagnostic; expected to be ON for normal use.");
 
-        if (input)
+        if (moveInput)
         {
             h.CreateClassProcessor(typeof(Patches.GameplayInputSuppressionPatch)).Patch();
             h.CreateClassProcessor(typeof(Patches.AbilityInputSuppressionPatch)).Patch();
-            h.CreateClassProcessor(typeof(Patches.MenuInputSuppressionPatch)).Patch();
-            h.CreateClassProcessor(typeof(Patches.OpenHUDMenuSuppressionPatch)).Patch();
-            h.CreateClassProcessor(typeof(Patches.ActionWheelSuppressionPatch)).Patch();
-            Log.LogInfo("[compat] Input-suppression patches APPLIED (5 systems).");
+            Log.LogInfo("[compat] Input-suppression (movement/ability) APPLIED.");
         }
         else
-            Log.LogWarning("[compat] Input-suppression patches SKIPPED — keystrokes may drive your character while typing. Diagnostic; expected to be ON for normal use.");
+            Log.LogWarning("[compat] Input-suppression (movement/ability) SKIPPED — your character may move/cast while you type. Diagnostic.");
+
+        // 0.17.2 CRASH FIX: the 3 menu-suppression patches (MenuInputSystem /
+        // OpenHUDMenuSystem / ActionWheelSystem) are deliberately NOT attached —
+        // the bisect proved they cause the V-Blood-tracking / map-open load crash.
+        // Menu-open suppression while typing is now done safely by
+        // InputSuppression.DrainMenuOpenRequests (registered on CoreUpdateBehavior),
+        // which drains the menu-open request entities instead of detouring those hot
+        // systems. The three patch classes remain in source but are intentionally
+        // never patched.
 
         if (layer)
         {
