@@ -63,7 +63,8 @@ public class QuickActionsOverlayPanel : ResizeablePanelBase
             catch (System.Exception ex) { Utils.LogUtils.LogError($"QuickActions Stash All failed: {ex}"); }
         };
         TooltipHover.Attach(stashBtn.GameObject,
-            "Stash your inventory into nearby storage (Kindred Logistics '.stash'). One-click — issues the command immediately.");
+            "Stash your inventory into nearby storage (Kindred Logistics '.stash'). One-click — issues the command immediately.\n" +
+            "Note: click this with your inventory/menu CLOSED. While a game menu is open, BCH overlays sit behind it (\"Overlays behind game menus\" setting) so the button can't be clicked — close the menu first, or turn that setting off.");
     }
 
     internal override void Reset() { /* no tickers / subscriptions to clean up */ }
