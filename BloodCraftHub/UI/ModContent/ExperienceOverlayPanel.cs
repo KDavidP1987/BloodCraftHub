@@ -769,6 +769,13 @@ public class ExperienceOverlayPanel : ResizeablePanelBase
 
         if (!Settings.ShowOverlayBonusStats) return;
         if (!MessageService.IsInitialized) return;
+        // 0.17.3: under Eclipse stand-down (command-console mode) the XP / weapon /
+        // blood layer is ECLIPSE's domain — BCH doesn't read the Bloodcraft stream, so
+        // PlayerStateService.Legacy is stale and these passive `.wep get` / `.bl get`
+        // auto-queries misfire; their replies aren't consumed and SPAM chat with blood/
+        // weapon system messages. Stop the auto-query entirely while standing down (the
+        // manual Refresh buttons still work; Eclipse provides the live data).
+        if (Services.EclipseProtocolService.StandDownForEclipse()) return;
         // 0.14.0 friend-test v6: fire when EITHER the standalone XP overlay
         // OR the combined overlay is visible. Combined needs the same cached
         // .wep get / .bl get data; without this gate change, combined-mode

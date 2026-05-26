@@ -8581,6 +8581,11 @@ public partial class MainPanel : ResizeablePanelBase
         // Only the panel-is-open path matters; tab tickers shouldn't run
         // while the main panel is hidden.
         if (!Enabled) return;
+        // 0.17.3: under Eclipse stand-down the weapon/blood data is Eclipse's domain —
+        // skip the passive `.wep get` / `.bl get` auto-refresh (no stream → stale blood
+        // type → misfiring queries whose replies spam chat). The Refresh buttons on
+        // those tabs still work for an explicit one-off pull.
+        if (Services.EclipseProtocolService.StandDownForEclipse()) return;
         var now = UnityEngine.Time.realtimeSinceStartupAsDouble;
         if (ActiveTab == PanelType.ExpertiseTab
             && now - _lastWepAutoFetchAt >= TAB_AUTO_REFRESH_SECONDS)
