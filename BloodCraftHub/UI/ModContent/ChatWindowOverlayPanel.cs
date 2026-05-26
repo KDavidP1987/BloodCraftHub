@@ -100,6 +100,10 @@ public class ChatWindowOverlayPanel : ResizeablePanelBase
     // 0.17.0 whisper sub-tabs. When the Whispers top-tab is active, a second row
     // appears: "All" (every whisper) + one sub-tab per conversation partner.
     private GameObject _whisperSubRow;
+    // 0.17.3: persistent "whisper a typed name" row (for players who haven't spoken,
+    // so aren't in the picker). Created once so typing survives sub-tab rebuilds.
+    private GameObject _whisperEntryRow;
+    private InputFieldRef _whisperNameInput;
     private readonly List<ButtonRef> _whisperSubButtons = new();
     private readonly List<string> _whisperSubPartners = new(); // parallel to _whisperSubButtons; null = All
     private string _activeWhisperPartner; // null = All Whispers
@@ -201,6 +205,23 @@ public class ChatWindowOverlayPanel : ResizeablePanelBase
             false, false, true, true, 2, new Vector4(2, 0, 2, 0), bgColor: new Color(0f, 0f, 0f, 0f));
         UIFactory.SetLayoutElement(_whisperSubRow, minHeight: 22, preferredHeight: 22, flexibleWidth: 1);
         _whisperSubRow.SetActive(false);
+
+        // 0.17.3: persistent "whisper by typing a name" row — lets you start a whisper
+        // with a player who hasn't spoken (so isn't in the +Whisper… picker). Shown
+        // only on the Whispers tab; created once so typing survives sub-tab rebuilds.
+        _whisperEntryRow = UIFactory.CreateHorizontalGroup(ContentRoot, "ChatWhisperEntry",
+            false, false, true, true, 2, new Vector4(2, 0, 2, 0), bgColor: new Color(0f, 0f, 0f, 0f));
+        UIFactory.SetLayoutElement(_whisperEntryRow, minHeight: 24, preferredHeight: 24, flexibleWidth: 1);
+        _whisperNameInput = UIFactory.CreateInputField(_whisperEntryRow, "WhisperNameInput", "Whisper player by name…");
+        UIFactory.SetLayoutElement(_whisperNameInput.GameObject,
+            minWidth: 140, preferredWidth: 220, flexibleWidth: 1, minHeight: 22, preferredHeight: 22, flexibleHeight: 0);
+        _whisperNameInput.Component.onSubmit.AddListener(OnWhisperNameSubmit);
+        var startWhisperBtn = UIFactory.CreateButton(_whisperEntryRow, "WhisperStartBtn", "Whisper");
+        UIFactory.SetLayoutElement(startWhisperBtn.GameObject,
+            minWidth: 72, preferredWidth: 72, flexibleWidth: 0, minHeight: 22, preferredHeight: 22, flexibleHeight: 0);
+        startWhisperBtn.OnClick = () => StartTypedWhisper();
+        TooltipHover.Attach(startWhisperBtn.GameObject, "Start a whisper with the typed player. They must be nearby or have spoken in chat (so the client knows their whisper target). Tip: you can also type \\whisper Name in the message box.");
+        _whisperEntryRow.SetActive(false);
 
         // (0.17.0: the All-tab compose-target control is a compact dropdown placed
         // INSIDE the input row — built by RebuildComposeRow below, beside the input.)
@@ -397,7 +418,122 @@ public class ChatWindowOverlayPanel : ResizeablePanelBase
             _input.Text = v.Replace("\t", string.Empty).Replace("\r", string.Empty).Replace("\n", string.Empty);
             return;
         }
+        // 0.17.3: native-style channel/whisper commands — "\g " / "/global " switch the
+        // send channel; "\w Name " / "\whisper Name " start a whisper. The command is
+        // consumed (removed) and the channel/whisper changes live, so an All-tab user
+        // can switch targets without leaving All. Re-sets Text (re-fires this clean).
+        if (TryApplyChatCommand(v, out var remainder))
+        {
+            _input.Text = remainder ?? string.Empty;
+            return;
+        }
         UpdateInputHeight();
+    }
+
+    // ---- 0.17.3: in-chat channel/whisper commands (\g \global /l \whisper Name …) ----
+
+    // Parses a leading "\cmd " / "/cmd " (or "\whisper Name "). On a recognized,
+    // COMPLETED command, applies it and returns true with `remainder` = the text to
+    // keep in the input (the command itself is stripped). Accepts both \ and / so
+    // it's seamless for players used to the native chat.
+    private bool TryApplyChatCommand(string text, out string remainder)
+    {
+        remainder = text;
+        if (string.IsNullOrEmpty(text) || (text[0] != '\\' && text[0] != '/')) return false;
+        int sp = text.IndexOf(' ');
+        if (sp < 1) return false; // need a completed "<cmd> " token (cmd + trailing space)
+        string cmd = text.Substring(1, sp - 1).ToLowerInvariant();
+        string after = text.Substring(sp + 1);
+
+        ChatMessageType? chan = cmd switch
+        {
+            "g" or "global"         => ChatMessageType.Global,
+            "l" or "local"          => ChatMessageType.Local,
+            "c" or "clan" or "team" => ChatMessageType.Team,
+            _                       => (ChatMessageType?)null,
+        };
+        if (chan.HasValue)
+        {
+            SetComposeChannel(chan.Value);
+            remainder = after;            // keep whatever message they'd started typing
+            return true;
+        }
+
+        if (cmd is "w" or "whisper" or "wisp" or "wispr")
+        {
+            int sp2 = after.IndexOf(' ');
+            if (sp2 < 1) return false;    // name still being typed (no trailing space yet)
+            string name = after.Substring(0, sp2);
+            string rest = after.Substring(sp2 + 1);
+            if (TryStartWhisperByName(name)) { remainder = rest; return true; }
+            // Unresolved: tell the user and consume the command so it doesn't re-fire.
+            ChatRelayService.CaptureLocalEcho(ChatRelayService.Channel.System,
+                $"No player \"{name}\" found to whisper — they must be nearby or have spoken in chat.");
+            remainder = string.Empty;
+            return true;
+        }
+        return false;
+    }
+
+    // Point the All-tab compose target at a channel (switching to the All tab first,
+    // since that's where free channel-switching lives).
+    private void SetComposeChannel(ChatMessageType type)
+    {
+        if (_activeTab != 0)
+        {
+            _activeTab = 0;
+            UpdateWhisperSubRow();
+            UpdateTabHighlight();
+        }
+        UpdateComposeRow();               // ensures targets + the dropdown exist
+        int idx = _composeTargets.FindIndex(t => !t.IsWhisper && t.Channel == type);
+        if (idx < 0) idx = DefaultComposeIndex(); // e.g. Clan requested while not in a clan
+        _composeIndex = Mathf.Clamp(idx, 0, Mathf.Max(0, _composeTargets.Count - 1));
+        if (_composeDropdown != null) _composeDropdown.SetValueWithoutNotify(_composeIndex);
+        Render();
+    }
+
+    // Resolve a typed name to a known whisper target and make it the active All-tab
+    // compose target (stays on All). Returns false if the name can't be resolved.
+    private bool TryStartWhisperByName(string typed)
+    {
+        if (!ResolvePlayer(typed, out var name, out var id)) return false;
+        ChatRelayService.RememberWhisperTarget(name, id);
+        _closedPartners.Remove(name);
+        _initiatedPartners.Add(name);
+        if (_activeTab != 0)
+        {
+            _activeTab = 0;
+            UpdateWhisperSubRow();
+            UpdateTabHighlight();
+        }
+        UpdateComposeRow();               // rebuilds the dropdown to include the new partner
+        int idx = _composeTargets.FindIndex(t => t.IsWhisper && string.Equals(t.Whisper, name, StringComparison.OrdinalIgnoreCase));
+        if (idx >= 0)
+        {
+            _composeIndex = idx;
+            if (_composeDropdown != null) _composeDropdown.SetValueWithoutNotify(_composeIndex);
+        }
+        Render();
+        return true;
+    }
+
+    // 0.17.3: resolve a typed (possibly partial) player name to a whisper target.
+    // Pool = players seen in chat (have a NetworkId) + the nearby/online roster.
+    // Exact case-insensitive match wins; otherwise the first unique startswith match.
+    // Truly-remote silent players can't be resolved client-side (no NetworkId yet).
+    private static bool ResolvePlayer(string typed, out string name, out NetworkId id)
+    {
+        name = null; id = default;
+        if (string.IsNullOrWhiteSpace(typed)) return false;
+        typed = typed.Trim();
+        var pool = ChatRelayService.GetKnownPlayers();
+        try { pool.AddRange(PlayerRosterService.GetOnlinePlayers()); } catch { }
+        foreach (var p in pool)
+            if (string.Equals(p.Name, typed, StringComparison.OrdinalIgnoreCase)) { name = p.Name; id = p.Id; return true; }
+        foreach (var p in pool)
+            if (!string.IsNullOrEmpty(p.Name) && p.Name.StartsWith(typed, StringComparison.OrdinalIgnoreCase)) { name = p.Name; id = p.Id; return true; }
+        return false;
     }
 
     // 0.17.0: size the input row to fit the wrapped text — one line at rest,
@@ -610,7 +746,35 @@ public class ChatWindowOverlayPanel : ResizeablePanelBase
         if (_whisperSubRow == null) return;
         bool show = WhispersTabIndex >= 0 && _activeTab == WhispersTabIndex;
         _whisperSubRow.SetActive(show);
+        if (_whisperEntryRow != null) _whisperEntryRow.SetActive(show); // 0.17.3 type-a-name row
         if (show) RebuildWhisperSubTabs();
+    }
+
+    private void OnWhisperNameSubmit(string _) => StartTypedWhisper();
+
+    // 0.17.3: start a whisper with the name typed into the Whispers-tab entry box.
+    // Resolves against players seen in chat + the nearby roster; opens their sub-tab.
+    private void StartTypedWhisper()
+    {
+        try
+        {
+            var typed = _whisperNameInput?.Text?.Trim();
+            if (string.IsNullOrEmpty(typed)) return;
+            if (!ResolvePlayer(typed, out var name, out var id))
+            {
+                ChatRelayService.CaptureLocalEcho(ChatRelayService.Channel.System,
+                    $"No player \"{typed}\" found to whisper — they must be nearby or have spoken in chat.");
+                return;
+            }
+            ChatRelayService.RememberWhisperTarget(name, id);
+            _closedPartners.Remove(name);
+            _initiatedPartners.Add(name);
+            _activeWhisperPartner = name;                 // open their conversation
+            if (_whisperNameInput != null) _whisperNameInput.Text = string.Empty;
+            RebuildWhisperSubTabs();
+            Render();
+        }
+        catch (System.Exception ex) { Utils.LogUtils.LogError($"StartTypedWhisper: {ex}"); }
     }
 
     // Rebuild the whisper sub-tab buttons: "All" + one per distinct partner.

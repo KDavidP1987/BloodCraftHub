@@ -87,6 +87,29 @@ internal static class InputSuppression
     // since it reads the raw Escape key. So this is just ShouldBlock.
     internal static bool ShouldBlockMenus() => ShouldBlock();
 
+    // 0.17.3: is a BCH text field (the chat input OR a main-panel form field) the
+    // focused UI selection? Used ONLY to decide whether to drain menu-open requests —
+    // NOT to drive ChatInputActive. ChatInputActive feeds the movement/ability patches,
+    // and driving it from EventSystem focus caused a character action-loop on chat exit
+    // (reverted in 0.17.2). The drain only DestroyEntity's menu-open request entities,
+    // so reading focus here is safe even if it occasionally blips. Fixes menu hotkeys
+    // (M/B/I) opening menus while typing into a main-panel form (the 0.17.2 gap).
+    internal static bool IsBchTextFieldFocusedForMenuDrain()
+    {
+        try
+        {
+            var es = UnityEngine.EventSystems.EventSystem.current;
+            var go = es != null ? es.currentSelectedGameObject : null;
+            if (go == null) return false;
+            var field = go.GetComponent<TMPro.TMP_InputField>();
+            if (field == null || !field.isFocused) return false;
+            var root = BloodCraftHub.UI.Framework.UniverseLib.UI.UniversalUI.CanvasRoot;
+            if (root == null) return true; // can't verify — assume ours (BCH is the UI mod)
+            return go.transform.IsChildOf(root.transform);
+        }
+        catch { return false; }
+    }
+
     // 0.17.2 CRASH FIX — safe replacement for the three menu-suppression Harmony
     // patches (MenuInputSystem / OpenHUDMenuSystem / ActionWheelSystem prefixes).
     // The 0.16.x crash bisect pinned those three as the trigger: detouring those hot
@@ -113,7 +136,10 @@ internal static class InputSuppression
         try
         {
             if (!Config.Settings.EnableInputSuppressionPatches) return; // master kill-switch
-            if (!ShouldBlockMenus()) return;                            // only while typing / panel open
+            // Drain while menus should be blocked (chat typing / panel open) OR while a
+            // BCH form field is focused — the latter fixes menu hotkeys leaking through
+            // while typing into a main-panel form (0.17.2 gap).
+            if (!ShouldBlockMenus() && !IsBchTextFieldFocusedForMenuDrain()) return;
             if (Plugin.IsClientNull()) return;
 
             var em = Plugin.EntityManager;
