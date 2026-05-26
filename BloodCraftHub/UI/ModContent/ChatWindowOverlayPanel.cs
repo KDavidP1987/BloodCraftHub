@@ -56,7 +56,21 @@ public class ChatWindowOverlayPanel : ResizeablePanelBase
     // changing the main panel color never bleeds into the chat window.
     public override void RefreshBackgroundColor()
     {
-        UIFactory.ApplyBackgroundColorRgbToPanel(uiRoot, Settings.ChatWindowBackgroundColor);
+        var rgb = Settings.ChatWindowBackgroundColor;
+        UIFactory.ApplyBackgroundColorRgbToPanel(uiRoot, rgb);
+        // ALSO recolor the main "Content" background image directly. The shared
+        // walker skips "card-ish" neutral greys (its heuristic), and the chat
+        // window's only opaque surface IS this base image (its rows are transparent)
+        // — so without this a neutral color pick wouldn't visibly apply. Alpha is
+        // left to the transparency control (ApplyOpacityToPanel owns it). NOTE: at
+        // 100% transparency the alpha floors to ~0.05, so ANY color is ~invisible.
+        try
+        {
+            var content = uiRoot != null ? uiRoot.transform.Find("Content") : null;
+            var img = content != null ? content.GetComponent<UnityEngine.UI.Image>() : null;
+            if (img != null) { var c = img.color; img.color = new Color(rgb.r, rgb.g, rgb.b, c.a); }
+        }
+        catch { }
     }
 
     private static readonly (ChatRelayService.Channel? Filter, string Label)[] TabDefs =
