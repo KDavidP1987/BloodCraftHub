@@ -604,6 +604,11 @@ public class Settings
     // Global color, Local in its blue, Clan green, etc.). The All tab stays neutral.
     public static bool ChatColorTabs => (ConfigEntries[nameof(ChatColorTabs)] as ConfigEntry<bool>)?.Value ?? true;
     public static void SetChatColorTabs(bool v) => SetBool(nameof(ChatColorTabs), v);
+    // 0.17.3: render the chat log in aligned columns (time | channel+sender | message)
+    // with wrapped message lines hanging-indented under the message column — cleaner
+    // for the mixed All view. Off by default (free-flowing text, the original look).
+    public static bool ChatTabularLayout => (ConfigEntries[nameof(ChatTabularLayout)] as ConfigEntry<bool>)?.Value ?? false;
+    public static void SetChatTabularLayout(bool v) => SetBool(nameof(ChatTabularLayout), v);
     // 0.17.3: per-channel inclusion in the consolidated "All" tab. All default TRUE
     // (All shows everything, as before). Uncheck one to hide that channel from the
     // All aggregate only — its own dedicated tab is unaffected.
@@ -947,6 +952,7 @@ public class Settings
         InitConfigEntry(OVERLAY_SETTINGS_GROUP, nameof(ChatAutoScroll),              true,  "Tabbed chat: automatically scroll to keep the newest message in view as new lines arrive (to the bottom or top per the 'newest at bottom' setting). Turn off to scroll back through history freely without being snapped to the newest line.");
         InitConfigEntry(OVERLAY_SETTINGS_GROUP, nameof(ChatChannelLabelsSpelledOut), false, "Tabbed chat: spell out channel labels in full ([Global] / [Local] / [Clan] / [System] / [Whisper]) instead of the short acronyms ([G] / [L] / [Clan] / [Sys] / [W]). Only applies when 'Show channel labels' is on.");
         InitConfigEntry(OVERLAY_SETTINGS_GROUP, nameof(ChatColorTabs),                true,  "Tabbed chat: tint each channel tab's label in that channel's color (Global / Local / Clan / System / Whispers). The All tab stays neutral. Off = all tab labels use the default text color.");
+        InitConfigEntry(OVERLAY_SETTINGS_GROUP, nameof(ChatTabularLayout),             false, "Tabbed chat: render messages in aligned COLUMNS (time | channel + sender | message) with wrapped lines hanging-indented under the message column — cleaner for the mixed All tab. Off by default (free-flowing text). Best with timestamps + channel labels on.");
         InitConfigEntry(OVERLAY_SETTINGS_GROUP, nameof(ChatGlobalColorHex),           DEFAULT_CHAT_GLOBAL_HEX, "Tabbed chat: color for the Global channel — used for its [G]/[Global] label tag AND its tab when 'Color tabs by channel' is on. Hex string (e.g. #FF8A5B coral default, #FFFFFF white, #66CCFF blue). The other channels' colors are fixed (Local blue, Clan green, System gold, Whisper pink).");
         InitConfigEntry(OVERLAY_SETTINGS_GROUP, nameof(ChatWindowBackgroundColorHex), DEFAULT_PANEL_BG_HEX, "Tabbed chat window background theme color (independent of the main panel color). Hex string; same presets as Settings → Display panel color. Default #121212 near-black. Transparency is set separately by the chat window transparency control.");
         InitConfigEntry(OVERLAY_SETTINGS_GROUP, nameof(AllTabShowGlobal),             true,  "Tabbed chat: include GLOBAL messages in the consolidated 'All' tab. Uncheck to hide Global from All (its own Global tab is unaffected).");

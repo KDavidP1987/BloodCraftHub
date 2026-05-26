@@ -1541,6 +1541,9 @@ public partial class MainPanel : ResizeablePanelBase
         AddChatOptionToggle(chatCard, "Color tabs by channel",
             Config.Settings.ChatColorTabs,
             v => Config.Settings.SetChatColorTabs(v));
+        AddChatOptionToggle(chatCard, "Tabular layout (align time / channel+sender / message in columns)",
+            Config.Settings.ChatTabularLayout,
+            v => Config.Settings.SetChatTabularLayout(v));
 
         // 0.17.3: per-channel filter for the consolidated "All" tab. All default on
         // (All shows everything). Unchecking a channel hides it from the All tab only

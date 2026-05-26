@@ -1145,6 +1145,7 @@ public class ChatWindowOverlayPanel : ResizeablePanelBase
         bool showTime = Settings.ChatShowTimestamps;
         bool showTag  = Settings.ChatShowChannelTags;
         bool newestAtBottom = Settings.ChatNewestAtBottom;
+        bool tabular  = Settings.ChatTabularLayout;
         var filter = TabDefs[_activeTab].Filter;
         // On the Whispers tab, an active partner sub-tab narrows to that conversation.
         bool whisperPartnerFilter = WhispersTabIndex >= 0 && _activeTab == WhispersTabIndex && _activeWhisperPartner != null;
@@ -1163,13 +1164,20 @@ public class ChatWindowOverlayPanel : ResizeablePanelBase
             if (!filter.HasValue && !AllTabIncludes(ln.Channel)) continue;
             if (whisperPartnerFilter && ln.Partner != _activeWhisperPartner) continue;
             line.Clear();
-            if (showTime) line.Append("<color=#808080>").Append(ln.Received.ToString("HH:mm")).Append("</color> ");
-            if (showTag)  line.Append(ChannelTag(ln.Channel)).Append(' ');
-            // Game-resolved sender name (empty for system messages). The native
-            // userName may already carry color tags — render as-is.
-            if (!string.IsNullOrEmpty(ln.Sender))
-                line.Append(ln.Sender).Append(": ");
-            line.Append(ln.Text);
+            if (tabular)
+            {
+                AppendTabularLine(line, ln, showTime, showTag);
+            }
+            else
+            {
+                if (showTime) line.Append("<color=#808080>").Append(ln.Received.ToString("HH:mm")).Append("</color> ");
+                if (showTag)  line.Append(ChannelTag(ln.Channel)).Append(' ');
+                // Game-resolved sender name (empty for system messages). The native
+                // userName may already carry color tags — render as-is.
+                if (!string.IsNullOrEmpty(ln.Sender))
+                    line.Append(ln.Sender).Append(": ");
+                line.Append(ln.Text);
+            }
             lines.Add(line.ToString());
         }
 
@@ -1183,6 +1191,30 @@ public class ChatWindowOverlayPanel : ResizeablePanelBase
         // 0.17.0: keep the newest message in view as lines arrive (bottom or top
         // per the setting). Off lets the user scroll back through history freely.
         if (Settings.ChatAutoScroll) ScrollToNewest(newestAtBottom);
+    }
+
+    // 0.17.3: build one chat line in aligned columns using TMP <pos>/<indent>:
+    //   [time]      [tag] Sender:      message (wrapped lines hang-indent under the
+    //   message column). Columns are % of the log width so they scale with the window.
+    // If a sender name is long enough to pass the message column, <pos> can't move
+    // backwards so the text just flows inline — a graceful fallback, not a break.
+    // <indent> is closed at the end so the next line (joined by \n in the same TMP
+    // text block) doesn't inherit it.
+    private static void AppendTabularLine(StringBuilder line, ChatRelayService.ChatLine ln, bool showTime, bool showTag)
+    {
+        int metaPct = showTime ? 12 : 0;
+        int msgPct  = showTime ? 34 : 24;
+        if (showTime)
+            line.Append("<color=#808080>").Append(ln.Received.ToString("HH:mm")).Append("</color>");
+        if (metaPct > 0) line.Append("<pos=").Append(metaPct).Append("%>");
+        if (showTag)
+        {
+            var tag = ChannelTag(ln.Channel);
+            if (!string.IsNullOrEmpty(tag)) line.Append(tag).Append(' ');
+        }
+        if (!string.IsNullOrEmpty(ln.Sender)) line.Append(ln.Sender).Append(':');
+        line.Append("<indent=").Append(msgPct).Append("%><pos=").Append(msgPct).Append("%>")
+            .Append(ln.Text).Append("</indent>");
     }
 
     // Snap the scroll view to the newest message's edge. ScrollRect convention:
