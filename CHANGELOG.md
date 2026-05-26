@@ -1,7 +1,54 @@
 # Changelog
-## 0.17.0 — TODO
+## 0.17.0 — Standalone "Game UI" group + tabbed chat window
 
-- TODO: describe what changed.
+A large client-side feature release. Everything here works on **any** server —
+no Bloodcraft / Kindred required — so the hub is useful even without the server
+mods. Also folds in the 0.16.1 crash hardening (see below).
+
+### New: "Game UI" tab group
+
+A fourth left-rail group for client-side V Rising interface enhancements that
+need no server mod. It's home to the new tabbed chat window and is where future
+standalone UI tweaks will live.
+
+### New: tabbed chat window
+
+A movable, resizable, persistent chat window with per-channel tabs
+(All / Global / Local / Clan / System / Whispers), mirroring the in-game chat:
+
+- **Receives every channel** with the **game-resolved sender name** for every
+  player (not just yourself), plus per-tab unread badges.
+- **Send on the active channel.** On the **All** tab a compact "send to" dropdown
+  beside the input picks Global / Local / Clan / an active whisper, and **Tab
+  cycles** the targets while typing — like the native chat's Enter+Tab flow.
+- **Whisper conversations**: per-person sub-tabs with reply, **initiate a whisper**
+  from a dropdown of players seen in chat, and an **"x" to close** a conversation.
+- **Optional native-chat takeover** (off by default): hide the game's own chat and
+  use the tabbed window instead. While typing, gameplay/menu input is suppressed
+  (you don't move, attack, open menus, or trigger the Ctrl action wheel), and
+  Escape always releases the input so you can never get stuck.
+- **Customization** (Game UI tab): chat-only text size (independent of the other
+  overlays), newest-message at bottom or top, auto-scroll to the newest line,
+  word-wrapping input that grows as you type, timestamps, channel labels in short
+  (`[G]`) or spelled-out (`[Global]`) form, per-channel colored tabs, a
+  configurable Global color, and the chat window's own background transparency +
+  theme color (independent of the other overlays). The typing field uses a dark,
+  readable box with bright text.
+
+### Stability (carried from 0.16.1)
+
+Custom recipes now default **OFF** and apply on a deferred quiet frame; recipe
+mutation is shape-checked and per-block isolated; the SHIFT-spell icon read is
+gated behind the overlay being shown with a fault circuit-breaker. These reduce
+the GC pressure in the busy login window that could trigger a rare,
+non-deterministic Il2CppInterop crash on some machines. (Further work on that
+crash continues in a follow-up.)
+
+### Note on Eclipse
+
+Coexistence with the standalone Eclipse client mod has **not yet been re-verified**
+against Eclipse's latest update — keep Eclipse disabled while using BloodCraftHub
+until a follow-up confirms compatibility.
 
 
 ## 0.16.1 — Crash hotfix: stop triggering the Il2CppInterop GC-finalizer crash at login
