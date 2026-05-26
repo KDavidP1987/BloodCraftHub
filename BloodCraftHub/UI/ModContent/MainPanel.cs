@@ -1479,6 +1479,23 @@ public partial class MainPanel : ResizeablePanelBase
         AddChatOptionToggle(chatCard, "On the All tab, send to Global by default (off = Local)",
             Config.Settings.ChatAllTabDefaultGlobal,
             v => Config.Settings.SetChatAllTabDefaultGlobal(v));
+
+        // 0.17.0: chat-only text size — independent of the "Overlay text size"
+        // row in Display settings (which previously also resized this window).
+        // Reuses the segmented Small/Standard/Large/X-Large control; refreshes
+        // the live chat window so the size change shows immediately.
+        AddTextScaleRow(chatCard, "Chat text size",
+            currentScaleSetting: () => Config.Settings.ChatTextScale,
+            applyScale: v => {
+                Config.Settings.SetChatTextScale(v);
+                Plugin.UIManager?.RefreshChatWindowOverlay();
+            });
+        AddChatOptionToggle(chatCard, "Newest message at the bottom (off = top)",
+            Config.Settings.ChatNewestAtBottom,
+            v => Config.Settings.SetChatNewestAtBottom(v));
+        AddChatOptionToggle(chatCard, "Auto-scroll to the newest message",
+            Config.Settings.ChatAutoScroll,
+            v => Config.Settings.SetChatAutoScroll(v));
     }
 
     // 0.17: small labeled toggle for the Game UI chat-window options. Persists

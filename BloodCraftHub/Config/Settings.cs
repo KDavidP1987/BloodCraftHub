@@ -574,6 +574,22 @@ public class Settings
     public static bool HideNativeChat => (ConfigEntries[nameof(HideNativeChat)] as ConfigEntry<bool>)?.Value ?? false;
     // 0.17.0: on the All tab, send to Global (true) or Local (false) by default.
     public static bool ChatAllTabDefaultGlobal => (ConfigEntries[nameof(ChatAllTabDefaultGlobal)] as ConfigEntry<bool>)?.Value ?? false;
+    // 0.17.0: chat-window text size, INDEPENDENT of OverlayTextScale. The chat
+    // log used to be sized via Theme.ScaledOverlay (the shared overlay
+    // multiplier), so enlarging chat text also enlarged every OTHER overlay
+    // (friend-test report). This dedicated multiplier scales ONLY the tabbed
+    // chat window. Clamped 0.5..3.0 so a bad .cfg edit can't produce illegible
+    // or absurd sizes.
+    public static float ChatTextScale =>
+        UnityEngine.Mathf.Clamp(GetFloat(nameof(ChatTextScale), 1.0f), 0.5f, 3.0f);
+    public static void SetChatTextScale(float v) =>
+        SetFloat(nameof(ChatTextScale), UnityEngine.Mathf.Clamp(v, 0.5f, 3.0f));
+    // 0.17.0: newest chat line at the BOTTOM (true, default — game-like) or TOP (false).
+    public static bool ChatNewestAtBottom => (ConfigEntries[nameof(ChatNewestAtBottom)] as ConfigEntry<bool>)?.Value ?? true;
+    public static void SetChatNewestAtBottom(bool v) => SetBool(nameof(ChatNewestAtBottom), v);
+    // 0.17.0: auto-scroll the chat log to keep the newest message in view as lines arrive.
+    public static bool ChatAutoScroll => (ConfigEntries[nameof(ChatAutoScroll)] as ConfigEntry<bool>)?.Value ?? true;
+    public static void SetChatAutoScroll(bool v) => SetBool(nameof(ChatAutoScroll), v);
     public static bool ShiftSpellOverlayShowDiagnostics => (ConfigEntries[nameof(ShiftSpellOverlayShowDiagnostics)] as ConfigEntry<bool>)?.Value ?? false;
     public static bool ShowShiftSpellIcon      => (ConfigEntries[nameof(ShowShiftSpellIcon)]      as ConfigEntry<bool>)?.Value ?? true;
     public static bool OverlaysBehindGameMenus => (ConfigEntries[nameof(OverlaysBehindGameMenus)] as ConfigEntry<bool>)?.Value ?? true;
@@ -812,6 +828,9 @@ public class Settings
         InitConfigEntry(OVERLAY_SETTINGS_GROUP, nameof(ChatShowChannelTags),         true,  "Show the channel label ([G]/[L]/[Clan]/[Sys]/[W]) on each line in the tabbed chat window.");
         InitConfigEntry(OVERLAY_SETTINGS_GROUP, nameof(HideNativeChat),              false, "Replace the game's default chat with the tabbed chat window: hide the native chat (invisible + non-interactive) while the tabbed window is open. Default off. The native chat returns when the tabbed window is closed.");
         InitConfigEntry(OVERLAY_SETTINGS_GROUP, nameof(ChatAllTabDefaultGlobal),     false, "On the tabbed chat's All tab, send typed messages to Global (true) or Local (false) by default. Default Local.");
+        InitConfigEntry(OVERLAY_SETTINGS_GROUP, nameof(ChatTextScale),               1.0f,  "Font size multiplier for the tabbed chat window ONLY — independent of 'Overlay text size'. (Small=0.85, Standard=1.0, Large=1.2, X-Large=1.5.) Lets you enlarge chat text without enlarging the XP / Familiar / etc. overlays. Changes apply immediately.");
+        InitConfigEntry(OVERLAY_SETTINGS_GROUP, nameof(ChatNewestAtBottom),          true,  "Tabbed chat: show the newest message at the BOTTOM (true, like the game's own chat) or at the TOP (false).");
+        InitConfigEntry(OVERLAY_SETTINGS_GROUP, nameof(ChatAutoScroll),              true,  "Tabbed chat: automatically scroll to keep the newest message in view as new lines arrive (to the bottom or top per the 'newest at bottom' setting). Turn off to scroll back through history freely without being snapped to the newest line.");
         InitConfigEntry(OVERLAY_SETTINGS_GROUP, nameof(ShiftSpellOverlayShowDiagnostics), false, "Show the small italic 'pf/cg/si/end/srv' debug line under the Shift overlay's SHIFT label. Off by default; flip on if you need to debug why the cooldown isn't updating.");
         InitConfigEntry(OVERLAY_SETTINGS_GROUP, nameof(ShowShiftSpellIcon),               true,  "Show the slotted spell's actual icon on the Shift-spell overlay tile (like Eclipse). When off, the overlay shows the plain colored cooldown tile instead.");
         InitConfigEntry(OVERLAY_SETTINGS_GROUP, nameof(OverlaysBehindGameMenus),          true,  "When an in-game menu (inventory, character sheet, map, etc.) is open, drop BCH's overlays/panels BEHIND it instead of floating over the top. Set false to keep them always on top (the pre-0.16 behavior).");

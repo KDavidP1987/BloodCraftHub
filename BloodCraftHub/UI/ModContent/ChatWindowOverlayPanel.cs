@@ -62,6 +62,10 @@ public class ChatWindowOverlayPanel : ResizeablePanelBase
     private bool _subscribed;
     private readonly List<ButtonRef> _tabButtons = new();
     private InputFieldRef _input;
+    // 0.17.0: the scroll view + its content rect, kept so we can auto-scroll the
+    // log to the newest message (bottom or top, per ChatNewestAtBottom).
+    private UnityEngine.UI.ScrollRect _scrollRect;
+    private RectTransform _scrollContentRect;
 
     // 0.17.0 whisper sub-tabs. When the Whispers top-tab is active, a second row
     // appears: "All" (every whisper) + one sub-tab per conversation partner.
@@ -139,12 +143,17 @@ public class ChatWindowOverlayPanel : ResizeablePanelBase
         // shows through, matching the other overlays.
         var scrollBg = scroll.GetComponent<UnityEngine.UI.Image>();
         if (scrollBg != null) scrollBg.color = new Color(0f, 0f, 0f, 0f);
+        // Cache the ScrollRect + content rect for auto-scroll-to-newest.
+        _scrollRect = scroll.GetComponent<UnityEngine.UI.ScrollRect>();
+        _scrollContentRect = scrollContent.GetComponent<RectTransform>();
 
         var lbl = UIFactory.CreateLabel(scrollContent, "ChatLog", string.Empty, TextAlignmentOptions.TopLeft);
         _log = lbl.TextMesh;
         _log.richText = true;
         _log.enableWordWrapping = true;
-        _log.fontSize = Theme.ScaledOverlay(12);
+        // 0.17.0: chat-only size — NOT Theme.ScaledOverlay, which is the shared
+        // overlay multiplier (enlarging it grew every other overlay too).
+        _log.fontSize = ChatFontSize();
         _log.lineSpacing = 4f;
         _log.margin = new Vector4(6, 4, 6, 4);
         _log.color = Theme.DefaultText;
@@ -183,6 +192,7 @@ public class ChatWindowOverlayPanel : ResizeablePanelBase
             ChatRelayService.LineCaptured += OnLineCaptured;
             _subscribed = true;
         }
+        ApplyChatTextScale(); // size the input field to match the chat scale
         UpdateTabHighlight();
         Render();
     }
@@ -217,9 +227,30 @@ public class ChatWindowOverlayPanel : ResizeablePanelBase
     }
 
     // Re-render with current Settings (called by the Game UI customization toggles).
+    // Also re-applies the chat-only text scale so a size change takes effect
+    // immediately without closing + reopening the window.
     internal void Refresh()
     {
-        try { UpdateTabHighlight(); Render(); } catch { }
+        try { ApplyChatTextScale(); UpdateTabHighlight(); Render(); } catch { }
+    }
+
+    // 0.17.0: chat-window font size, independent of the shared overlay text
+    // scale. 12px baseline × the chat-only multiplier.
+    private static float ChatFontSize() =>
+        UnityEngine.Mathf.Max(8f, UnityEngine.Mathf.RoundToInt(12 * Settings.ChatTextScale));
+
+    // Push the current chat text scale onto the log + input (+ placeholder) so a
+    // live size change is reflected without a rebuild.
+    private void ApplyChatTextScale()
+    {
+        float size = ChatFontSize();
+        try { if (_log != null) _log.fontSize = size; } catch { }
+        try
+        {
+            if (_input?.Component?.textComponent != null) _input.Component.textComponent.fontSize = size;
+            if (_input?.PlaceholderText != null) _input.PlaceholderText.fontSize = size;
+        }
+        catch { }
     }
 
     // ---- input / send (increment 2) ----
@@ -479,26 +510,60 @@ public class ChatWindowOverlayPanel : ResizeablePanelBase
         if (_log == null) return;
         bool showTime = Settings.ChatShowTimestamps;
         bool showTag  = Settings.ChatShowChannelTags;
+        bool newestAtBottom = Settings.ChatNewestAtBottom;
         var filter = TabDefs[_activeTab].Filter;
         // On the Whispers tab, an active partner sub-tab narrows to that conversation.
         bool whisperPartnerFilter = WhispersTabIndex >= 0 && _activeTab == WhispersTabIndex && _activeWhisperPartner != null;
 
-        var sb = new StringBuilder(2048);
+        // Build the matching lines in chronological (oldest→newest) order first,
+        // then emit in the user's chosen direction. Cheap — chat is low-volume.
+        var lines = new List<string>();
+        var line = new StringBuilder(160);
         var buf = ChatRelayService.Buffer;
         for (int i = 0; i < buf.Count; i++)
         {
             var ln = buf[i];
             if (filter.HasValue && ln.Channel != filter.Value) continue;
             if (whisperPartnerFilter && ln.Partner != _activeWhisperPartner) continue;
-            if (showTime) sb.Append("<color=#808080>").Append(ln.Received.ToString("HH:mm")).Append("</color> ");
-            if (showTag)  sb.Append(ChannelTag(ln.Channel)).Append(' ');
+            line.Clear();
+            if (showTime) line.Append("<color=#808080>").Append(ln.Received.ToString("HH:mm")).Append("</color> ");
+            if (showTag)  line.Append(ChannelTag(ln.Channel)).Append(' ');
             // Game-resolved sender name (empty for system messages). The native
             // userName may already carry color tags — render as-is.
             if (!string.IsNullOrEmpty(ln.Sender))
-                sb.Append(ln.Sender).Append(": ");
-            sb.Append(ln.Text).Append('\n');
+                line.Append(ln.Sender).Append(": ");
+            line.Append(ln.Text);
+            lines.Add(line.ToString());
         }
+
+        var sb = new StringBuilder(2048);
+        if (newestAtBottom)
+            for (int i = 0; i < lines.Count; i++) sb.Append(lines[i]).Append('\n');
+        else
+            for (int i = lines.Count - 1; i >= 0; i--) sb.Append(lines[i]).Append('\n');
         _log.text = sb.ToString();
+
+        // 0.17.0: keep the newest message in view as lines arrive (bottom or top
+        // per the setting). Off lets the user scroll back through history freely.
+        if (Settings.ChatAutoScroll) ScrollToNewest(newestAtBottom);
+    }
+
+    // Snap the scroll view to the newest message's edge. ScrollRect convention:
+    // verticalNormalizedPosition 1 = top, 0 = bottom (independent of pivot). A
+    // forced layout rebuild first is load-bearing — the ContentSizeFitter hasn't
+    // recomputed the new text's height yet when we set the position, so without it
+    // the scroll lands on the PREVIOUS content size and the newest line is clipped.
+    private void ScrollToNewest(bool newestAtBottom)
+    {
+        if (_scrollRect == null) return;
+        try
+        {
+            UnityEngine.Canvas.ForceUpdateCanvases();
+            if (_scrollContentRect != null)
+                UnityEngine.UI.LayoutRebuilder.ForceRebuildLayoutImmediate(_scrollContentRect);
+            _scrollRect.verticalNormalizedPosition = newestAtBottom ? 0f : 1f;
+        }
+        catch { /* scroll is best-effort; never throw into the inbound pump */ }
     }
 
     private static string ChannelTag(ChatRelayService.Channel ch) => ch switch
@@ -523,5 +588,7 @@ public class ChatWindowOverlayPanel : ResizeablePanelBase
         _whisperSubRow = null;
         _input = null;
         _log = null;
+        _scrollRect = null;
+        _scrollContentRect = null;
     }
 }
