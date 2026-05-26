@@ -7,6 +7,27 @@
 > bundled copy summarizes earlier versions and reproduces the most
 > recent release in full.
 
+## 0.17.2 — Load-crash mitigation + compatibility switches
+
+Targets the intermittent crash a few seconds after loading into a server that
+some players hit on 0.16.0/0.16.1 — especially when **other client mods are
+installed alongside** BloodCraftHub. The root fault is in the BepInEx IL2CPP
+interop layer (a garbage-collector finalizer bug); BCH only tips it over by adding
+work to the busy login window, so it never reproduces for everyone.
+
+- **Smoother login:** BCH now rebuilds your overlays a few seconds *after* you
+  spawn, on a quiet frame, instead of the crowded login moment. Configurable via
+  `UiBuildDelaySeconds` (default 3; 0 = old instant behavior). The launcher button
+  still appears right away.
+- **New `[Compatibility]` config switches** (all default ON — leave them on for
+  normal play). If you still crash on load, switch these off one at a time in
+  `BepInEx/config/kdpen.BloodCraftHub.cfg` and relaunch to find the culprit without
+  uninstalling: `EnableChatSystemHooks`, `EnableInputSuppressionPatches`,
+  `EnableOverlayLayeringPatch`.
+- **Crash on load? Try this first:** close the game, delete `BepInEx/interop` and
+  `BepInEx/cache` in your profile (they rebuild on launch), and update your BepInEx
+  (V Rising) pack — that clears the interop bug at the source.
+
 ## 0.17.1 — Run alongside Eclipse (command-console mode)
 
 BloodCraftHub + [Eclipse](https://thunderstore.io/c/v-rising/p/zfolmt/Eclipse/)
