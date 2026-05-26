@@ -331,12 +331,16 @@ public class BCHubUIManager : UIManagerBase
         }
         // Un-suppress: re-show only overlays whose per-overlay Settings flag
         // is true. Anything the user disabled stays disabled.
-        if (BloodCraftHub.Config.Settings.ShowExperienceOverlay)
+        // 0.17.1: under Eclipse stand-down, keep the stream-driven stat overlays
+        // OFF here too (Eclipse shows that data; BCH has no stream) — same rule as
+        // RestoreOverlaysFromSettings. Familiar Browser / Quick Actions / Chat stay.
+        bool standDown = Services.EclipseProtocolService.StandDownForEclipse();
+        if (!standDown && BloodCraftHub.Config.Settings.ShowExperienceOverlay)
         {
             EnsureExperienceOverlay();
             _experienceOverlay.SetActive(true);
         }
-        if (BloodCraftHub.Config.Settings.ShowFamiliarOverlay)
+        if (!standDown && BloodCraftHub.Config.Settings.ShowFamiliarOverlay)
         {
             EnsureFamiliarOverlay();
             _familiarOverlay.SetActive(true);
@@ -346,17 +350,17 @@ public class BCHubUIManager : UIManagerBase
             EnsureFamiliarBrowserOverlay();
             _familiarBrowserOverlay.SetActive(true);
         }
-        if (BloodCraftHub.Config.Settings.ShowDailyQuestOverlay)
+        if (!standDown && BloodCraftHub.Config.Settings.ShowDailyQuestOverlay)
         {
             EnsureDailyQuestOverlay();
             _dailyQuestOverlay.SetActive(true);
         }
-        if (BloodCraftHub.Config.Settings.ShowProfessionOverlay)
+        if (!standDown && BloodCraftHub.Config.Settings.ShowProfessionOverlay)
         {
             EnsureProfessionOverlay();
             _professionOverlay.SetActive(true);
         }
-        if (BloodCraftHub.Config.Settings.ShowShiftSpellOverlay)
+        if (!standDown && BloodCraftHub.Config.Settings.ShowShiftSpellOverlay)
         {
             EnsureShiftSpellOverlay();
             _shiftSpellOverlay.SetActive(true);
