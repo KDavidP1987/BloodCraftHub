@@ -88,12 +88,18 @@ public static class UICanvasSystemPatch
         catch { /* never let a cosmetic layering tweak disrupt the game's canvas update */ }
     }
 
-    // 0.17: menu children that should NOT push BCH overlays behind — the coffin
-    // (its child is named "SpawnMenu") and the full-screen darkening
-    // ("FullscreenMenu"). In those states you can still chat / use overlays
-    // (like the native chat), so overlays must stay on top + clickable. Inventory
-    // / character / map / build menus have their own names and still push behind.
-    private static readonly string[] _keepOverlaysOnTopFor = { "SpawnMenu", "FullscreenMenu" };
+    // 0.17: menu children that should NOT push BCH overlays behind. The coffin spawn
+    // screen ("SpawnMenu") is the one state where you still want chat / overlays usable
+    // on top of it, so it stays excluded.
+    //
+    // 0.29.4: "FullscreenMenu" REMOVED from this list. Tester report: with the
+    // "overlays behind menus" setting ON, inventory/crafting correctly covered BCH
+    // overlays, but the Social / Spellbook / Map (and other fullscreen) menus still
+    // rendered BEHIND BCH overlays. Those menus are hosted by the game's
+    // "FullscreenMenu" container under HUDMenuParent — so excluding "FullscreenMenu"
+    // here was keeping BCH on top for exactly those menus. Dropping it lets them push
+    // BCH overlays behind like the other menus; the coffin (SpawnMenu) still stays on top.
+    private static readonly string[] _keepOverlaysOnTopFor = { "SpawnMenu" };
 
     private static double _lastMenuDiagAt;
     private static bool IsAnyMenuOpen(UICanvasBase canvas)

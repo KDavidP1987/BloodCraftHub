@@ -2034,6 +2034,15 @@ public partial class MainPanel : ResizeablePanelBase
         AddChatOptionToggle(chatCard, "Double-click a name in chat to whisper them",
             Config.Settings.ChatDoubleClickNameWhisper,
             v => Config.Settings.SetChatDoubleClickNameWhisper(v));
+        AddChatOptionToggle(chatCard, "On whispers you send, show who you sent it to",
+            Config.Settings.ChatShowWhisperRecipient,
+            v => Config.Settings.SetChatShowWhisperRecipient(v));
+        AddChatOptionToggle(chatCard, "    └ Recipient in the channel column ([Whisper → Name]); off = name column (→ Name)",
+            Config.Settings.ChatWhisperRecipientInChannelColumn,
+            v => Config.Settings.SetChatWhisperRecipientInChannelColumn(v));
+        AddChatOptionToggle(chatCard, "Show a whisper to yourself as \"Note to self\" (off = whisper to your own name)",
+            Config.Settings.ChatSelfWhisperAsNoteToSelf,
+            v => Config.Settings.SetChatSelfWhisperAsNoteToSelf(v));
         AddChatOptionToggle(chatCard, "Show \"missing class / expertise / legacy — free power\" hints (Class, Weapon, Blood pages + overlays)",
             Config.Settings.ShowMissingElementHints,
             v => Config.Settings.SetShowMissingElementHints(v));

@@ -102,13 +102,14 @@ public class ChatWindowOverlayPanel : ResizeablePanelBase
     // 0.17.0 whisper sub-tabs. When the Whispers top-tab is active, a second row
     // appears: "All" (every whisper) + one sub-tab per conversation partner.
     private GameObject _whisperSubRow;
-    // 0.17.3: persistent "whisper a typed name" row (for players who haven't spoken,
-    // so aren't in the picker). Created once so typing survives sub-tab rebuilds.
-    private GameObject _whisperEntryRow;
-    private InputFieldRef _whisperNameInput;
     private readonly List<ButtonRef> _whisperSubButtons = new();
     private readonly List<string> _whisperSubPartners = new(); // parallel to _whisperSubButtons; null = All
-    private string _activeWhisperPartner; // null = All Whispers
+    private string _activeWhisperPartner; // null = All Whispers — the VIEW filter (top sub-tabs)
+    // B4 (0.29.9): the message-bar recipient box's selection — who a typed message goes to on the Whispers
+    // tab. Kept SEPARATE from _activeWhisperPartner (the view) so you can stay on the "All Whispers" view and
+    // still pick/switch who you're replying to. Clicking a person's sub-tab sets BOTH (view + target); the box
+    // and Tab-cycling set only this. null = no target picked / no conversations.
+    private string _whisperSendTo;
     // Players chosen from the picker but not yet messaged — kept so their sub-tab
     // shows immediately (before any whisper line exists for them).
     private readonly HashSet<string> _initiatedPartners = new();
@@ -212,23 +213,9 @@ public class ChatWindowOverlayPanel : ResizeablePanelBase
         UIFactory.SetLayoutElement(_whisperSubRow, minHeight: 22, preferredHeight: 22, flexibleWidth: 1);
         _whisperSubRow.SetActive(false);
 
-        // 0.17.3: persistent "whisper by typing a name" row — lets you start a whisper
-        // with a player who hasn't spoken (so isn't in the +Whisper… picker). Shown
-        // only on the Whispers tab; created once so typing survives sub-tab rebuilds.
-        _whisperEntryRow = UIFactory.CreateHorizontalGroup(ContentRoot, "ChatWhisperEntry",
-            false, false, true, true, 2, new Vector4(2, 0, 2, 0), bgColor: new Color(0f, 0f, 0f, 0f));
-        UIFactory.SetLayoutElement(_whisperEntryRow, minHeight: 24, preferredHeight: 24, flexibleWidth: 1);
-        _whisperNameInput = UIFactory.CreateInputField(_whisperEntryRow, "WhisperNameInput", "Whisper player by name…");
-        UIFactory.SetLayoutElement(_whisperNameInput.GameObject,
-            minWidth: 140, preferredWidth: 220, flexibleWidth: 1, minHeight: 22, preferredHeight: 22, flexibleHeight: 0);
-        _whisperNameInput.Component.onSubmit.AddListener(OnWhisperNameSubmit);
-        var startWhisperBtn = UIFactory.CreateButton(_whisperEntryRow, "WhisperStartBtn", "Whisper");
-        UIFactory.SetLayoutElement(startWhisperBtn.GameObject,
-            minWidth: 72, preferredWidth: 72, flexibleWidth: 0, minHeight: 22, preferredHeight: 22, flexibleHeight: 0);
-        startWhisperBtn.OnClick = () => StartTypedWhisper();
-        TooltipHover.Attach(startWhisperBtn.GameObject, "Start a whisper with the typed player. They must be nearby or have spoken in chat (so the client knows their whisper target). Tip: you can also type \\whisper Name in the message box.");
-        _whisperEntryRow.SetActive(false);
-
+        // (0.29.10: the old top "whisper a player by name" input row was removed — it confused testers as a
+        // second message box. Starting a new whisper now lives at the BOTTOM input line via the "+ Whisper…"
+        // picker built by UpdateWhisperPicker, beside the recipient box. The top is just the sub-tabs now.)
         // (0.17.0: the All-tab compose-target control is a compact dropdown placed
         // INSIDE the input row — built by RebuildComposeRow below, beside the input.)
 
@@ -560,6 +547,16 @@ public class ChatWindowOverlayPanel : ResizeablePanelBase
         ChatRelayService.RememberWhisperTarget(name, id);
         _closedPartners.Remove(name);
         _initiatedPartners.Add(name);
+        // B4: if the whisper was started FROM the Whispers tab (e.g. /whisper Name typed in its message bar),
+        // open that conversation IN PLACE instead of jumping to the All tab.
+        if (WhispersTabIndex >= 0 && _activeTab == WhispersTabIndex)
+        {
+            _activeWhisperPartner = name; // view
+            _whisperSendTo = name;        // and target them
+            RebuildWhisperSubTabs(); // adds the partner's sub-tab + syncs the message-bar recipient box
+            Render();
+            return;
+        }
         if (_activeTab != 0)
         {
             _activeTab = 0;
@@ -587,6 +584,7 @@ public class ChatWindowOverlayPanel : ResizeablePanelBase
         typed = typed.Trim();
         var pool = ChatRelayService.GetKnownPlayers();
         try { pool.AddRange(PlayerRosterService.GetOnlinePlayers()); } catch { }
+        try { if (PlayerRosterService.TryGetSelfPlayer(out var me)) pool.Add(me); } catch { }   // B1: allow whispering yourself (note to self)
         foreach (var p in pool)
             if (string.Equals(p.Name, typed, StringComparison.OrdinalIgnoreCase)) { name = p.Name; id = p.Id; return true; }
         foreach (var p in pool)
@@ -607,6 +605,7 @@ public class ChatWindowOverlayPanel : ResizeablePanelBase
         }
         try { Add(ChatRelayService.GetKnownPlayers()); } catch { }
         try { Add(PlayerRosterService.GetOnlinePlayers()); } catch { }
+        try { if (PlayerRosterService.TryGetSelfPlayer(out var me)) Add(new[] { me }); } catch { }   // B1: you can whisper yourself too
         names.Sort(StringComparer.OrdinalIgnoreCase);
         return names;
     }
@@ -624,7 +623,7 @@ public class ChatWindowOverlayPanel : ResizeablePanelBase
             : (names.Count <= 15 ? string.Join(", ", names)
                                  : string.Join(", ", names.GetRange(0, 15)) + $", +{names.Count - 15} more");
         ChatRelayService.CaptureLocalEcho(ChatRelayService.Channel.System,
-            $"No whisper match for \"{typed}\". Players I can whisper now: {list}. (The client can only whisper players who are nearby or have spoken in chat.)");
+            $"No whisper match for \"{typed}\". Players I can whisper now: {list}. (You can whisper any player connected to the server, or anyone who's spoken in chat.)");
         Utils.LogUtils.LogInfo($"[Whisper] resolve failed for '{typed}'. Whisperable ({names.Count}): {string.Join(", ", names)}");
     }
 
@@ -745,16 +744,29 @@ public class ChatWindowOverlayPanel : ResizeablePanelBase
             if (msg != null && msg.Length > MaxChatChars) msg = msg.Substring(0, MaxChatChars); // backstop
             if (!string.IsNullOrEmpty(msg))
             {
-                bool onWhisperPartner = WhispersTabIndex >= 0 && _activeTab == WhispersTabIndex && _activeWhisperPartner != null;
-                if (onWhisperPartner)
+                bool onWhispersTab = WhispersTabIndex >= 0 && _activeTab == WhispersTabIndex;
+                if (onWhispersTab)
                 {
-                    // Whisper reply: send to the partner's captured NetworkId.
-                    if (ChatRelayService.TryGetWhisperTarget(_activeWhisperPartner, out var target))
+                    // 0.29.7 PRIVACY FIX: the Whispers tab ONLY ever sends as a whisper to the active
+                    // partner — it must NEVER fall back to a channel. Previously, with no active/resolvable
+                    // partner (the "All" whisper view, or a partner who went offline), the message dropped
+                    // into the channel `else` below → ActiveSendChannel() → LOCAL, leaking the private
+                    // message into Local chat where everyone nearby could read it (tester report). Now: send
+                    // only if the partner resolves to a target; otherwise tell the user and send NOTHING.
+                    // Send to the recipient box's target (_whisperSendTo) — independent of which conversation
+                    // is being VIEWED, so you can sit on "All Whispers" and still reply to a chosen person.
+                    if (_whisperSendTo != null && ChatRelayService.TryGetWhisperTarget(_whisperSendTo, out var target))
                     {
                         MessageService.SendWhisper(msg, target);
-                        ChatRelayService.CaptureLocalEcho(ChatRelayService.Channel.Whisper, msg, _activeWhisperPartner);
+                        ChatRelayService.CaptureLocalEcho(ChatRelayService.Channel.Whisper, msg, _whisperSendTo);
                     }
-                    // else: no known target for this partner yet — nothing to send to.
+                    else
+                    {
+                        ChatRelayService.CaptureLocalEcho(ChatRelayService.Channel.System,
+                            _whisperSendTo == null
+                                ? "Pick a whisper recipient first (the box left of the input, a sub-tab, or “+ Whisper…”) before sending — your message was NOT sent to any channel."
+                                : $"Can't whisper \"{_whisperSendTo}\" right now (they may have gone offline). Your message was NOT sent.");
+                    }
                 }
                 else if (_activeTab == 0)
                 {
@@ -769,6 +781,13 @@ public class ChatWindowOverlayPanel : ResizeablePanelBase
                         {
                             MessageService.SendWhisper(msg, nid);
                             ChatRelayService.CaptureLocalEcho(ChatRelayService.Channel.Whisper, msg, wp);
+                        }
+                        else
+                        {
+                            // 0.29.7: a whisper compose-target that no longer resolves must NOT leak to a
+                            // channel either — tell the user, send nothing.
+                            ChatRelayService.CaptureLocalEcho(ChatRelayService.Channel.System,
+                                $"Can't whisper \"{wp}\" right now (they may have gone offline). Your message was NOT sent.");
                         }
                     }
                     else
@@ -912,47 +931,21 @@ public class ChatWindowOverlayPanel : ResizeablePanelBase
         if (_whisperSubRow == null) return;
         bool show = WhispersTabIndex >= 0 && _activeTab == WhispersTabIndex;
         _whisperSubRow.SetActive(show);
-        if (_whisperEntryRow != null) _whisperEntryRow.SetActive(show); // 0.17.3 type-a-name row
         if (show) RebuildWhisperSubTabs();
-    }
-
-    private void OnWhisperNameSubmit(string _) => StartTypedWhisper();
-
-    // 0.17.3: start a whisper with the name typed into the Whispers-tab entry box.
-    // Resolves against players seen in chat + the nearby roster; opens their sub-tab.
-    private void StartTypedWhisper()
-    {
-        try
-        {
-            var typed = _whisperNameInput?.Text?.Trim();
-            if (string.IsNullOrEmpty(typed)) return;
-            if (!ResolvePlayer(typed, out var name, out var id))
-            {
-                ReportWhisperResolveFailure(typed);
-                return;
-            }
-            ChatRelayService.RememberWhisperTarget(name, id);
-            _closedPartners.Remove(name);
-            _initiatedPartners.Add(name);
-            _activeWhisperPartner = name;                 // open their conversation
-            if (_whisperNameInput != null) _whisperNameInput.Text = string.Empty;
-            RebuildWhisperSubTabs();
-            Render();
-        }
-        catch (System.Exception ex) { Utils.LogUtils.LogError($"StartTypedWhisper: {ex}"); }
+        else UpdateWhisperPicker(false); // hide the bottom "+ Whisper…" picker off the Whispers tab
     }
 
     // Rebuild the whisper sub-tab buttons: "All" + one per distinct partner.
     private void RebuildWhisperSubTabs()
     {
         if (_whisperSubRow == null) return;
-        // Destroy ALL existing children (sub-tab buttons + the picker dropdown).
+        // Destroy ALL existing sub-tab children (the "All"/partner buttons + close ×s). The "+ Whisper…"
+        // picker no longer lives here — it's at the bottom input line (UpdateWhisperPicker).
         var t = _whisperSubRow.transform;
         for (int i = t.childCount - 1; i >= 0; i--)
             UnityEngine.Object.Destroy(t.GetChild(i).gameObject);
         _whisperSubButtons.Clear();
         _whisperSubPartners.Clear();
-        _whisperPicker = null;
 
         var partners = WhisperPartners();
         if (_activeWhisperPartner != null && !partners.Contains(_activeWhisperPartner))
@@ -960,8 +953,9 @@ public class ChatWindowOverlayPanel : ResizeablePanelBase
 
         AddWhisperSubButton(null, "All");
         foreach (var p in partners) { AddWhisperSubButton(p, p); AddWhisperCloseButton(p); }
-        AddWhisperPicker(); // "+ Whisper…" dropdown of players seen in chat
         HighlightWhisperSubTabs();
+        UpdateComposeRow();        // recipient box (active conversations), kept in sync with the partner set
+        UpdateWhisperPicker(true); // "+ Whisper…" new-conversation picker on the bottom input line
     }
 
     // Small "x" beside each partner sub-tab to close that conversation. Lets a long
@@ -991,19 +985,29 @@ public class ChatWindowOverlayPanel : ResizeablePanelBase
     // buffer, the same data the P-key social page shows), MERGED with anyone seen in
     // chat (covers a partner who just disconnected). Deduped by name, online first.
     // Selecting a name opens that conversation immediately.
-    private void AddWhisperPicker()
+    // 0.29.10: the bottom-of-the-Whispers-tab "+ Whisper…" picker — pick any connected player (or yourself)
+    // to START a new conversation. Lives on the input line, immediately left of the message box (beside the
+    // recipient box). Rebuilt when the partner set / roster changes (RebuildWhisperSubTabs); hidden off the
+    // Whispers tab. (Replaces the old confusing top "whisper a player by name" text-input row.)
+    private void UpdateWhisperPicker(bool onWhispers)
     {
+        if (_whisperPicker != null) { UnityEngine.Object.Destroy(_whisperPicker.gameObject); _whisperPicker = null; }
+        if (!onWhispers || _inputRow == null) return;
         _pickerRoster = BuildWhisperCandidates();
         var options = new List<string> { "+ Whisper…" };
         foreach (var p in _pickerRoster) options.Add(p.Name);
-        var ddObj = UIFactory.CreateDropdown(_whisperSubRow, "WhisperPicker", out _whisperPicker,
+        var ddObj = UIFactory.CreateDropdown(_inputRow, "WhisperPicker", out _whisperPicker,
             "+ Whisper…", 12, OnWhisperPickerChanged, options.ToArray());
-        UIFactory.SetLayoutElement(ddObj, minWidth: 104, preferredWidth: 140, flexibleWidth: 0,
-            minHeight: 20, preferredHeight: 20, flexibleHeight: 0);
-        ApplyDropdownNoWrap(_whisperPicker); // 0.17.3: long names stay one line
-        // Without this the dropdown never closes — TMP's own blocker doesn't fire in
-        // our canvas, so the registry's per-frame outside-click check dismisses it.
+        UIFactory.SetLayoutElement(ddObj, minWidth: 104, preferredWidth: 130, flexibleWidth: 0,
+            minHeight: 24, preferredHeight: 24, flexibleHeight: 0);
+        ApplyDropdownNoWrap(_whisperPicker); // long names stay one line
+        // Place it immediately LEFT of the message input (so order is: [recipient box][+ Whisper…][input][Send]).
+        int inputIdx = _input != null ? _input.GameObject.transform.GetSiblingIndex() : 0;
+        ddObj.transform.SetSiblingIndex(Mathf.Max(0, inputIdx));
+        // Without this the dropdown never closes — TMP's own blocker doesn't fire in our canvas, so the
+        // registry's per-frame outside-click check dismisses it.
         BloodCraftHub.UI.Forms.FormDropdownRegistry.Register(_whisperPicker);
+        TooltipHover.Attach(ddObj, "Whisper someone new — pick any connected player (or yourself) to start a conversation. They get a tab above; switch between active conversations with those tabs.");
     }
 
     // 0.17.3 (#38): the whisper picker's candidate list — every connected player
@@ -1021,6 +1025,7 @@ public class ChatWindowOverlayPanel : ResizeablePanelBase
         }
         try { Add(PlayerRosterService.GetOnlinePlayers()); } catch { }
         try { Add(ChatRelayService.GetKnownPlayers()); } catch { }
+        try { if (PlayerRosterService.TryGetSelfPlayer(out var me)) Add(new[] { me }); } catch { }   // B1: include yourself (note to self)
         list.Sort((a, b) => string.Compare(a.Name, b.Name, StringComparison.OrdinalIgnoreCase));
         return list;
     }
@@ -1034,8 +1039,9 @@ public class ChatWindowOverlayPanel : ResizeablePanelBase
             ChatRelayService.RememberWhisperTarget(pr.Name, pr.Id); // reply works before they message us
             _closedPartners.Remove(pr.Name); // explicit re-initiation un-closes
             _initiatedPartners.Add(pr.Name);
-            _activeWhisperPartner = pr.Name;
-            RebuildWhisperSubTabs(); // adds their sub-tab + a fresh picker
+            _activeWhisperPartner = pr.Name; // open their conversation (view)
+            _whisperSendTo = pr.Name;        // and target them so your next message goes to them
+            RebuildWhisperSubTabs(); // adds their sub-tab + refreshes the bottom picker (resets its caption)
             Render();
         }
         catch (System.Exception ex) { Utils.LogUtils.LogError($"WhisperPicker: {ex}"); }
@@ -1053,7 +1059,12 @@ public class ChatWindowOverlayPanel : ResizeablePanelBase
             btn.ButtonText.enableWordWrapping = false;
             btn.ButtonText.overflowMode = TextOverflowModes.Ellipsis;
         }
-        btn.OnClick = () => { _activeWhisperPartner = partner; HighlightWhisperSubTabs(); Render(); };
+        btn.OnClick = () =>
+        {
+            _activeWhisperPartner = partner;                 // switch the VIEW
+            if (partner != null) _whisperSendTo = partner;   // opening a person also targets them; "All" keeps the current send target
+            HighlightWhisperSubTabs(); UpdateComposeRow(); Render();
+        };
         _whisperSubButtons.Add(btn);
         _whisperSubPartners.Add(partner);
     }
@@ -1102,14 +1113,27 @@ public class ChatWindowOverlayPanel : ResizeablePanelBase
 
     // ---- All-tab compose target (Send-to dropdown + Tab cycle) ----
 
-    // Show/hide the compact compose dropdown (All tab only, beside the input) and
-    // rebuild it when the available targets change (clan join/leave, new partner).
+    // Show/hide the compact compose dropdown beside the input, and rebuild it when the available targets
+    // change (clan join/leave, new partner). Shown on the All tab (channel/whisper picker) AND, B4 (0.29.8),
+    // on the Whispers tab (a recipient quick-switch: your active conversations, mirroring the top sub-tabs).
     private void UpdateComposeRow()
     {
-        bool show = _activeTab == 0;
+        bool onWhispers = WhispersTabIndex >= 0 && _activeTab == WhispersTabIndex;
+        bool show = _activeTab == 0 || onWhispers;
         if (!show)
         {
             if (_composeDropdownObj != null) _composeDropdownObj.SetActive(false);
+            return;
+        }
+        // On the Whispers tab with no conversations, there's nothing to switch between — hide the box AND
+        // clear stale targets so Tab can't cycle ghost recipients (B7) and no send target lingers. (Start your
+        // first/next whisper with the name field above, or /whisper Name.)
+        if (onWhispers && WhisperPartners().Count == 0)
+        {
+            if (_composeDropdownObj != null) _composeDropdownObj.SetActive(false);
+            _composeTargets.Clear();
+            _composeSignature = "";
+            _whisperSendTo = null;
             return;
         }
         bool changed = EnsureComposeTargets();
@@ -1126,13 +1150,32 @@ public class ChatWindowOverlayPanel : ResizeablePanelBase
     // Preserves the current selection by label where possible; else falls to default.
     private bool EnsureComposeTargets()
     {
+        bool onWhispers = WhispersTabIndex >= 0 && _activeTab == WhispersTabIndex;
         var partners = WhisperPartners();
-        string sig = (IsInClan() ? "C|" : "-|") + string.Join("|", partners);
+        // Signature gates LIST rebuilds (tab + partner set). Selection changes (_whisperSendTo / _composeIndex)
+        // are applied by the handlers directly, so they don't need to be in the signature.
+        string sig = (onWhispers ? "W|" : (IsInClan() ? "C|" : "-|")) + string.Join("|", partners);
         if (sig == _composeSignature && _composeTargets.Count > 0) return false;
         _composeSignature = sig;
 
         string prevLabel = (_composeIndex >= 0 && _composeIndex < _composeTargets.Count) ? _composeTargets[_composeIndex].Label : null;
         _composeTargets.Clear();
+
+        if (onWhispers)
+        {
+            // B4: the Whispers-tab box is a SEND-RECIPIENT picker (one entry per active conversation),
+            // DECOUPLED from the view — so you can sit on "All Whispers" and still pick who to reply to. Keep
+            // _whisperSendTo on a real partner so sending always has a valid, visible target; fall back to the
+            // viewed partner, else the first conversation.
+            foreach (var p in partners) _composeTargets.Add(SendTarget.Whis(p));
+            if (_composeTargets.Count == 0) { _whisperSendTo = null; _composeIndex = 0; return true; }
+            if (_whisperSendTo == null || _composeTargets.FindIndex(t => string.Equals(t.Whisper, _whisperSendTo, StringComparison.OrdinalIgnoreCase)) < 0)
+                _whisperSendTo = (_activeWhisperPartner != null && partners.Contains(_activeWhisperPartner)) ? _activeWhisperPartner : partners[0];
+            int wi = _composeTargets.FindIndex(t => string.Equals(t.Whisper, _whisperSendTo, StringComparison.OrdinalIgnoreCase));
+            _composeIndex = Mathf.Clamp(wi < 0 ? 0 : wi, 0, _composeTargets.Count - 1);
+            return true;
+        }
+
         _composeTargets.Add(SendTarget.Chan(ChatMessageType.Global, "Global"));
         _composeTargets.Add(SendTarget.Chan(ChatMessageType.Local, "Local"));
         if (IsInClan()) _composeTargets.Add(SendTarget.Chan(ChatMessageType.Team, "Clan"));
@@ -1174,10 +1217,26 @@ public class ChatWindowOverlayPanel : ResizeablePanelBase
         _composeDropdown.SetValueWithoutNotify(sel);
         // Outside-click close (TMP's own blocker doesn't fire in our canvas).
         BloodCraftHub.UI.Forms.FormDropdownRegistry.Register(_composeDropdown);
-        TooltipHover.Attach(ddObj, "Channel this message sends to. Click to pick, or press Tab while typing to cycle (Global / Local / Clan / active whispers).");
+        bool onWhispers = WhispersTabIndex >= 0 && _activeTab == WhispersTabIndex;
+        TooltipHover.Attach(ddObj, onWhispers
+            ? "Whisper recipient — who your message sends to. Pick anyone here (or press Tab while typing to cycle) WITHOUT changing the view, so you can stay on All Whispers and still reply to a chosen person. Start a new conversation with the name field above, or /whisper Name."
+            : "Channel this message sends to. Click to pick, or press Tab while typing to cycle (Global / Local / Clan / active whispers).");
     }
 
-    private void OnComposeChanged(int i) { if (i >= 0 && i < _composeTargets.Count) _composeIndex = i; }
+    // Apply a compose-dropdown selection. On the Whispers tab the box drives the active conversation (and
+    // therefore who your message goes to), mirroring the top sub-tabs; on the All tab it just sets the index.
+    private void OnComposeChanged(int i)
+    {
+        if (i < 0 || i >= _composeTargets.Count) return;
+        _composeIndex = i;
+        if (WhispersTabIndex >= 0 && _activeTab == WhispersTabIndex)
+        {
+            // The box drives only the SEND target — it deliberately leaves the VIEW (_activeWhisperPartner)
+            // alone, so you can stay on "All Whispers" while picking who to message.
+            var t = _composeTargets[i];
+            if (t.IsWhisper && t.Whisper != null) _whisperSendTo = t.Whisper;
+        }
+    }
 
     // 0.17.3: keep a dropdown's caption + list items on ONE line (ellipsis), so a long
     // whisper target / player name doesn't word-wrap inside the cell and look odd.
@@ -1210,10 +1269,22 @@ public class ChatWindowOverlayPanel : ResizeablePanelBase
     {
         try
         {
-            if (!Enabled || _activeTab != 0) { _inputFocusGrace = 0; return; }
+            // B4: run on the All tab AND the Whispers tab (the compose box exists on both now).
+            bool onWhispers = WhispersTabIndex >= 0 && _activeTab == WhispersTabIndex;
+            if (!Enabled || (_activeTab != 0 && !onWhispers)) { _inputFocusGrace = 0; return; }
             if (IsInputFocused()) _inputFocusGrace = 6;
             else if (_inputFocusGrace > 0) _inputFocusGrace--;
-            if (_inputFocusGrace > 0 && UnityEngine.Input.GetKeyDown(KeyCode.Tab)) CycleCompose(+1);
+            if (_inputFocusGrace > 0 && UnityEngine.Input.GetKeyDown(KeyCode.Tab))
+            {
+                CycleCompose(+1);
+                // On the Whispers tab, Tab cycles the SEND target (the box), NOT the view; a programmatic
+                // cycle doesn't fire OnComposeChanged, so sync _whisperSendTo here.
+                if (onWhispers && _composeIndex >= 0 && _composeIndex < _composeTargets.Count)
+                {
+                    var t = _composeTargets[_composeIndex];
+                    if (t.IsWhisper && t.Whisper != null) _whisperSendTo = t.Whisper;
+                }
+            }
 
             // 0.17.3: re-evaluate the available compose targets a few times a minute so
             // the All-tab "Send to:" dropdown reflects clan membership that resolved AFTER
@@ -1327,13 +1398,14 @@ public class ChatWindowOverlayPanel : ResizeablePanelBase
             else
             {
                 if (showTime) line.Append("<color=#808080>").Append(ln.Received.ToString("HH:mm")).Append("</color> ");
-                if (showTag)  line.Append(ChannelTag(ln.Channel)).Append(' ');
+                if (showTag)  line.Append(WhisperAwareTag(ln)).Append(' ');
                 // Game-resolved sender name (empty for system messages). Wrapped in a
                 // click-to-whisper link when that feature is on; the native userName may
-                // already carry color tags — kept as the visible link text.
+                // already carry color tags — kept as the visible link text. For a whisper
+                // YOU sent, this slot can show the recipient / "Note to self" (B3/B5).
                 if (!string.IsNullOrEmpty(ln.Sender))
                 {
-                    AppendSenderLinked(line, ln.Sender);
+                    AppendWhisperAwareSender(line, ln);
                     line.Append(": ");
                 }
                 line.Append(BodyText(ln));
@@ -1387,22 +1459,38 @@ public class ChatWindowOverlayPanel : ResizeablePanelBase
         // fixed pixels and the MESSAGE column absorbs all remaining width — so widening
         // the window grows the message first, never every column proportionally.
         float nameChars = 10f;
+        // Channel column: standard label width ("[W]" / "[Whisper]"), grown to fit a whisper recipient when
+        // it's shown in the channel slot ("[→Name]"). Only auto-fit mode varies it; locked mode stays fixed.
+        float chanUnits = Settings.ChatChannelLabelsSpelledOut ? 6.2f : 3.4f;
         if (Settings.ChatTabularAutoFitColumns)
         {
-            int maxName = 0;
+            int maxName = 0, maxChan = 0;
             for (int i = 0; i < buf.Count; i++)
             {
                 var ln = buf[i];
-                if (string.IsNullOrEmpty(ln.Sender) || !visible(ln)) continue;
-                int len = StripRichTags(ln.Sender).Trim().Length;
-                if (len > maxName) maxName = len;
+                if (!visible(ln)) continue;
+                // Measure the WHISPER-AWARE slots — "Note to self" / "→ Recipient" / "[→Name]" can be wider
+                // than the raw sender/tag, so the columns fit what's actually drawn and don't overlap (B3/B5).
+                if (!string.IsNullOrEmpty(ln.Sender))
+                {
+                    int n = WhisperAwareSenderPlain(ln).Length;
+                    if (n > maxName) maxName = n;
+                }
+                if (showTag)
+                {
+                    int c = WhisperAwareTagPlain(ln).Length;
+                    if (c > maxChan) maxChan = c;
+                }
             }
             nameChars = Mathf.Clamp(maxName, 4, 18);
+            // ~0.6 fs-units/char for the channel slot; never below the standard label width, capped so a long
+            // recipient name can't swallow the whole row.
+            chanUnits = Mathf.Clamp(Mathf.Max(chanUnits, maxChan * 0.6f), chanUnits, 12f);
         }
 
         float gap   = 0.8f * fs;
         float timeW = showTime ? 3.8f * fs : 0f;
-        float chanW = showTag ? (Settings.ChatChannelLabelsSpelledOut ? 6.2f : 3.4f) * fs : 0f;
+        float chanW = showTag ? chanUnits * fs : 0f;
         float nameW = nameChars * 0.55f * fs;
 
         int chanStart = (int)(timeW + (timeW > 0f ? gap : 0f));
@@ -1440,20 +1528,20 @@ public class ChatWindowOverlayPanel : ResizeablePanelBase
             if (separate && showTag)
             {
                 line.Append("<pos=").Append(cols.ChanStart).Append('>');
-                var tag = ChannelTag(ln.Channel);
+                var tag = WhisperAwareTag(ln);
                 if (!string.IsNullOrEmpty(tag)) line.Append(tag);
                 line.Append("<pos=").Append(cols.NameStart).Append('>');
-                if (hasSender) AppendSenderLinked(line, ln.Sender);
+                if (hasSender) AppendWhisperAwareSender(line, ln);
             }
             else
             {
                 line.Append("<pos=").Append(cols.ChanStart).Append('>');
                 if (showTag)
                 {
-                    var tag = ChannelTag(ln.Channel);
+                    var tag = WhisperAwareTag(ln);
                     if (!string.IsNullOrEmpty(tag)) line.Append(tag).Append(' ');
                 }
-                if (hasSender) { AppendSenderLinked(line, ln.Sender); line.Append(':'); }
+                if (hasSender) { AppendWhisperAwareSender(line, ln); line.Append(':'); }
             }
             line.Append("<indent=").Append(cols.MsgStart).Append("><pos=").Append(cols.MsgStart).Append('>')
                 .Append(BodyText(ln)).Append("</indent>");
@@ -1470,10 +1558,10 @@ public class ChatWindowOverlayPanel : ResizeablePanelBase
             if (showTime)
                 line.Append("<color=#808080>").Append(ln.Received.ToString("HH:mm")).Append("</color>");
             line.Append("<pos=").Append(chanPct).Append("%>");
-            var tag = ChannelTag(ln.Channel);
+            var tag = WhisperAwareTag(ln);
             if (!string.IsNullOrEmpty(tag)) line.Append(tag);
             line.Append("<pos=").Append(namePct).Append("%>");
-            if (hasSender) AppendSenderLinked(line, ln.Sender);
+            if (hasSender) AppendWhisperAwareSender(line, ln);
             line.Append("<indent=").Append(msgPct).Append("%><pos=").Append(msgPct).Append("%>")
                 .Append(BodyText(ln)).Append("</indent>");
             return;
@@ -1487,10 +1575,10 @@ public class ChatWindowOverlayPanel : ResizeablePanelBase
         if (metaPct > 0) line.Append("<pos=").Append(metaPct).Append("%>");
         if (showTag)
         {
-            var tag = ChannelTag(ln.Channel);
+            var tag = WhisperAwareTag(ln);
             if (!string.IsNullOrEmpty(tag)) line.Append(tag).Append(' ');
         }
-        if (hasSender) { AppendSenderLinked(line, ln.Sender); line.Append(':'); }
+        if (hasSender) { AppendWhisperAwareSender(line, ln); line.Append(':'); }
         line.Append("<indent=").Append(msgPctC).Append("%><pos=").Append(msgPctC).Append("%>")
             .Append(BodyText(ln)).Append("</indent>");
     }
@@ -1573,6 +1661,70 @@ public class ChatWindowOverlayPanel : ResizeablePanelBase
         return string.IsNullOrEmpty(label) ? string.Empty : $"<color={ChannelColorHex(ch)}>{label}</color>";
     }
 
+    // B3/B5 (0.29.8): a whisper YOU sent stamps Sender = your own name and Partner = the recipient (see
+    // ChatRelayService.CaptureLocalEcho), so the line otherwise shows your name with no hint of who you sent
+    // to. These helpers let a SENT whisper surface the recipient (or "Note to self") per the user's settings.
+    // Received whispers are untouched — their sender already names the other person.
+    private static bool IsSentWhisper(ChatRelayService.ChatLine ln)
+        => ln.Channel == ChatRelayService.Channel.Whisper
+           && !string.IsNullOrEmpty(ln.Sender) && ChatRelayService.IsOwnSender(ln.Sender);
+
+    private static bool IsSelfWhisper(ChatRelayService.ChatLine ln)
+        => IsSentWhisper(ln) && !string.IsNullOrEmpty(ln.Partner) && ChatRelayService.IsOwnSender(ln.Partner);
+
+    // True when this line's channel slot should show the whisper RECIPIENT in place of the channel tag.
+    private static bool WhisperRecipientInChannel(ChatRelayService.ChatLine ln)
+        => IsSentWhisper(ln) && !string.IsNullOrEmpty(ln.Partner)
+           && !(IsSelfWhisper(ln) && Settings.ChatSelfWhisperAsNoteToSelf)
+           && Settings.ChatWhisperRecipientMode == Settings.WhisperRecipientDisplay.Channel;
+
+    // Channel tag, augmented for sent whispers in channel-column mode. Per tester feedback, the recipient
+    // REPLACES the "Whisper" label ("[→Name]") rather than appending to it ("[Whisper → Name]") — the latter
+    // grew long enough to overlap the next column.
+    private static string WhisperAwareTag(ChatRelayService.ChatLine ln)
+    {
+        if (WhisperRecipientInChannel(ln))
+            return $"<color={ChannelColorHex(ChatRelayService.Channel.Whisper)}>[→{StripRichTags(ln.Partner).Trim()}]</color>";
+        return ChannelTag(ln.Channel);
+    }
+
+    // Plain (rich-text-stripped) text the channel slot will render — used by ComputeTabCols so the column
+    // auto-sizes to whisper-aware content (a recipient name shown in place of "[Whisper]").
+    private static string WhisperAwareTagPlain(ChatRelayService.ChatLine ln)
+        => WhisperRecipientInChannel(ln)
+            ? "[→" + StripRichTags(ln.Partner).Trim() + "]"
+            : StripRichTags(ChannelTag(ln.Channel));
+
+    // Sender slot, whisper-aware: "Note to self" for a self-whisper; "→ Recipient" when the user chose the
+    // name-column style for sent whispers; otherwise the normal (linked) sender name.
+    private static void AppendWhisperAwareSender(StringBuilder line, ChatRelayService.ChatLine ln)
+    {
+        if (IsSelfWhisper(ln) && Settings.ChatSelfWhisperAsNoteToSelf)
+        {
+            line.Append("<color=").Append(ChannelColorHex(ChatRelayService.Channel.Whisper)).Append("><i>Note to self</i></color>");
+            return;
+        }
+        if (IsSentWhisper(ln) && !string.IsNullOrEmpty(ln.Partner)
+            && Settings.ChatWhisperRecipientMode == Settings.WhisperRecipientDisplay.Sender)
+        {
+            line.Append("→ ");
+            AppendSenderLinked(line, ln.Partner);   // recipient — still a click-to-whisper link
+            return;
+        }
+        AppendSenderLinked(line, ln.Sender);
+    }
+
+    // Plain (rich-text-stripped) text the NAME slot will render — used by ComputeTabCols so the name column
+    // (and therefore the message column after it) fits "Note to self" / "→ Recipient", not just the raw sender.
+    private static string WhisperAwareSenderPlain(ChatRelayService.ChatLine ln)
+    {
+        if (IsSelfWhisper(ln) && Settings.ChatSelfWhisperAsNoteToSelf) return "Note to self";
+        if (IsSentWhisper(ln) && !string.IsNullOrEmpty(ln.Partner)
+            && Settings.ChatWhisperRecipientMode == Settings.WhisperRecipientDisplay.Sender)
+            return "→ " + StripRichTags(ln.Partner).Trim();
+        return StripRichTags(ln.Sender ?? string.Empty).Trim();
+    }
+
     private static string ShortLabel(ChatRelayService.Channel ch) => ch switch
     {
         ChatRelayService.Channel.Global  => "[G]",
@@ -1602,6 +1754,7 @@ public class ChatWindowOverlayPanel : ResizeablePanelBase
         _whisperSubPartners.Clear();
         _initiatedPartners.Clear();
         _closedPartners.Clear();
+        _whisperSendTo = null;
         _whisperPicker = null;
         _whisperSubRow = null;
         _input = null;

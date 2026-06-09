@@ -50,6 +50,37 @@ internal static class PlayerRosterService
         return GetNearbyPlayersFromUserQuery();
     }
 
+    // B1 (note-to-self whisper): the LOCAL player as a whisper target. The rosters above deliberately
+    // EXCLUDE self, but the base game lets you whisper your OWN character (it shows as a "note to self"),
+    // so the whisper UI needs to resolve self too. Reads the local player's own UserInfoElement (matched by
+    // PlatformId) for its current NetworkId. Best-effort; returns false if the roster/self isn't available.
+    internal static bool TryGetSelfPlayer(out PlayerRef self)
+    {
+        self = default;
+        try
+        {
+            if (Plugin.IsClientNull()) return false;
+            var em = Plugin.EntityManager;
+            ulong selfPlatform = 0;
+            try { selfPlatform = MessageService.LocalUser.Read<User>().PlatformId; } catch { return false; }
+            if (selfPlatform == 0) return false;
+            if (!SingletonAccessor<UserInfoBufferSingleton>.TryGetSingletonEntityWasteful(em, out var singleton)) return false;
+            if (singleton == Entity.Null || !em.HasBuffer<UserInfoElement>(singleton)) return false;
+            var buf = em.GetBuffer<UserInfoElement>(singleton);
+            for (int i = 0; i < buf.Length; i++)
+            {
+                var ui = buf[i];
+                if (ui.PlatformId != selfPlatform) continue;
+                var nm = ui.Name.ToString();
+                if (string.IsNullOrEmpty(nm)) return false;
+                self = new PlayerRef(nm, ui.NetworkId);
+                return true;
+            }
+        }
+        catch (Exception ex) { LogUtils.LogDebug($"TryGetSelfPlayer: {ex.Message}"); }
+        return false;
+    }
+
     // 0.17.3 (#38): the full connected-player roster from the UserInfoElement buffer.
     // The buffer lives on the UserInfoBufferSingleton entity, which V Rising parks on a
     // DISABLED entity — a plain CreateEntityQuery skips disabled entities (we saw

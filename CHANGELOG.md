@@ -1,4 +1,108 @@
 # Changelog
+## 0.29.10 — Whispers tab restructured: sub-tabs on top, everything else on the bottom line
+
+Tester feedback on the Whispers tab's layout:
+
+- **Removed the top "whisper a player by name" input row.** It read like a second message box and a whisper
+  started there didn't always send — confusing. The top of the Whispers tab is now **only the sub-tabs**.
+- **Starting a new whisper moved to the bottom line.** The **"+ Whisper…"** picker (pick any connected
+  player, or yourself, to open a conversation) now sits on the message-input line, just left of where you
+  type — alongside the recipient box. So you compose everything from one line at the bottom and switch
+  between active conversations with the tabs at the top.
+
+So the Whispers tab is now: **sub-tabs on top**, then the log, then one bottom line —
+`[recipient ▾] [+ Whisper… ▾] [type a message…] [Send]`.
+
+## 0.29.9 — Whisper formatting fixes + recipient box decoupled from the view
+
+Follow-ups to 0.29.8's whisper features (tester feedback):
+
+- **Tabular-layout column overlap fixed.** "Note to self", the in-channel recipient, and the in-name
+  recipient are wider than the original sender/tag text, but the column geometry was still sized from the
+  raw text — so they overlapped the next column. The columns now measure the *actual* rendered text, so the
+  name and message columns grow to fit. The in-channel recipient is also shorter now: it **replaces** the
+  channel label ("[→Name]") instead of appending to it ("[Whisper → Name]"), per the suggestion.
+- **The Whispers recipient box is now decoupled from the view.** You can stay on the **All Whispers** view
+  and still pick/switch who you're replying to with the box (or Tab) — choosing a recipient there no longer
+  forces the view to that person. Clicking a person's sub-tab still both opens their conversation and targets
+  them; clicking "All" keeps your current send target.
+- **Fixed: closing all whisper sub-tabs left Tab cycling phantom recipients.** With no conversations the box
+  now properly clears its state (no ghost targets, nothing to cycle) until you start a new whisper.
+
+## 0.29.8 — Whisper UX: see who you whispered, note-to-self option, recipient quick-switch
+
+Three tabbed-chat additions for whispering, all in Settings → … → chat options:
+
+- **See who you whispered.** A whisper you *send* used to show your own name with no hint of the recipient,
+  so the "All Whispers" view was ambiguous. New toggle "On whispers you send, show who you sent it to"
+  (on by default) surfaces the recipient, and a sub-toggle picks where: the **channel** column
+  ("[Whisper → Name]", default) or the **name** column ("→ Name"). Received whispers are unchanged.
+- **Note to self.** A whisper to yourself now reads as **"Note to self"** by default (like the base game);
+  a new toggle lets you show it as a normal whisper to your own name instead.
+- **Recipient quick-switch at the message bar (Whispers tab).** The Whispers tab now has a compact
+  recipient box to the left of the message input — like the All tab's "Send to:" box — listing your active
+  whisper conversations so you can switch who you're messaging without leaving the input (Tab cycles it too).
+  Start a new conversation from the name field above it or by typing **`/whisper Name`** (or `\whisper Name`),
+  which now opens the conversation in place on the Whispers tab instead of jumping you to the All tab.
+
+## 0.29.7 — Whisper to an offline player no longer leaks into Local chat
+
+**Privacy fix.** On the Whispers tab, if you sent a message with no active/resolvable recipient — the
+"All" whisper view with nothing selected, or a partner who had gone offline — the message fell through to
+the channel send path and was posted to **Local chat**, where nearby players could read what you meant to
+be a private whisper. The Whispers tab now only ever sends as a whisper to the selected partner; if there's
+no resolvable recipient it sends **nothing** and tells you why (pick a recipient, or they're offline). The
+All-tab "Send to: <whisper partner>" path got the same guard — a whisper target that no longer resolves
+reports it instead of silently dropping the message (it never leaked to a channel there, but now it's clear).
+
+## 0.29.6 — Beelzebub tab content after server-switch + whisper-to-self + whisper text
+
+- **Beelzebub tabs no longer stuck "connecting" after a server switch.** Follow-up to 0.29.5: switching to
+  a Beelzebub server could leave the Beelzebub tab *content* showing "Looking for Beelzebub…" even though
+  the status said Connected. Each tab decides whether to show that note when it's first built, and the
+  group-header refresh didn't rebuild the tab content — so a tab built during the handshake window stayed
+  stale. The availability watcher now rebuilds the open panel's content when a mod becomes present, so the
+  active tab re-renders against the now-detected mod (it keeps you on the same tab).
+- **You can now whisper yourself** (a "note to self", like the base game). BCH excluded your own character
+  from the whisper roster, so typing your own name failed with "no whisper match." Your character is now a
+  valid whisper target in the picker and by name.
+- **Updated the stale whisper help text.** The whisper tooltip and the "no match" message said you could
+  only whisper players who were "nearby or have spoken in chat" — that hasn't been true since BCH started
+  reading the full online roster. They now say you can whisper any connected player (or anyone who's spoken).
+
+## 0.29.5 — Fix mod tab groups staying greyed after a server switch (Beelzebub/Uriel)
+
+Switching directly from one server to another (e.g. a Bloodcraft server to a Beelzebub+Uriel server)
+could leave the **Beelzebub** tab group greyed out — "not on this server" — even though Beelzebub was
+actually detected. The tab groups were lit/greyed only by an event-driven refresh that queues a one-shot
+deferred action; on a server-switch teardown that pending action could be dropped without running,
+leaving an internal guard stuck and blocking every later refresh. BCH already has a per-frame watcher
+that keeps the *overlays* in sync with which mods are present (and recovers from exactly this kind of
+missed event); it now also re-checks the **tab groups** on any mod-presence change, and tracks Uriel too.
+So a mod that's detected always lights up its tabs, even across back-to-back server switches. (You can
+still force a re-check via Settings and Help → Connection, or the greyed group header's Re-check.)
+
+## 0.29.4 — Overlays-behind-menus now covers the fullscreen menus (Social / Spellbook / Map)
+
+The "drop BCH overlays behind in-game menus" setting only worked for some menus. Inventory and crafting
+correctly covered the overlays, but the **Social, Spellbook, Map** and other fullscreen menus still drew
+*behind* BCH's overlays. Those menus are hosted by the game's `FullscreenMenu` container, which BCH had
+on a deliberate "keep overlays on top" exclusion list (added so chat/overlays stay usable over the coffin
+spawn screen). That exclusion was catching all the fullscreen menus too. `FullscreenMenu` is removed from
+the exclusion, so those menus now push BCH overlays behind like inventory does; the coffin spawn screen
+(`SpawnMenu`) is still excluded, so chat/overlays stay usable there.
+
+## 0.29.3 — Stuck-attack: stop the flickering cooldown after closing the panel
+
+Follow-up to the 0.29.2 stuck-attack fix. The visible auto-swing was stopped, but a tester noticed a
+cooldown timer kept flickering (~0.5s) after closing the panel — the phantom attack was being cancelled
+on every *other* frame, so one attack slipped through each cycle. Cause: the guard re-decided each frame
+from a value (the ability system's own output) that BCH had just zeroed, so it read as "no attack" half
+the time and let the next one through. The guard now **latches** the moment it sees the phantom and keeps
+cancelling continuously until you actually click, instead of re-deciding each frame — so the attack (and
+its flickering cooldown) is fully gone after a close. A clean close with no phantom (e.g. closing via a
+hotkey) doesn't suppress anything; the first mouse click always releases the guard.
+
 ## 0.29.2 — Spawn overlay page selector + the real stuck-attack fix
 
 - **Stuck auto-attack after closing the panel — fixed (for real this time).** A tester's diagnostic

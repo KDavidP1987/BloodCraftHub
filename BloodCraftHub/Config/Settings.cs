@@ -758,6 +758,24 @@ public class Settings
     // the input). Default TRUE.
     public static bool ChatDoubleClickNameWhisper => (ConfigEntries[nameof(ChatDoubleClickNameWhisper)] as ConfigEntry<bool>)?.Value ?? true;
     public static void SetChatDoubleClickNameWhisper(bool v) => SetBool(nameof(ChatDoubleClickNameWhisper), v);
+    // B3 (0.29.8): on whispers YOU send, show WHO you sent to (received whispers already show the sender, but
+    // a sent line shows your own name, so the "All Whispers" view gave no hint of the recipient). Two bools
+    // give three states via the computed ChatWhisperRecipientMode: master off = Off; on + in-channel = the
+    // recipient rides the channel column ("[Whisper → Name]"); on + not-in-channel = it rides the name column
+    // ("→ Name"). Default: show, in the channel column.
+    public enum WhisperRecipientDisplay { Off, Channel, Sender }
+    public static bool ChatShowWhisperRecipient => (ConfigEntries[nameof(ChatShowWhisperRecipient)] as ConfigEntry<bool>)?.Value ?? true;
+    public static void SetChatShowWhisperRecipient(bool v) => SetBool(nameof(ChatShowWhisperRecipient), v);
+    public static bool ChatWhisperRecipientInChannelColumn => (ConfigEntries[nameof(ChatWhisperRecipientInChannelColumn)] as ConfigEntry<bool>)?.Value ?? true;
+    public static void SetChatWhisperRecipientInChannelColumn(bool v) => SetBool(nameof(ChatWhisperRecipientInChannelColumn), v);
+    public static WhisperRecipientDisplay ChatWhisperRecipientMode =>
+        !ChatShowWhisperRecipient ? WhisperRecipientDisplay.Off
+        : ChatWhisperRecipientInChannelColumn ? WhisperRecipientDisplay.Channel
+        : WhisperRecipientDisplay.Sender;
+    // B5 (0.29.8): a whisper to YOURSELF reads as "Note to self" (true, default, like the base game) or as a
+    // normal whisper to your own name (false — then B3's recipient display applies to it too).
+    public static bool ChatSelfWhisperAsNoteToSelf => (ConfigEntries[nameof(ChatSelfWhisperAsNoteToSelf)] as ConfigEntry<bool>)?.Value ?? true;
+    public static void SetChatSelfWhisperAsNoteToSelf(bool v) => SetBool(nameof(ChatSelfWhisperAsNoteToSelf), v);
     // 0.17.3: show a short "you're missing X (free power)" hint on the Class / Weapon
     // Expertise / Blood Legacy pages + overlays when that element isn't set up yet. Helps
     // new players; off for those who intentionally skip a system and don't want the nudge.
@@ -1305,6 +1323,9 @@ public class Settings
         InitConfigEntry(OVERLAY_SETTINGS_GROUP, nameof(ChatTabularSeparateChannelName), true,  "Tabbed chat (tabular layout only): put the channel label and the player name in SEPARATE columns (time | channel | name | message). Turn off to combine them into one column (time | channel+name | message). Default on.");
         InitConfigEntry(OVERLAY_SETTINGS_GROUP, nameof(ChatTabularAutoFitColumns),      true,  "Tabbed chat (tabular layout only): auto-fit the name column to the longest visible name so there's no dead space; the MESSAGE column always absorbs the extra width when you widen the window (it grows first, not every column). Turn off to LOCK the name column at a fixed width instead of fitting to content (the message column still gets the extra width). Default on.");
         InitConfigEntry(OVERLAY_SETTINGS_GROUP, nameof(ChatDoubleClickNameWhisper),    true,  "Tabbed chat: double-click a player's name in the chat log to start a whisper to them (jumps to the All tab with that whisper selected and focuses the input). Default on.");
+        InitConfigEntry(OVERLAY_SETTINGS_GROUP, nameof(ChatShowWhisperRecipient),      true,  "Tabbed chat: on whispers YOU send, show who you sent it to (received whispers already show the sender). Without this a sent whisper just shows your own name, so the 'All Whispers' view gives no hint of the recipient. Default on.");
+        InitConfigEntry(OVERLAY_SETTINGS_GROUP, nameof(ChatWhisperRecipientInChannelColumn), true, "Tabbed chat: when showing the whisper recipient (above), put it in the CHANNEL column ('[Whisper → Name]'). Turn off to put it in the NAME column instead ('→ Name'). Default on (channel column).");
+        InitConfigEntry(OVERLAY_SETTINGS_GROUP, nameof(ChatSelfWhisperAsNoteToSelf),   true,  "Tabbed chat: a whisper to YOURSELF shows as 'Note to self' (default, like the base game). Turn off to show it as a normal whisper to your own name instead.");
         InitConfigEntry(OVERLAY_SETTINGS_GROUP, nameof(ShowMissingElementHints),       true,  "Show a short 'you're missing this — free power' hint on the Class / Weapon Expertise / Blood Legacy pages and overlays when you haven't set that element up yet (no class chosen, or no expertise/legacy bonus stats picked). Helpful for new players; turn off if you intentionally skip a system. Only shown for systems your server has enabled.");
         InitConfigEntry(OVERLAY_SETTINGS_GROUP, nameof(ChatGlobalColorHex),           DEFAULT_CHAT_GLOBAL_HEX, "Tabbed chat: color for the Global channel — used for its [G]/[Global] label tag AND its tab when 'Color tabs by channel' is on. Hex string (e.g. #FF8A5B coral default, #FFFFFF white, #66CCFF blue).");
         InitConfigEntry(OVERLAY_SETTINGS_GROUP, nameof(ChatLocalColorHex),            DEFAULT_CHAT_LOCAL_HEX,   "Tabbed chat: color for the Local channel — its label tag + tab. Hex string (default #B0E0FF blue).");

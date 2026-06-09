@@ -216,6 +216,7 @@ internal static class InputSuppression
     private static double _postCloseLogUntil;   // 0.29.1: stuck-attack diag window after a panel close (DiagnosticMode only)
     private static double _lastPostCloseLogAt;
     private static bool   _phantomGuardArmed;   // 0.29.2: post-close phantom-attack guard (latched Primary while LMB up)
+    private static bool   _phantomActive;       // 0.29.3: latched once a phantom Primary is seen; suppress until a real click
     private static double _phantomGuardArmedAt;
     private const double  PHANTOM_GUARD_MAX_SECONDS = 120.0;   // safety: never stay armed forever
     private const double ABILITY_RELEASE_WINDOW_SECONDS = 0.4;   // unconditional cancel window after close
@@ -244,6 +245,7 @@ internal static class InputSuppression
             {
                 _postCloseLogUntil = now + 1.5;   // 0.29.1: arm the stuck-attack diagnostic
                 _phantomGuardArmed = true;        // 0.29.2: arm the phantom-attack guard
+                _phantomActive = false;           // 0.29.3: not yet latched for THIS close
                 _phantomGuardArmedAt = now;
             }
 
@@ -324,17 +326,28 @@ internal static class InputSuppression
         if (!_phantomGuardArmed) return false;
         try
         {
-            // Disarm the instant the user physically presses the mouse button (a real attack takes over), or
-            // after a safety cap so a stuck state can never pin the guard on indefinitely.
+            // Disarm the instant the user physically presses the mouse button — a real attack/cast holds the
+            // button, takes over, and its release clears the latched input. Also disarm after a safety cap so
+            // a stuck state can never pin the guard on indefinitely.
             if (UnityEngine.Input.GetMouseButton(0)
                 || UnityEngine.Time.realtimeSinceStartupAsDouble - _phantomGuardArmedAt > PHANTOM_GUARD_MAX_SECONDS)
             {
                 _phantomGuardArmed = false;
+                _phantomActive = false;
                 return false;
             }
         }
-        catch { _phantomGuardArmed = false; return false; }
-        return castIsPrimary;   // LMB up + Primary cast = phantom → suppress
+        catch { _phantomGuardArmed = false; _phantomActive = false; return false; }
+
+        // 0.29.3 LATCH. Our prefix reads EntityAbilityInput.CastInput, which is AbilityInputSystem's output
+        // from the PREVIOUS frame and is zeroed by our own suppression — so a per-frame "is it Primary right
+        // now?" test alternates None/Primary and lets every OTHER phantom attack through (the flickering
+        // ~0.5s cooldown the tester saw). Fix: once we observe the phantom Primary even ONCE, latch it and
+        // keep suppressing EVERY frame until the user physically clicks (handled above). _phantomActive only
+        // latches after a real phantom observation, so a clean close (no phantom — e.g. hotkey close) never
+        // over-suppresses: nothing latches and the guard disarms on the next click or the safety cap.
+        if (castIsPrimary) _phantomActive = true;
+        return _phantomActive;
     }
 
     // 0.17.2 CRASH FIX — safe replacement for the three menu-suppression Harmony

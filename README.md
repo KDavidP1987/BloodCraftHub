@@ -45,11 +45,20 @@ If you want full BCH functionality on a Quests-only / Professions-only server, a
 ---
 
 **Repo:** https://github.com/KDavidP1987/BloodCraftHub
-**Status:** v0.27.1 — **pre-1.0 public beta**, actively developed (APIs and UI may still shift before 1.0).
+**Status:** v0.29.10 — **pre-1.0 public beta**, actively developed (APIs and UI may still shift before 1.0).
 **Beelzebub integration target:** v0.131.0 (ApiVersion 28).
 **Uriel integration target:** ApiVersion 1 (object-spawn collection).
 
 **At a glance:** a "Game UI" group (works on any server, no server mods needed) + BLOODCRAFT / KINDRED / BEELZEBUB / URIEL / SETTINGS-AND-HELP tab groups · a standalone tabbed chat window · secondary info overlays + a Beelzebub ability action-bar + a Uriel nearby-public-storage overlay · every chat command from the backing server mods surfaced as forms + buttons. Each tab group only appears when the matching server mod is detected.
+
+**New in v0.28–v0.29** — overlay controls, a Uriel object-spawner overlay, server-switch fixes & a whisper UX overhaul:
+
+- **Whisper overhaul (tabbed chat → Whispers tab)** — whisper **anyone connected to the server** (the old "must be nearby / have spoken" limit is gone), including a **note to yourself**; a whisper you *send* now shows **who you sent it to** (toggle: in the channel column "[→Name]" or the name column "→Name"); self-whispers read as **"Note to self"** (toggle). The Whispers tab was **restructured** — the conversation sub-tabs sit on top, and a single bottom line composes everything: a **recipient quick-switch** (reply to anyone while staying on the All-Whispers view) + a **"+ Whisper…"** picker to start a new conversation + the message box. **Privacy fix:** a whisper with no resolvable recipient can no longer fall through into Local chat.
+- **Uriel object-spawner overlay** — a draggable spawn palette (category cycler + page selector + name/ID **search**, per-row Spawn / Despawn / Rotate), plus building hotkeys moved to the top of the Object Spawning tab and a "Despawn Nearest" control.
+- **Overlay visibility controls (0.28)** — the OV button / hide-all hotkey can **auto-reappear on a timer**, optionally **hide the BCH/OV launcher buttons too**, and **keep native chat hidden** while overlays are hidden.
+- **Overlays-behind-menus** now also drops BCH overlays behind the **Social / Spellbook / Map** (and other fullscreen) menus, not just inventory/crafting — while the coffin spawn screen still keeps them on top.
+- **Server-switch fixes** — switching between servers running different mods now correctly re-detects them: the BLOODCRAFT / BEELZEBUB / URIEL tab groups (and the Beelzebub tab content) light up properly instead of staying greyed/"connecting."
+- **Fixes** — closing the main panel no longer leaves your character **stuck auto-attacking**; combined-overlay stat-name abbreviation; the Shift overlay's recast/charge cooldown.
 
 **New in v0.26.0** — Uriel integration (sibling server mod: storage sharing / public prisons / stair restyling / object spawning):
 - **URIEL tab group**, handshake-gated like Beelzebub, with Quick Start + Help guides, a Settings tab, admin tabs (Sharing / Objects / Config), a Connection → Re-detect Uriel card, and an inline "not detected" diagnostic.

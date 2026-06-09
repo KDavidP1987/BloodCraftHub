@@ -791,6 +791,7 @@ public class BCHubUIManager : UIManagerBase
     // transition is re-detected and applied once the menu closes.
     private bool _lastBcAvailable;
     private bool _lastBeelzAvailable;
+    private bool _lastUrielAvailable;   // 0.29.5: also track Uriel so its tab group reconciles on transition
     private bool _availabilityTrackInit;
 
     internal void TickOverlayAvailability()
@@ -801,11 +802,41 @@ public class BCHubUIManager : UIManagerBase
             bool bc = !Services.EclipseProtocolService.StandDownForEclipse()
                       && Services.EclipseProtocolService.UserRegistered;
             bool bz = Services.Beelzebub.BeelzProtocolService.IsPresent;
-            if (_availabilityTrackInit && bc == _lastBcAvailable && bz == _lastBeelzAvailable) return;
+            bool uri = Services.Uriel.UrielProtocolService.IsPresent;
+            if (_availabilityTrackInit && bc == _lastBcAvailable && bz == _lastBeelzAvailable && uri == _lastUrielAvailable) return;
+            // 0.29.6: did a mod just BECOME present (false->true) this transition? Drives the content rebuild below.
+            bool becamePresent = (bc && !_lastBcAvailable) || (bz && !_lastBeelzAvailable) || (uri && !_lastUrielAvailable);
             _availabilityTrackInit = true;
             _lastBcAvailable = bc;
             _lastBeelzAvailable = bz;
+            _lastUrielAvailable = uri;
             ApplyAvailabilityToOverlays();
+            // 0.29.5: ALSO reconcile the MAIN PANEL's TAB-GROUP availability on any mod-presence transition.
+            // The tab groups were refreshed only via the event path (Beelz/Uriel AvailabilityChanged +
+            // PresenceChanged → MainPanel.OnBloodcraftAvailabilityChanged, which queues a DEFERRED
+            // RefreshAllTabGroupAvailability and early-returns while one is queued). On a server-switch that
+            // deferred action can be orphaned (removed from the tick list during teardown without running, so
+            // its guard field stays set) → every later refresh is blocked → the Beelzebub group stays greyed
+            // even though detection succeeded (tester repro: Bloodcraft server → Beelzebub+Uriel server).
+            // This transition watcher re-evaluates the groups regardless of the event path, so a detected mod
+            // always lights its tabs. It runs from CoreUpdateBehavior (not mid chat-iteration), so the direct
+            // call is safe (no deferral needed). Cheap: only fires on the rare transition frame.
+            try { _mainPanel?.RefreshTabGroupAvailabilityNow(); }
+            catch (System.Exception ex2) { BloodCraftHub.Utils.LogUtils.LogDebug($"tab-group refresh on availability transition failed: {ex2.Message}"); }
+
+            // 0.29.6: a refreshed group HEADER lights up, but a mod tab's CONTENT gates on presence at BUILD
+            // time (e.g. the Beelzebub tabs show "Looking for Beelzebub…" via AddBeelzAbsentNote) and is NOT
+            // re-run by the header refresh — so a tab built during the pre-handshake window stays stale after
+            // detection completes. That's the server-switch repro: the Connection status shows Connected but
+            // the open Beelzebub tab still reads "attempting to connect" (Uriel didn't show it because its
+            // content fetches on demand). When a mod just became present and the panel is OPEN, rebuild the
+            // content so the active tab re-renders against the now-present mod. Deferred (next frame) and
+            // gated on the rare presence transition; RebuildMainPanelNow preserves the active tab.
+            if (becamePresent && IsMainPanelOpen)
+            {
+                try { RequestRebuildMainPanel(); }
+                catch (System.Exception ex3) { BloodCraftHub.Utils.LogUtils.LogDebug($"panel content rebuild on availability transition failed: {ex3.Message}"); }
+            }
         }
         catch (System.Exception ex) { BloodCraftHub.Utils.LogUtils.LogDebug($"TickOverlayAvailability: {ex.Message}"); }
     }
