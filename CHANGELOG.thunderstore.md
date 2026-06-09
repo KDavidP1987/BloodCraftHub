@@ -7,6 +7,15 @@
 > bundled copy summarizes earlier versions and reproduces the most
 > recent release in full.
 
+## 0.30.0 — Coming soon: renaming to "Raphael, Lord of Wisdom"
+
+- **Heads-up — this mod is being rebranded.** BloodCraftHub will soon become **Raphael, Lord of Wisdom**, to
+  reflect that it now serves Beelzebub, Uriel, a standalone chat interface, and more server mods to come (not
+  just Bloodcraft) — and to end the mix-up between this client UI mod and the separate *Bloodcraft* server
+  mod. **No functional change here:** same mod and features; this release just adds the announcement banner.
+  The actual switch (new name/icon/package) comes in a near-future update — watch this page + the The Shadow
+  Realm Discord so your mod manager follows the move.
+
 ## 0.29.10 — Whispers tab restructured: sub-tabs on top, compose on the bottom line
 
 - Removed the confusing top "whisper a player by name" input row — the top is now only the sub-tabs.

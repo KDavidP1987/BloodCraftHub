@@ -1,4 +1,14 @@
 # Changelog
+## 0.30.0 — Rename announcement: BloodCraftHub → "Raphael, Lord of Wisdom" (coming soon)
+
+- **Announcing an upcoming rebrand.** BloodCraftHub will soon be renamed to **Raphael, Lord of Wisdom** to
+  reflect that it's no longer just a Bloodcraft companion — it now also serves Beelzebub, Uriel, a standalone
+  chat interface, and more server-side mods to come — and to end the constant confusion between this client
+  UI mod and the separate *Bloodcraft* server-side mod. **No functional change in this build:** same mod,
+  same features, same install; this release adds the heads-up banner to the GitHub README and the
+  Thunderstore page. The actual switch-over (new name, new icon, new Thunderstore package) lands in a
+  near-future update — watch the README and the The Shadow Realm Discord so your mod manager follows the move.
+
 ## 0.29.10 — Whispers tab restructured: sub-tabs on top, everything else on the bottom line
 
 Tester feedback on the Whispers tab's layout:

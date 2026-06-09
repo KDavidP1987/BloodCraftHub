@@ -2,6 +2,12 @@
 
 Unified client-side V Rising UI mod that turns the chat commands of its companion server mods into buttons, forms, and on-screen overlays — first-class support for [Bloodcraft](https://thunderstore.io/c/v-rising/p/zfolmt/Bloodcraft/), [KindredCommands](https://thunderstore.io/c/v-rising/p/odjit/KindredCommands/), and [KindredLogistics](https://thunderstore.io/c/v-rising/p/odjit/KindredLogistics/), plus the sibling **Beelzebub** (ability capture / transforms) and **Uriel** (shared storage / public prisons / stair restyling / object spawning) mods. Each mod's tab group appears only when that mod is detected on your server, so it works whether your server runs one, several, or none.
 
+> ## 📢 Coming soon: this mod is being renamed to **Raphael, Lord of Wisdom**
+>
+> **BloodCraftHub is being rebranded.** It started as a companion UI for the **Bloodcraft** server mod, but it has grown well beyond that — it now also provides UI for **Beelzebub** and **Uriel**, a full standalone chat interface, and it will support more server-side mods over time. To reflect that broader scope — and to end the frequent mix-up between **BloodCraftHub** (this *client* UI mod) and **Bloodcraft** (the separate *server-side* mod people keep opening the wrong support tickets for) — **this project will soon become _Raphael, Lord of Wisdom_** (joining the named family alongside Uriel and Beelzebub).
+>
+> **Nothing changes for you right now** — same mod, same features, same install. The switch-over (new name, new icon, and the move on Thunderstore) is coming in a near-future update. Watch this page and the **[The Shadow Realm Discord](https://discord.gg/usC9QgBrXK)** for the announcement so your mod manager points at the new package when it lands. When in doubt about whether a problem is with *this* mod or with the *Bloodcraft* server mod, the new name should make it clear which is which.
+
 > ## ⚠ Pre-1.0 public beta — please read
 >
 > BloodCraftHub is **pre-1.0 and still in active testing.** It's daily-driven on a live server, but it's a client-side UI mod that hooks the game and runs alongside other mods — so **you may run into mod incompatibilities or other issues**, especially right after a version update or when combining it with other client-side mods.
