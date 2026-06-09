@@ -76,7 +76,10 @@ public static class EclipseProtocolService
     private static float _registrationSentAt;
     private static int   _registrationAttemptCount;
     private const float  REGISTRATION_RETRY_AFTER_SECONDS = 5f;
-    private const int    REGISTRATION_MAX_ATTEMPTS = 3;
+    // 0.18.x server-switch follow-up: widened from 3 (~15s) → 6 (~30s) so high-latency / slow-loading
+    // joins get more runway before the handshake gives up. After give-up the user recovers in one click
+    // via the inline Bloodcraft diagnostic's "Re-check" (which Resets + re-registers).
+    private const int    REGISTRATION_MAX_ATTEMPTS = 6;
 
     /// <summary>0.12.1: fired when UserRegistered transitions to true OR when
     /// RegistrationGaveUp flips true after the retry cap. UI subscribers

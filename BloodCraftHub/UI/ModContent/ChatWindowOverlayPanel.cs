@@ -62,8 +62,10 @@ public class ChatWindowOverlayPanel : ResizeablePanelBase
         // walker skips "card-ish" neutral greys (its heuristic), and the chat
         // window's only opaque surface IS this base image (its rows are transparent)
         // — so without this a neutral color pick wouldn't visibly apply. Alpha is
-        // left to the transparency control (ApplyOpacityToPanel owns it). NOTE: at
-        // 100% transparency the alpha floors to ~0.05, so ANY color is ~invisible.
+        // left to the transparency control (ApplyOpacityToPanel owns it). NOTE: the
+        // transparency floor is 1.0, so the 100% slider drives alpha to 0 — the
+        // background goes FULLY transparent (text/buttons stay opaque), and at that
+        // point the chosen background color is invisible by design.
         try
         {
             var content = uiRoot != null ? uiRoot.transform.Find("Content") : null;
@@ -195,6 +197,14 @@ public class ChatWindowOverlayPanel : ResizeablePanelBase
             btn.OnClick = () => SwitchToTab(idx);
             _tabButtons.Add(btn);
         }
+
+        // Copy the messages currently shown (this tab's filter) to the OS clipboard — for bug reports
+        // / sharing a conversation. Plain text (rich-text tags stripped).
+        var copyBtn = UIFactory.CreateButton(tabRow, "ChatCopyBtn", "Copy");
+        UIFactory.SetLayoutElement(copyBtn.GameObject,
+            minWidth: 42, preferredWidth: 46, flexibleWidth: 0, minHeight: 22, preferredHeight: 22, flexibleHeight: 0);
+        if (copyBtn.ButtonText != null) copyBtn.ButtonText.enableWordWrapping = false;
+        copyBtn.OnClick = CopyConversationToClipboard;
 
         // 0.17.0: whisper sub-tab row — hidden unless the Whispers tab is active.
         _whisperSubRow = UIFactory.CreateHorizontalGroup(ContentRoot, "ChatWhisperSubTabs",
@@ -388,6 +398,39 @@ public class ChatWindowOverlayPanel : ResizeablePanelBase
     internal void Refresh()
     {
         try { ApplyChatTextScale(); UpdateTabHighlight(); Render(); } catch { }
+    }
+
+    // #12: copy the currently-shown conversation (same filter as Render — active tab + whisper
+    // partner) to the OS clipboard as plain text (timestamp · [channel] · sender: text), rich-text
+    // tags stripped, oldest→newest, for pasting into a bug report / Discord.
+    private void CopyConversationToClipboard()
+    {
+        try
+        {
+            var filter = TabDefs[_activeTab].Filter;
+            bool whisperPartnerFilter = WhispersTabIndex >= 0 && _activeTab == WhispersTabIndex && _activeWhisperPartner != null;
+            bool Visible(ChatRelayService.ChatLine ln)
+                => (!filter.HasValue || ln.Channel == filter.Value)
+                   && (filter.HasValue || AllTabIncludes(ln.Channel))
+                   && (!whisperPartnerFilter || ln.Partner == _activeWhisperPartner);
+
+            var sb = new StringBuilder(4096);
+            var buf = ChatRelayService.Buffer;
+            int n = 0;
+            for (int i = 0; i < buf.Count; i++)
+            {
+                var ln = buf[i];
+                if (!Visible(ln)) continue;
+                sb.Append(ln.Received.ToString("HH:mm")).Append("  [").Append(ln.Channel).Append("] ");
+                string sender = StripRichTags(ln.Sender ?? string.Empty).Trim();
+                if (sender.Length > 0) sb.Append(sender).Append(": ");
+                sb.Append(StripRichTags(ln.Text ?? string.Empty).Trim()).Append('\n');
+                n++;
+            }
+            UnityEngine.GUIUtility.systemCopyBuffer = sb.ToString();
+            Utils.LogUtils.LogInfo($"[Chat] Copied {n} message(s) from the current view to the clipboard.");
+        }
+        catch (System.Exception ex) { Utils.LogUtils.LogError($"[Chat] copy-to-clipboard failed: {ex}"); }
     }
 
     // 0.17.0: chat-window font size, independent of the shared overlay text
@@ -643,6 +686,18 @@ public class ChatWindowOverlayPanel : ResizeablePanelBase
         }
         catch { }
         Patches.InputSuppression.ChatInputActive = false;
+    }
+
+    // 0.18.3: full reset for a server switch. Called from the relog path
+    // (BCHubUIManager.RestoreAfterRelogIfNeeded) AFTER ChatRelayService.Clear() has emptied the
+    // shared scrollback buffer in the teardown hook. Clears any half-typed message, releases focus,
+    // and repaints — so the new server's chat window starts empty instead of inheriting the previous
+    // server's messages + compose state. Safe to call when the window isn't built (null-guarded).
+    internal void ResetForServerSwitch()
+    {
+        try { if (_input != null) _input.Text = string.Empty; } catch { }
+        try { ReleaseInput(); } catch { }
+        try { Refresh(); } catch { }   // Render() repaints from the now-cleared buffer
     }
 
     // 0.17.0: authoritative focus state, polled each frame to drive ChatInputActive.
@@ -1281,7 +1336,7 @@ public class ChatWindowOverlayPanel : ResizeablePanelBase
                     AppendSenderLinked(line, ln.Sender);
                     line.Append(": ");
                 }
-                line.Append(ln.Text);
+                line.Append(BodyText(ln));
             }
             lines.Add(line.ToString());
         }
@@ -1359,6 +1414,20 @@ public class ChatWindowOverlayPanel : ResizeablePanelBase
         return new TabCols(true, chanStart, nameStart, msgStart);
     }
 
+    // 0.21: the message BODY, optionally tinted. Precedence: your OWN messages (if "highlight my own
+    // messages" is on) use the own-color so they stand out on every tab; else, if "color text by channel"
+    // is on, the body takes the channel color; else it's left as-is. The &lt;color&gt; wrapper is TMP-stack
+    // safe even if the source text carries its own tags.
+    internal static string BodyText(ChatRelayService.ChatLine ln)
+    {
+        string hex = null;
+        if (Settings.ChatColorOwnMessages && ChatRelayService.IsOwnSender(ln.Sender))
+            hex = Settings.ChatOwnMessageColorHex;
+        else if (Settings.ChatColorMessageByChannel)
+            hex = ChannelColorHex(ln.Channel);
+        return string.IsNullOrEmpty(hex) ? ln.Text : $"<color={hex}>{ln.Text}</color>";
+    }
+
     private static void AppendTabularLine(StringBuilder line, ChatRelayService.ChatLine ln, bool showTime, bool showTag, bool separate, TabCols cols)
     {
         bool hasSender = !string.IsNullOrEmpty(ln.Sender);
@@ -1387,7 +1456,7 @@ public class ChatWindowOverlayPanel : ResizeablePanelBase
                 if (hasSender) { AppendSenderLinked(line, ln.Sender); line.Append(':'); }
             }
             line.Append("<indent=").Append(cols.MsgStart).Append("><pos=").Append(cols.MsgStart).Append('>')
-                .Append(ln.Text).Append("</indent>");
+                .Append(BodyText(ln)).Append("</indent>");
             return;
         }
 
@@ -1406,7 +1475,7 @@ public class ChatWindowOverlayPanel : ResizeablePanelBase
             line.Append("<pos=").Append(namePct).Append("%>");
             if (hasSender) AppendSenderLinked(line, ln.Sender);
             line.Append("<indent=").Append(msgPct).Append("%><pos=").Append(msgPct).Append("%>")
-                .Append(ln.Text).Append("</indent>");
+                .Append(BodyText(ln)).Append("</indent>");
             return;
         }
 
@@ -1423,7 +1492,7 @@ public class ChatWindowOverlayPanel : ResizeablePanelBase
         }
         if (hasSender) { AppendSenderLinked(line, ln.Sender); line.Append(':'); }
         line.Append("<indent=").Append(msgPctC).Append("%><pos=").Append(msgPctC).Append("%>")
-            .Append(ln.Text).Append("</indent>");
+            .Append(BodyText(ln)).Append("</indent>");
     }
 
     // 0.17.3: append a sender name, wrapped in a TMP <link> when click-to-whisper is on
@@ -1483,20 +1552,22 @@ public class ChatWindowOverlayPanel : ResizeablePanelBase
     // 0.17.0: single source of truth for per-channel color, shared by the inline
     // label tags AND the colored tab labels. Global is user-configurable; the rest
     // are fixed, distinct defaults (Local blue / Clan green / System gold / Whisper pink).
+    // Per-channel colors — all five are user-settable (Settings → Game UI chat colors), persisted, and
+    // drive BOTH the message-text label tag (ChannelTag) AND the colored tab (ChannelColor). 0.21.
     internal static string ChannelColorHex(ChatRelayService.Channel? ch) => ch switch
     {
         ChatRelayService.Channel.Global  => Settings.ChatGlobalColorHex,
-        ChatRelayService.Channel.Local   => "#B0E0FF",
-        ChatRelayService.Channel.Clan    => "#90EE90",
-        ChatRelayService.Channel.System  => "#FFD700",
-        ChatRelayService.Channel.Whisper => "#FF9CEF",
+        ChatRelayService.Channel.Local   => Settings.ChatLocalColorHex,
+        ChatRelayService.Channel.Clan    => Settings.ChatClanColorHex,
+        ChatRelayService.Channel.System  => Settings.ChatSystemColorHex,
+        ChatRelayService.Channel.Whisper => Settings.ChatWhisperColorHex,
         _                                => "#FFFFFF",
     };
 
     private static Color ChannelColor(ChatRelayService.Channel? ch) =>
         UnityEngine.ColorUtility.TryParseHtmlString(ChannelColorHex(ch), out var c) ? c : Theme.DefaultText;
 
-    private static string ChannelTag(ChatRelayService.Channel ch)
+    internal static string ChannelTag(ChatRelayService.Channel ch)
     {
         string label = Settings.ChatChannelLabelsSpelledOut ? SpelledLabel(ch) : ShortLabel(ch);
         return string.IsNullOrEmpty(label) ? string.Empty : $"<color={ChannelColorHex(ch)}>{label}</color>";

@@ -631,6 +631,33 @@ public static partial class MessageService
     private static double _interceptLastLineTime;
     private const double INTERCEPT_FLUSH_AFTER_SECONDS = 0.6;
 
+    // 0.18.3: HARD, non-sliding cap on the STRUCTURED Receiving states (BoxList / BoxContent /
+    // PrestigeInfo / BloodInfo). Bug (Moonie): other mods' system messages disappear on load-in until a
+    // BC command is run. Cause — `.prestige get` / `.fam boxes` auto-fire at login and open a Receiving
+    // state; ReceivingPrestigeInfo treats EVERY following line as an "effect" (and ReceivingBoxList eats
+    // color-tagged lines), and each capture SLID _interceptLastLineTime — so a steady trickle of
+    // unrelated colored system lines kept the state open and got eaten forever (exactly the trap the
+    // 0.18 generic-catch-all fix solved, but the structured states were never bounded). This hard cap
+    // force-flushes the Receiving state a fixed time after it STARTED, regardless of incoming lines, so
+    // it can never swallow chat beyond the real reply burst. Anchored lazily in TickInterceptTimeouts.
+    private static double _receivingArmTime;
+    private const double RECEIVING_HARD_WINDOW_SECONDS = 1.5;
+
+    // 0.18: HARD bound on the GENERIC catch-all capture (AwaitingGenericResponse /
+    // ReceivingGenericResponse). Unlike the structured intercepts (which only match a
+    // specific Bloodcraft regex), the generic capture grabs ANY colored line as "the
+    // reply" — so it can't tell BCH's reply from an unrelated mod's colored system
+    // message. The 0.6s flush ABOVE is SLIDING (each captured line pushed it out), which
+    // let a steady trickle of OTHER mods' system messages (KindredPonds, XP Rising, …)
+    // latch the capture open indefinitely and get eaten — the "system messages vanish
+    // until I run a BC command" bug. These cap the capture to a fixed window from when
+    // the command was SENT + a small line count, so it always self-heals and can never
+    // swallow a sustained stream of unrelated chat. A real reply arrives as a tight burst
+    // right after the send, well inside this window.
+    private static double _genericArmTime;
+    private const double GENERIC_CAPTURE_WINDOW_SECONDS = 1.5;
+    private const int    GENERIC_CAPTURE_MAX_LINES = 8;
+
     private const string BOX_LIST_HEADER          = "Familiar Boxes";
     private const string BOX_SELECTED_HEADER      = "Box Selected";
     private const string BOX_NAME_REGEX           = @"<color=[^>]+>(?<box>[^<]+)</color>";
@@ -889,6 +916,7 @@ public static partial class MessageService
             _genericResponseCommand = command;
             ClassifyAndStoreCategory(command);
             _interceptLastLineTime = UnityEngine.Time.realtimeSinceStartupAsDouble;
+            _genericArmTime = _interceptLastLineTime; // hard window anchor (see GENERIC_CAPTURE_WINDOW_SECONDS)
             LogUtils.LogInfo($"Intercept armed: AwaitingGenericResponse ('{command}', {_currentCaptureCategory}, hasUI={_currentCaptureHasBchUI})");
         }
     }
@@ -955,7 +983,59 @@ public static partial class MessageService
             || command.StartsWith(".gear soulshardstatus", System.StringComparison.Ordinal)
             || command.StartsWith(".fc ",            System.StringComparison.Ordinal)
             || command.StartsWith(".search item ",   System.StringComparison.Ordinal)
-            || command.StartsWith(".search npc ",    System.StringComparison.Ordinal);
+            || command.StartsWith(".search npc ",    System.StringComparison.Ordinal)
+            // 0.20: Beelzebub plain-text READS whose reply BCH parses (broadcast-msg list, tform abilities).
+            // Their config/state isn't on the structured [BEELZ:*] wire, so the human-text reply is the read.
+            || IsBeelzMultilineReadCommand(command);
+    }
+
+    /// <summary>True for the Beelzebub `.beelz admin broadcast-msg &lt;pool&gt; list` read command, whose
+    /// reply is a plain numbered list BCH's announcements editor parses (Beelz v0.100).</summary>
+    internal static bool IsBeelzBroadcastListCommand(string command)
+        => !string.IsNullOrEmpty(command)
+           && command.StartsWith(".beelz admin broadcast-msg ", System.StringComparison.Ordinal)
+           && command.EndsWith(" list", System.StringComparison.Ordinal);
+
+    /// <summary>True for the Beelzebub `.beelz tform &lt;unit&gt; abilities` read command, whose reply is a
+    /// plain numbered ability kit ("  [i] Name (id N)") BCH's transform-loadout editor parses (Beelz v0.100).</summary>
+    internal static bool IsBeelzTformAbilitiesCommand(string command)
+        => !string.IsNullOrEmpty(command)
+           && command.StartsWith(".beelz tform ", System.StringComparison.Ordinal)
+           && command.EndsWith(" abilities", System.StringComparison.Ordinal);
+
+    /// <summary>Beelzebub plain-text reads whose multi-line reply BCH captures + parses. These get a larger
+    /// capture window / line cap than the default generic capture (a kit/list can exceed 8 lines).</summary>
+    internal static bool IsBeelzMultilineReadCommand(string command)
+        => IsBeelzBroadcastListCommand(command) || IsBeelzTformAbilitiesCommand(command);
+
+    /// <summary>
+    /// True if <paramref name="text"/> is a VampireCommandFramework (VCF) system reply — an
+    /// "[error]" / "[denied]" / "parameter conversion errors" line, or a continuation line of a
+    /// multi-line VCF error ("  - .cmd (Assembly): reason"). VCF colour-wraps the tokens
+    /// (e.g. <c>&lt;color=...&gt;[error]&lt;/color&gt;</c>) but the literal markers survive, so a
+    /// substring test is enough. These appear when a command BCH issues can't run on this server;
+    /// they are never BCH's own structured data (Beelzebub = [BEELZ:*]; Bloodcraft = colour-tagged
+    /// human text). Gated by Settings.SuppressCommandFrameworkErrors at the call site.
+    /// </summary>
+    private static bool IsCommandFrameworkNoise(string text)
+    {
+        const System.StringComparison OIC = System.StringComparison.OrdinalIgnoreCase;
+        if (text.IndexOf("[error]", OIC) >= 0) return true;
+        if (text.IndexOf("[denied]", OIC) >= 0) return true;
+        if (text.IndexOf("parameter conversion error", OIC) >= 0) return true;
+        // B1 (0.19): "command not found" replies. During handshake/probing BCH fires Bloodcraft/Beelzebub
+        // commands (.fam boxes, .prestige get, .beelz …) that a server lacking that mod can't resolve;
+        // the framework answers with a "command not found"/"could not be found"/"unknown command" SYSTEM
+        // line that floods chat on every probe. These are never BCH's structured data, so eating them is
+        // safe (and the whole filter is gated by SuppressCommandFrameworkErrors so a user debugging their
+        // OWN typed command can still see it).
+        if (text.IndexOf("command not found", OIC) >= 0) return true;
+        if (text.IndexOf("could not be found", OIC) >= 0) return true;
+        if (text.IndexOf("unknown command", OIC) >= 0) return true;
+        // Continuation line of a paginated multi-command VCF error: "  - .cmd (Assembly): reason".
+        string trimmed = text.TrimStart();
+        if (trimmed.StartsWith("- .", System.StringComparison.Ordinal) && trimmed.Contains("): ")) return true;
+        return false;
     }
 
     /// <summary>
@@ -966,6 +1046,16 @@ public static partial class MessageService
     public static bool HandleInboundChat(string text)
     {
         if (string.IsNullOrEmpty(text)) return false;
+
+        // 0.18: VampireCommandFramework (VCF) noise suppression. When BCH sends a command the
+        // server's command framework can't run — a Bloodcraft command on a non-Bloodcraft server,
+        // an admin-only command from a non-admin (admin buttons are always visible), or a malformed
+        // arg — VCF replies with "[error]" / "[denied]" / "parameter conversion errors" SYSTEM lines.
+        // Those are never BCH's structured data (Beelzebub uses [BEELZ:*]; Bloodcraft replies are
+        // color-tagged human text handled by the intercepts below), so eating them is always safe.
+        // Checked first + gated by the setting so a user debugging their OWN typed command can see it.
+        if (Config.Settings.SuppressCommandFrameworkErrors && IsCommandFrameworkNoise(text))
+            return true;
 
         // 0.9.1 / 0.9.2 / 0.9.3: action-confirmation suppress.
         //
@@ -1089,6 +1179,10 @@ public static partial class MessageService
                     var clean = _stripTmpTagsRegex.Replace(text, "").Trim();
                     if (!string.IsNullOrEmpty(clean))
                     {
+                        // 0.18.3 diag: surface what this greedy state captures, so a swallowed
+                        // unrelated system message (e.g. wanted/heat) is visible in the log. The hard
+                        // cap in TickInterceptTimeouts bounds how long this can keep capturing.
+                        LogUtils.LogDiagnostic($"[Intercept] ReceivingPrestigeInfo captured: {clean}");
                         _prestigeInfoBuffer.EffectLines.Add(clean);
                         _interceptLastLineTime = UnityEngine.Time.realtimeSinceStartupAsDouble;
                         return Config.Settings.ClearServerMessages;
@@ -1131,6 +1225,31 @@ public static partial class MessageService
                 case InterceptFlag.AwaitingGenericResponse:
                 case InterceptFlag.ReceivingGenericResponse:
                 {
+                    // 0.18 HARD WINDOW: the generic capture only owns the tight burst right
+                    // after the command was sent. Once that window (or the line cap) is
+                    // exceeded, flush what we have and STOP — return false so the line is
+                    // left in chat. This is the fix for "other mods' system messages vanish
+                    // until I run a BC command": previously each captured line slid the 0.6s
+                    // timer, so a steady stream of unrelated colored system lines kept this
+                    // capture open forever and got eaten. Now it can never swallow more than
+                    // GENERIC_CAPTURE_MAX_LINES within GENERIC_CAPTURE_WINDOW_SECONDS of the send.
+                    double nowGen = UnityEngine.Time.realtimeSinceStartupAsDouble;
+                    // Beelz multi-line reads (broadcast-msg list / tform abilities) can exceed the default
+                    // 8-line / 1.5s budget — a transform kit is often 10-20 abilities — so widen it for them.
+                    bool beelzMultiline = IsBeelzMultilineReadCommand(_genericResponseCommand);
+                    double windowSecs = beelzMultiline ? 2.5 : GENERIC_CAPTURE_WINDOW_SECONDS;
+                    int    maxLines   = beelzMultiline ? 64  : GENERIC_CAPTURE_MAX_LINES;
+                    if (nowGen - _genericArmTime > windowSecs
+                        || _genericResponseBuffer.Count >= maxLines)
+                    {
+                        // Dispatch a real capture to the panel; if nothing was captured (the
+                        // reply never came and this is just a late, unrelated line) reset
+                        // WITHOUT clobbering the panel's previous "last response".
+                        if (_genericResponseBuffer.Count > 0) FlushGenericResponse();
+                        else { _intercept = InterceptFlag.Idle; ResetCaptureCategory(); }
+                        return false;           // this line is NOT our reply — never destroy it
+                    }
+
                     // Capture any color-tagged server line. Bloodcraft / Kindred
                     // helpers always wrap their reply text in <color=...> tags;
                     // plain unstyled lines tend to be unrelated system chatter
@@ -1142,14 +1261,21 @@ public static partial class MessageService
                     // get destroyed by the silent flag too. Without this match
                     // the FIRST and most-informative line of every silent
                     // refresh still surfaces in chat.
+                    // The Beelzebub broadcast-msg list / tform abilities replies are PLAIN (no color tags):
+                    // a header + "  [n] …" lines. For those commands only, capture every non-blank line in
+                    // the burst window so the announcements / transform-loadout editors can parse them.
                     bool isReplyLine =
                         text.StartsWith("<color", System.StringComparison.Ordinal)
-                     || LooksLikePlainReplyHeaderForCommand(text, _genericResponseCommand);
+                     || LooksLikePlainReplyHeaderForCommand(text, _genericResponseCommand)
+                     || (beelzMultiline && !string.IsNullOrWhiteSpace(text));
                     if (isReplyLine)
                     {
                         _intercept = InterceptFlag.ReceivingGenericResponse;
                         _genericResponseBuffer.Add(text);
-                        _interceptLastLineTime = UnityEngine.Time.realtimeSinceStartupAsDouble;
+                        // Slide the 0.6s flush WITHIN the hard window so a normal burst still
+                        // flushes promptly after its last line; the hard window above is the
+                        // ceiling that stops a sustained unrelated stream from latching it.
+                        _interceptLastLineTime = nowGen;
                         // 0.10.2: silent-mode auto-fires destroy the chat copy
                         // so overlay/tab refresh traffic doesn't spam chat. The
                         // 0.8.3 default (return false) is preserved for any
@@ -1266,9 +1392,26 @@ public static partial class MessageService
     /// </summary>
     public static void TickInterceptTimeouts()
     {
-        if (_intercept == InterceptFlag.Idle) return;
+        if (_intercept == InterceptFlag.Idle) { _receivingArmTime = 0; return; }
         var now = UnityEngine.Time.realtimeSinceStartupAsDouble;
-        if (now - _interceptLastLineTime < INTERCEPT_FLUSH_AFTER_SECONDS) return;
+
+        // 0.18.3: hard cap on the structured Receiving states. Anchor the moment we first observe a
+        // Receiving state (≈ when the reply header arrived); once RECEIVING_HARD_WINDOW_SECONDS elapses
+        // from that anchor, force a flush even if unrelated colored lines keep sliding the soft timeout —
+        // this is what stops the load-in `.prestige get` / `.fam boxes` intercepts from eating other
+        // mods' system messages indefinitely. (The generic catch-all has its own equivalent bound.)
+        bool receiving = _intercept == InterceptFlag.ReceivingBoxList
+                         || _intercept == InterceptFlag.ReceivingBoxContent
+                         || _intercept == InterceptFlag.ReceivingPrestigeInfo
+                         || _intercept == InterceptFlag.ReceivingBloodInfo;
+        if (receiving && _receivingArmTime <= 0) _receivingArmTime = now;
+        bool hardCapHit = receiving && _receivingArmTime > 0
+                          && (now - _receivingArmTime) > RECEIVING_HARD_WINDOW_SECONDS;
+        if (hardCapHit)
+            LogUtils.LogDiagnostic($"[Intercept] hard-cap flush of {_intercept} after {now - _receivingArmTime:0.0}s (stops eating unrelated system messages).");
+
+        if (!hardCapHit && now - _interceptLastLineTime < INTERCEPT_FLUSH_AFTER_SECONDS) return;
+        _receivingArmTime = 0;
 
         switch (_intercept)
         {

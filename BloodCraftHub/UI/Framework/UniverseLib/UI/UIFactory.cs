@@ -415,21 +415,65 @@ public static class UIFactory
     /// <returns>A ButtonRef wrapper for your Button component.</returns>
     public static ButtonRef CreateButton(GameObject parent, string name, string text, Color? normalColor = null)
     {
-        var baseColour = normalColor ?? Theme.SliderFill;
-        var colourBlock = new ColorBlock()
+        // 0.18.4: a button created WITHOUT an explicit color follows the user's
+        // Settings.ButtonBackgroundColor (default = the old Theme.SliderFill grey) and is registered
+        // as "themed" so the Settings button-color picker can recolor it live. A button created WITH
+        // an explicit color (Danger red, etc.) keeps that color and is not registered.
+        bool themed = !normalColor.HasValue;
+        var baseColour = normalColor ?? ThemedButtonBaseColor();
+
+        var buttonRef = CreateButton(parent, name, text, MakeButtonColorBlock(baseColour));
+        if (themed && buttonRef.Component != null)
         {
-            normalColor = baseColour,
-            highlightedColor = (baseColour * 1.2f),
-            selectedColor = (baseColour * 1.1f),
-            pressedColor = (baseColour * 0.7f),
-            disabledColor = (baseColour * 0.4f),
-            colorMultiplier = 1
-        };
-
-        var buttonRef = CreateButton(parent, name, text, default(ColorBlock));
-        buttonRef.Component.colors = colourBlock;
-
+            if (ThemedButtons.Count > 400) PruneThemedButtons();
+            ThemedButtons.Add(buttonRef.Component);
+        }
         return buttonRef;
+    }
+
+    // 0.18.4: themed-button support. ThemedButtons holds every button that follows the user's button
+    // color (created via the no-explicit-color overload above). ApplyThemedButtonColor recolors them
+    // all live when the Settings picker changes — no panel rebuild needed (matches the panel-color
+    // picker's live UX). Destroyed buttons are pruned lazily (bounded on add + fully on each apply).
+    internal static readonly System.Collections.Generic.List<Button> ThemedButtons = new();
+
+    // Current themed base color = the user's RGB with the historical Theme.SliderFill alpha, so the
+    // default look is unchanged but the hue is user-controllable.
+    private static Color ThemedButtonBaseColor()
+    {
+        var rgb = BloodCraftHub.Config.Settings.ButtonBackgroundColor;
+        return new Color(rgb.r, rgb.g, rgb.b, Theme.SliderFill.a);
+    }
+
+    private static ColorBlock MakeButtonColorBlock(Color baseColour) => new ColorBlock()
+    {
+        normalColor      = baseColour,
+        highlightedColor = (baseColour * 1.2f),
+        selectedColor    = (baseColour * 1.1f),
+        pressedColor     = (baseColour * 0.7f),
+        disabledColor    = (baseColour * 0.4f),
+        colorMultiplier  = 1,
+    };
+
+    private static void PruneThemedButtons()
+    {
+        for (int i = ThemedButtons.Count - 1; i >= 0; i--)
+            if (ThemedButtons[i] == null) ThemedButtons.RemoveAt(i);
+    }
+
+    /// <summary>0.18.4: recolor every registered themed button to the current
+    /// Settings.ButtonBackgroundColor. Called by the Settings button-color picker (via
+    /// BCHubUIManager.RefreshAllButtonColors). Prunes destroyed buttons as it goes.</summary>
+    public static void ApplyThemedButtonColor()
+    {
+        var cb = MakeButtonColorBlock(ThemedButtonBaseColor());
+        for (int i = ThemedButtons.Count - 1; i >= 0; i--)
+        {
+            var b = ThemedButtons[i];
+            if (b == null) { ThemedButtons.RemoveAt(i); continue; }
+            try { b.colors = cb; }
+            catch { ThemedButtons.RemoveAt(i); }
+        }
     }
 
     /// <summary>
@@ -543,13 +587,17 @@ public static class UIFactory
         slider.targetGraphic = handleImage;
         slider.direction = Slider.Direction.LeftToRight;
 
-        var colourBlock = new ColorBlock()
-        {
-            normalColor = Theme.SliderNormal,
-            highlightedColor = Theme.SliderHighlighted,
-            pressedColor = Theme.SliderPressed,
-            colorMultiplier = 1
-        };
+        // Start from the engine default so selectedColor / disabledColor / fadeDuration are sane, then
+        // override the visible states. (Fix: a bare `new ColorBlock{}` left selectedColor at transparent
+        // (0,0,0,0); after a drag the EventSystem SELECTS the slider → the transparent selectedColor tint
+        // made the handle vanish until something deselected it. selectedColor must be visible.)
+        var colourBlock = ColorBlock.defaultColorBlock;
+        colourBlock.normalColor = Theme.SliderNormal;
+        colourBlock.highlightedColor = Theme.SliderHighlighted;
+        colourBlock.pressedColor = Theme.SliderPressed;
+        colourBlock.selectedColor = Theme.SliderHighlighted;
+        colourBlock.disabledColor = Theme.SliderNormal;
+        colourBlock.colorMultiplier = 1;
         slider.colors = colourBlock;
 
         return sliderObj;
@@ -757,17 +805,16 @@ public static class UIFactory
 
         Image mainImage = mainObj.AddComponent<Image>();
         mainImage.type = Image.Type.Sliced;
-        // Slightly lighter than the panel/form background (which uses
-        // Theme.DarkBackground = 0.07) so the input field is visibly distinct
-        // and the user can see where to click to type. Earlier versions used
-        // Theme.DarkBackground here, which made fields blend into the panel.
-        mainImage.color = new Color(0.18f, 0.18f, 0.21f, Theme.DarkBackground.a);
+        // Clearly lighter than the panel/form background (Theme.DarkBackground ≈ 0.07) and kept nearly
+        // opaque on its OWN so a field reads as an input box even when its panel is dimmed — earlier
+        // builds tied the field alpha to the panel and used a darker fill, so fields vanished into the
+        // background ("grey text on grey" was unrecognizable as a field).
+        mainImage.color = new Color(0.22f, 0.22f, 0.27f, 0.98f);
 
-        // Add a subtle outline so the field's edge is unmistakable even at
-        // low panel opacity.
+        // Bright, slightly thicker border so the field's edge is unmistakable at any panel opacity.
         var fieldOutline = mainObj.AddComponent<Outline>();
-        fieldOutline.effectColor = new Color(0.55f, 0.55f, 0.6f, 0.85f);
-        fieldOutline.effectDistance = new Vector2(1f, -1f);
+        fieldOutline.effectColor = new Color(0.72f, 0.72f, 0.80f, 1f);
+        fieldOutline.effectDistance = new Vector2(1.5f, -1.5f);
 
         TMP_InputField inputField = mainObj.AddComponent<TMP_InputField>();
         Navigation nav = inputField.navigation;
@@ -775,17 +822,59 @@ public static class UIFactory
         inputField.navigation = nav;
         inputField.lineType = TMP_InputField.LineType.SingleLine;
         inputField.interactable = true;
-        inputField.transition = Selectable.Transition.ColorTint;
+        // Transition.None (not ColorTint): ColorTint MULTIPLIES the fill by the state color whose alpha
+        // is the theme Opacity, which dragged the field back to translucent grey-on-grey at lower panel
+        // opacity (the recurring "can't tell it's an input field" report). With None, the solid fill +
+        // bright outline set above stand on their own, like the chat input field does.
+        inputField.transition = Selectable.Transition.None;
         inputField.targetGraphic = mainImage;
 
-        var colourBlock = new ColorBlock()
+        // Visible blinking caret. TMP_InputField defaults to no custom caret color, which renders as an
+        // invisible/zero-width caret on these dark fields ("I can't tell where I'm typing"). Force a
+        // bright, 2px blinking caret on every BCH field.
+        inputField.customCaretColor = true;
+        inputField.caretColor = new Color(0.95f, 0.95f, 1f, 1f);
+        inputField.caretWidth = 2;
+        inputField.caretBlinkRate = 0.85f;
+        // Don't SELECT-ALL on focus. TMP_InputField defaults onFocusSelectAll=true, so clicking into a
+        // field that ALREADY HAS a value highlights the whole value instead of dropping a blinking caret —
+        // and the selection highlight is near-invisible on our dark fill, so it reads as "no cursor."
+        // (Empty fields show the caret fine because there's nothing to select — the exact split the user
+        // observed: prefilled fields = no caret, empty fields = caret.) With this off, focusing a prefilled
+        // field places the blinking caret at the click position like the empty fields do.
+        inputField.onFocusSelectAll = false;
+
+        // Focus indicator: brighten + thicken the outline (and lighten the fill a touch) while the field
+        // is selected, so it's obvious which field you're typing in. Done via onSelect/onDeselect rather
+        // than the framework ColorTint (which faded the fill — see the comment above).
+        var normalOutlineCol = fieldOutline.effectColor;
+        var normalOutlineDist = fieldOutline.effectDistance;
+        var normalFill = mainImage.color;
+        var focusOutlineCol = new Color(0.40f, 0.85f, 1f, 1f);
+        inputField.onSelect.AddListener((UnityEngine.Events.UnityAction<string>)((string _) =>
         {
-            normalColor = Theme.InputFieldNormal,
-            highlightedColor = Theme.InputFieldHighlighted,
-            pressedColor = Theme.InputFieldPressed,
-            colorMultiplier = 1
-        };
-        inputField.colors = colourBlock;
+            if (fieldOutline != null) { fieldOutline.effectColor = focusOutlineCol; fieldOutline.effectDistance = new Vector2(2f, -2f); }
+            mainImage.color = new Color(0.27f, 0.27f, 0.33f, 1f);
+            // Engage the keyboard-lock the instant this field is focused (mirrors the chat input's
+            // OnChatSelect) so typing can't leak movement/menu/ability keys into the game — instead of
+            // relying solely on the AnyFocused() poll, which can miss main-panel fields in nested
+            // scroll-view canvases (the TMP isFocused=false quirk). The per-frame TickChatFocus poll
+            // remains the authoritative RELEASE (clears it when no BCH field is focused). Gated by the
+            // same default-on setting the poll uses.
+            try { if (BloodCraftHub.Config.Settings.LockKeyboardInFormFields) BloodCraftHub.Patches.InputSuppression.ChatInputActive = true; } catch { }
+            // Force REAL activation. Fields in scroll views / dynamically-rebuilt containers often get
+            // SELECTED without ACTIVATING — so isFocused stays false → the caret never renders AND the
+            // keyboard-lock poll (AnyFocused → isFocused) doesn't latch, letting keystrokes leak into the
+            // game (menus open in the background). Activating makes isFocused true → caret shows + the
+            // lock engages. Event-driven (fires once on select), so it can't pin focus the way the
+            // reverted per-frame re-activation did (ESC still deselects normally).
+            try { if (!inputField.isFocused) inputField.ActivateInputField(); } catch { }
+        }));
+        inputField.onDeselect.AddListener((UnityEngine.Events.UnityAction<string>)((string _) =>
+        {
+            if (fieldOutline != null) { fieldOutline.effectColor = normalOutlineCol; fieldOutline.effectDistance = normalOutlineDist; }
+            mainImage.color = normalFill;
+        }));
 
         GameObject textArea = CreateUIObject("TextArea", mainObj);
         textArea.AddComponent<RectMask2D>();
@@ -793,14 +882,17 @@ public static class UIFactory
         RectTransform textAreaRect = textArea.GetComponent<RectTransform>();
         textAreaRect.anchorMin = Vector2.zero;
         textAreaRect.anchorMax = Vector2.one;
-        textAreaRect.offsetMin = Vector2.zero;
-        textAreaRect.offsetMax = Vector2.zero;
+        // Left/right inset so the text/placeholder isn't jammed against the border.
+        textAreaRect.offsetMin = new Vector2(6f, 0f);
+        textAreaRect.offsetMax = new Vector2(-4f, 0f);
 
         GameObject placeHolderObj = CreateUIObject("Placeholder", textArea);
         TextMeshProUGUI placeholderText = placeHolderObj.AddComponent<TextMeshProUGUI>();
         SetDefaultTextValues(placeholderText);
         placeholderText.text = placeHolderText ?? "...";
-        placeholderText.color = Theme.PlaceHolderText;
+        // Explicit readable placeholder grey (Theme.PlaceHolderText = SliderHandle can read dim on the
+        // lighter fill). Typed text stays Theme.DefaultText (white) below.
+        placeholderText.color = new Color(0.72f, 0.72f, 0.78f, 1f);
         placeholderText.enableWordWrapping = true;
         placeholderText.alignment = TextAlignmentOptions.MidlineLeft;
         placeholderText.fontSize = 14;
@@ -829,6 +921,10 @@ public static class UIFactory
         inputTextRect.offsetMax = Vector2.zero;
 
         inputField.textComponent = inputText;
+        // REQUIRED: TMP_InputField positions its caret + builds its selection-highlight mesh relative to
+        // the text VIEWPORT. It was never assigned, so the caret couldn't render (invisible cursor) and
+        // selecting text threw a per-frame NullReferenceException. Point it at the masked TextArea.
+        inputField.textViewport = textAreaRect;
         inputField.characterLimit = UniversalUI.MAX_INPUTFIELD_CHARS;
 
         return new InputFieldRef(inputField);

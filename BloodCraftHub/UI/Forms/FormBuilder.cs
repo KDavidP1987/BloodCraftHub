@@ -82,12 +82,17 @@ public static class FormBuilder
         titleLbl.TextMesh.overflowMode = TextOverflowModes.Overflow;
 
         // Field rows: [Label:] [input widget]
+        // forceExpandWidth:false so each field's OWN flexibleWidth is honored — only FREE-FORM text
+        // fields (flex 1) stretch to fill the row; integer, toggle, AND dropdown/enum fields (flex 0)
+        // keep their narrow preferred width so a numeric/picker form reads tidily instead of every
+        // control stretching edge-to-edge. spacing 10 + a label right-pad give the label text
+        // breathing room from the input (was sitting flush against it).
         foreach (var field in fields)
         {
             var row = UIFactory.CreateHorizontalGroup(form, $"Row_{field.Name}",
-                forceExpandWidth: true, forceExpandHeight: false,
+                forceExpandWidth: false, forceExpandHeight: false,
                 childControlWidth: true, childControlHeight: true,
-                spacing: 6, padding: new Vector4(0, 0, 0, 0));
+                spacing: 10, padding: new Vector4(0, 0, 0, 0));
             UIFactory.SetLayoutElement(row,
                 minWidth: 360, preferredWidth: 400, flexibleWidth: 1,
                 minHeight: Theme.ScaledHeight(28), preferredHeight: Theme.ScaledHeight(30), flexibleHeight: 0);
@@ -95,10 +100,11 @@ public static class FormBuilder
             var lbl = UIFactory.CreateLabel(row, "Label", field.Label + ":",
                 TextAlignmentOptions.MidlineLeft, color: null, fontSize: Theme.ScaledUI(12));
             UIFactory.SetLayoutElement(lbl.GameObject,
-                minWidth: 90, preferredWidth: 100, flexibleWidth: 0,
+                minWidth: 96, preferredWidth: 110, flexibleWidth: 0,
                 minHeight: Theme.ScaledHeight(24), preferredHeight: Theme.ScaledHeight(26), flexibleHeight: 0);
             lbl.TextMesh.enableWordWrapping = false;
             lbl.TextMesh.overflowMode = TextOverflowModes.Overflow;
+            lbl.TextMesh.margin = new Vector4(0, 0, 6, 0);   // right inset so the label can't touch the field
 
             field.Build(row);
         }

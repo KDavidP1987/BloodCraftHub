@@ -161,6 +161,16 @@ public static class Theme
         UnityEngine.Mathf.Max(baseHeight,
             UnityEngine.Mathf.RoundToInt(baseHeight * UnityEngine.Mathf.Max(1.0f, OverlayFontMultiplier)));
 
+    // 0.24.8: width counterpart to ScaledHeight, for fixed-width buttons whose
+    // captions scale with the UI font. Without it, a Large+ font multiplier
+    // grows the text but not the button, and TMP word-wraps short captions
+    // VERTICALLY (one letter per line) — first reported on the Loadout
+    // assign-row slot buttons. Same convention: 1.0 below Standard so
+    // Small/Standard layouts stay pixel-identical; only Large+ widens.
+    public static int ScaledWidth(int baseWidth) =>
+        UnityEngine.Mathf.Max(baseWidth,
+            UnityEngine.Mathf.RoundToInt(baseWidth * UnityEngine.Mathf.Max(1.0f, UIFontMultiplier)));
+
     static Theme()
     {
         Opacity = 0.8f;

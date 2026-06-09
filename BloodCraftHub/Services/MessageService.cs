@@ -80,6 +80,23 @@ public static partial class MessageService
     /// <summary>Local character entity once <see cref="SetCharacter"/> has been called; <see cref="Entity.Null"/> otherwise.</summary>
     public static Entity LocalCharacter => _localCharacter;
 
+    /// <summary>True if the local player is CURRENTLY authed as a server admin. Reads the replicated
+    /// <c>User.IsAdmin</c> bool off the local user entity (snapshot-synced to the client). NOTE: reflects
+    /// the AUTHED state — false at login until the player runs <c>adminauth</c> (F1 console), true after,
+    /// and flips live as the server pushes the snapshot. Used only for UI gating; the server enforces
+    /// admin permission on every command regardless. Best-effort: never throws.</summary>
+    public static bool IsLocalAdmin()
+    {
+        try
+        {
+            var u = _localUser;
+            if (u != Entity.Null && u.Has<User>())
+                return u.Read<User>().IsAdmin;
+        }
+        catch { /* not ready / type unavailable → treat as non-admin */ }
+        return false;
+    }
+
     /// <summary>
     /// Send a player-initiated chat command. Bypasses the 2-second throttle
     /// queue so a button click reaches the server on the next frame instead of

@@ -63,6 +63,12 @@ public static class UICanvasSystemPatch
             // off, so a disabled feature costs nothing beyond this throttle check.
             bool wantBehind = Settings.OverlaysBehindGameMenus && IsAnyMenuOpen(canvas);
 
+            // B12 (0.19): keep the baseline SetOnTop reorders around in sync EVERY eval (cheap int
+            // write). This is what stops the chat overlay "phasing" over the menu: PanelManager.
+            // UpdateFocus calls SetOnTop on every frame the cursor is over a panel; without this it
+            // would reset the canvas to TOP_SORTORDER (in front of the menu) until the next eval.
+            UIBase.CurrentSortBaseline = wantBehind ? MENU_BEHIND_BASE : UIBase.TOP_SORTORDER;
+
             if (wantBehind)
             {
                 // Re-apply (throttled) while behind so a panel focus-reorder
@@ -89,19 +95,36 @@ public static class UICanvasSystemPatch
     // / character / map / build menus have their own names and still push behind.
     private static readonly string[] _keepOverlaysOnTopFor = { "SpawnMenu", "FullscreenMenu" };
 
+    private static double _lastMenuDiagAt;
     private static bool IsAnyMenuOpen(UICanvasBase canvas)
     {
         if (canvas == null) return false;
         var parent = canvas.HUDMenuParent;
         if (parent == null || !parent.gameObject.activeSelf) return false;
+        // Diagnostic (gated): once/sec, log the active HUD-menu child names + whether each pushes overlays
+        // behind or is kept-on-top. This is how we find out exactly what the MAP and spell/shapeshift-select
+        // register as (and whether they're even under HUDMenuParent), so the fix is targeted, not guessed.
+        // Reads only child.name (already read by IsKeepOnTop), so it adds no new IL2CPP wrapping churn.
+        bool diagOn = Config.Settings.DiagnosticMode;
+        System.Text.StringBuilder diag = null;
+        bool any = false;
         for (int i = 0; i < parent.childCount; i++)
         {
             var child = parent.GetChild(i);
             if (child == null || !child.gameObject.activeSelf) continue;
-            if (IsKeepOnTop(child.gameObject.name)) continue; // coffin / fullscreen — keep overlays usable
-            return true;
+            string nm = child.gameObject.name;
+            bool keepTop = IsKeepOnTop(nm);
+            if (diagOn) (diag ??= new System.Text.StringBuilder()).Append(nm).Append(keepTop ? "(on-top) " : "(behind) ");
+            if (keepTop) continue; // coffin / fullscreen — keep overlays usable
+            any = true;
+            if (!diagOn) return true;   // fast path when not diagnosing
         }
-        return false;
+        if (diagOn && diag != null)
+        {
+            double now = UnityEngine.Time.realtimeSinceStartupAsDouble;
+            if (now - _lastMenuDiagAt >= 1.0) { _lastMenuDiagAt = now; BloodCraftHub.Utils.LogUtils.LogDiagnostic($"[MenuLayer] active HUD menus: {diag}"); }
+        }
+        return any;
     }
 
     private static bool IsKeepOnTop(string childName)

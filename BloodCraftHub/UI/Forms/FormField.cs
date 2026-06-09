@@ -70,6 +70,20 @@ public class IntField : TextField
         Min = min; Max = max;
     }
 
+    // An integer needs only a small box — don't stretch like a free-text/name field. Narrow, fixed
+    // width (flex 0), and restrict input to digits so the field reads as "a number goes here".
+    public override void Build(GameObject row)
+    {
+        Input = UIFactory.CreateInputField(row, $"Field_{Name}", Placeholder);
+        UIFactory.SetLayoutElement(Input.GameObject,
+            minWidth: 56, preferredWidth: 72, flexibleWidth: 0,
+            minHeight: Theme.ScaledHeight(24), preferredHeight: Theme.ScaledHeight(26), flexibleHeight: 0);
+        // Integer keyboard + reject non-digits (a leading '-' is still allowed for negative Min ranges).
+        try { Input.Component.contentType = TMP_InputField.ContentType.IntegerNumber; } catch { }
+        if (!string.IsNullOrEmpty(Tooltip))
+            TooltipHover.Attach(Input.GameObject, Tooltip);
+    }
+
     public override bool IsValid()
     {
         if (Input == null || string.IsNullOrEmpty(Input.Text)) return false;
@@ -207,8 +221,12 @@ public class EnumField<T> : FormField where T : struct, Enum
         try { Dropdown.value = Convert.ToInt32(Default); }
         catch { Dropdown.value = 0; }
 
+        // A dropdown holds a fixed set of short labels — it should NOT stretch to fill the row
+        // like a free-text field. flexibleWidth:0 keeps it at its natural width (left-aligned, the
+        // rest of the row empty) so numeric/enum forms read tidily. preferredWidth is wide enough
+        // for the longest enum names (e.g. "PhysicalPower") without truncation.
         UIFactory.SetLayoutElement(go,
-            minWidth: 100, preferredWidth: 200, flexibleWidth: 1,
+            minWidth: 120, preferredWidth: 168, flexibleWidth: 0,
             minHeight: Theme.ScaledHeight(24), preferredHeight: Theme.ScaledHeight(26), flexibleHeight: 0);
         if (!string.IsNullOrEmpty(Tooltip))
             TooltipHover.Attach(go, Tooltip);
@@ -290,8 +308,10 @@ public class BoxNameDropdownField : FormField
         Dropdown = dropdown;
         Dropdown.value = 0;
 
+        // Box names can be a touch longer than enum labels, so keep a slightly wider preferred width,
+        // but still flexibleWidth:0 — a picker shouldn't stretch the full row width.
         UIFactory.SetLayoutElement(go,
-            minWidth: 100, preferredWidth: 200, flexibleWidth: 1,
+            minWidth: 140, preferredWidth: 200, flexibleWidth: 0,
             minHeight: Theme.ScaledHeight(24), preferredHeight: Theme.ScaledHeight(26), flexibleHeight: 0);
         if (!string.IsNullOrEmpty(Tooltip))
             TooltipHover.Attach(go, Tooltip);

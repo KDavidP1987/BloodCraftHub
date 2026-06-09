@@ -52,6 +52,7 @@ public static class ShiftCooldownService
     public static int    DiagSlotGroupPrefabHash; // 0.16.x: live slot-3 group entity prefab (icon-on-load diag)
     public static double DiagServerNow;
     public static double DiagLatchedEnd;
+    public static double DiagSlotCooldownEnd; // 0.29: cooldown end read from the PERSISTENT slot group entity (recast support)
     public static double DiagLastRefreshAt;
     public static int    DiagPollCount;
     public static string DiagLastReadSource = "init";
@@ -324,6 +325,43 @@ public static class ShiftCooldownService
             DiagLastReadSource = HasShiftSpell
                 ? (_latchedShiftPrefab.GuidHash == 0 ? "no-prefab-yet" : "idle")
                 : "no-slot";
+        }
+
+        // ── Step 4b (0.29): RECAST / persistent-cooldown fallback ──
+        // The cast-time read in Step 4 only fires WHILE a cast is in flight (bar.CastAbility non-null).
+        // Recast abilities (cast → the slot shows a "recast" icon → the REAL cooldown only starts when you
+        // recast, or when the recast window expires) usually apply their cooldown at a moment when NO cast
+        // is being observed — so the transient read never sees it and the overlay sticks on the recast icon
+        // with no timer (tester report). The shift slot's GROUP entity PERSISTS and carries the group-level
+        // cooldown/charge state, so read it every poll as a fallback. Fully guarded (HasComponent + try) and
+        // additive: the cooldown end only moves FORWARD (same rule as Step 4), so it can't fight the
+        // cast-time read or invent a phantom timer — when the recast window is still open the group's end
+        // time is in the past (ready), which correctly shows no cooldown, exactly like vanilla.
+        DiagSlotCooldownEnd = 0;
+        if (shiftSlotGroupEntity != Unity.Entities.Entity.Null)
+        {
+            try
+            {
+                if (em.HasComponent<ProjectM.AbilityCooldownData>(shiftSlotGroupEntity))
+                {
+                    float t = em.GetComponentData<ProjectM.AbilityCooldownData>(shiftSlotGroupEntity).Cooldown._Value;
+                    if (t > 0f) _latchedCooldownTotal = t;
+                }
+                if (em.HasComponent<ProjectM.AbilityCooldownState>(shiftSlotGroupEntity))
+                {
+                    double end = em.GetComponentData<ProjectM.AbilityCooldownState>(shiftSlotGroupEntity).CooldownEndTime;
+                    DiagSlotCooldownEnd = end;
+                    if (end > _latchedCooldownEnd) { _latchedCooldownEnd = end; DiagLastReadSource = "slot-cd"; }
+                }
+                if (em.HasComponent<ProjectM.AbilityChargesState>(shiftSlotGroupEntity))
+                    _latchedCurrentCharges = em.GetComponentData<ProjectM.AbilityChargesState>(shiftSlotGroupEntity).CurrentCharges;
+                if (em.HasComponent<ProjectM.AbilityChargesData>(shiftSlotGroupEntity))
+                {
+                    int max = em.GetComponentData<ProjectM.AbilityChargesData>(shiftSlotGroupEntity).MaxCharges;
+                    if (max > 0) _latchedMaxCharges = max;
+                }
+            }
+            catch { /* best-effort; the cast-time read remains the primary path */ }
         }
 
         // ── Step 5: compute display values from latched data + running clock ──

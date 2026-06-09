@@ -35,16 +35,47 @@ public enum PanelType
     DailyQuestOverlay,
 
     // Help / Reference tabs:
-    QuickStartTab,
+    QuickStartTab,          // 0.19: now a GENERAL BCH getting-started (mod-agnostic)
+    BloodcraftQuickStartTab,// 0.19: Bloodcraft-specific getting-started (parallel to the Beelzebub one)
     ModHelpTab,             // 0.13.0: deeper Bloodcraft mechanics reference
     GameGuideTab,           // 0.12.1: V Rising game guide / external links
     VanillaAdminTab,
     AboutTab,
     SettingsTab,
+    ConnectionTab,          // 0.19: always-available mod connection/detection status + re-detect (Bloodcraft + Beelzebub)
 
     // Standalone enhancement tabs (client-side; work on any server, no
     // Bloodcraft / Kindred required). 0.17+.
     GameUITab,              // 0.17: home for standalone V Rising UI enhancements
+
+    // Beelzebub-suite tabs (0.18: client UI for the server-side ability-capture
+    // /transform mod; whole group gated on the `.beelz api version` handshake):
+    BeelzBestiaryTab,       // collection tracker (captured vs available abilities)
+    BeelzLoadoutTab,        // 6-slot ability-exchange editor (universal + per-weapon)
+    BeelzHotkeysTab,        // named extra-ability bindings -> action-bar overlay
+    BeelzTransformsTab,     // Dracula / Morgana transform panel
+    BeelzSettingsTab,       // client-side Beelzebub settings: diagnostics, availability, overlay
+    BeelzAdminConfigTab,    // admin: generic settings from api config
+    BeelzAdminPlayersTab,   // admin: grant / devour / inspect / recovery
+    BeelzAdminAbilityTableTab, // 0.19 (F13): mass per-ability config — tabular editor over the scanned catalog
+    BeelzQuickStartTab,     // help: Beelzebub getting-started (lives in the Settings & Help group)
+    BeelzModHelpTab,        // help: Beelzebub mechanics deep-dive (lives in the Settings & Help group)
+
+    // Uriel-suite tabs (0.26: client UI for the server-side storage-share /
+    // public-prison / stair-swap / object-spawning mod; whole group gated on
+    // the `.uriel api version` handshake). One player tab per sub-feature +
+    // admin tabs (inline, server-enforced like the Beelzebub/Kindred admin tabs).
+    UrielStorageTab,        // player: share/unshare chests + permissions/limits/cost/paychest
+    UrielPrisonTab,         // player: shared prison cells + Take Prisoner (pass 2)
+    UrielStairsTab,         // player: live stair restyle (six same-shape styles)
+    UrielObjectsTab,        // player: object-spawn palette (unlocked list) + collection progress
+    UrielObjectCatalogTab,  // player: full spawnable-object catalog browse, columnar (name/category/id)
+    UrielSettingsTab,       // client-side Uriel settings: diagnostics, availability readout
+    UrielAdminSharingTab,   // admin: sharedall / unshareplayer / unshareall / sharedebug
+    UrielAdminObjectsTab,   // admin: block/grant/blocklist/bossmap/purgeplot/forcedespawn
+    UrielAdminConfigTab,    // admin: kill-switch status (storage / prison / stairswap / collection)
+    UrielQuickStartTab,     // help: Uriel getting-started (lives in the Settings & Help group)
+    UrielModHelpTab,        // help: Uriel mechanics + command reference (Settings & Help group)
 
     // Secondary overlays (independent draggable panels):
     ExperienceOverlay,
@@ -55,6 +86,12 @@ public enum PanelType
     CombinedOverlay,        // 0.14.0: single combined info overlay (XP + Familiar + Wep + Blood + Prof + Quests)
     QuickActionsOverlay,    // 0.16: configurable one-click Kindred action buttons (Stash All)
     ChatWindowOverlay,      // 0.17: standalone tabbed chat window (Game UI group)
+    SecondaryChatOverlay,   // 0.24: view-only second chat window mirroring a chosen subset of channels
+    BeelzActionBarOverlay,  // 0.18: on-screen extra-ability buttons + cooldown rings
+    BeelzSummonsOverlay,    // 0.19: one-click stash/restore (+ recall/clear) for Beelzebub summons
+    BeelzTransformOverlay,  // 0.20: browser-style transform overlay (double-click to transform + phase/revert)
+    UrielSharedOverlay,     // 0.26: nearby public-storage badges (client-side detection of Uriel-shared containers)
+    UrielObjectSpawnerOverlay, // 0.29: draggable quick-build palette of your unlocked Uriel objects (category cycler + per-row Spawn)
 
     // Legacy panel identities from BloodCraftUI — kept so the existing
     // ResizeablePanelBase config keys (Panels/<PanelType>) survive a port.

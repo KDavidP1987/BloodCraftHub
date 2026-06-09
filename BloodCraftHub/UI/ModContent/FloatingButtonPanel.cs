@@ -116,7 +116,23 @@ public class FloatingButtonPanel : ResizeablePanelBase
             "Show/hide all currently-enabled overlays. Useful when the in-game menus conflict with overlay positioning on smaller screens. " +
             "This only toggles overlays you've already enabled via the panel footer — it never makes hidden-by-config overlays visible. " +
             "Session-only: overlays return to their configured visibility on game restart.");
+
+        ApplyScale(); // 0.18.4: honor the user's launcher-button size
     }
+
+    // 0.18.4: scale the whole launcher (both buttons + their gap) by Settings.FloatingButtonScale.
+    // Applied as the panel root's localScale — the simplest way to uniformly shrink/grow the fixed-size
+    // buttons (some displays render the 40px buttons large). The drag ring stays the unscaled rect,
+    // which is harmless for a tiny corner launcher. Called at construct + when the setting changes.
+    private void ApplyScale()
+    {
+        if (uiRoot == null) return;
+        float s = Settings.FloatingButtonScale;
+        uiRoot.transform.localScale = new Vector3(s, s, 1f);
+    }
+
+    /// <summary>0.18.4: re-apply the launcher size after the user changes the setting (live).</summary>
+    public void RefreshScale() => ApplyScale();
 
     // 0.15.0: prevent the floating BCH / OV buttons from being navigated to
     // (and thus activated) by gamepad UI nav. Friend-test 0.14.0: pressing A

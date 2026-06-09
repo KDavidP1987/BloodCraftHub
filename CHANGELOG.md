@@ -1,4 +1,978 @@
 # Changelog
+## 0.29.2 — Spawn overlay page selector + the real stuck-attack fix
+
+- **Stuck auto-attack after closing the panel — fixed (for real this time).** A tester's diagnostic
+  capture confirmed the cause: the closing UI click's mouse-button *release* is swallowed by the Close
+  button, so the game's **Primary-attack input action stays latched** and the character keeps swinging
+  until you attack once (which supplies the missing release). The earlier fixed-time cancel windows
+  couldn't beat a permanent latch. New approach: after the panel closes, BCH watches for a Primary attack
+  firing **while the mouse button is physically up** — that's the phantom, and it's cancelled every frame
+  until it clears. A real attack holds the button, so it passes through normally and its release ends the
+  guard. Net effect: no more auto-swinging after you close the UI.
+- **Spawn overlay: scroll replaced with a page selector.** The scroll view's mouse-wheel zoomed the game
+  camera instead of scrolling (V Rising captures the wheel), so the list is back to **Prev / Next** page
+  buttons. The underlying "list grew on every page change" bug (rows were being added to the wrong
+  container) stays fixed, so pages now switch cleanly.
+- **Spawn overlay: red background fixed.** The red was the scroll view's inner background; removing the
+  scroll view restores the normal themed overlay background.
+
+## 0.29.1 — Spawn overlay scroll fix + tester feedback
+
+Fixes from in-game testing of the 0.29.0 spawn overlay.
+
+- **Spawn overlay list now scrolls** inside the panel. It previously rendered its rows in the wrong
+  container, so the list spilled past the bottom of the overlay and **grew longer every time you changed
+  page/category** instead of replacing. The list is now a proper scroll view: rows are cleared and
+  re-added each time, the list never overflows the panel, and a **scrollbar** appears when there are more
+  objects than fit (the manual page buttons are gone — just scroll).
+- **Removed the Durability / Respawn buttons from the Object Catalog tab.** The catalog is informational
+  (browse what exists); those are spawn settings and now live only on the **Object Spawning** tab — the
+  catalog's per-row Spawn buttons still use that same setting.
+- **Stuck auto-attack after closing the panel — diagnostics added.** The previous close-time fix still
+  isn't clearing it for at least one tester (the character keeps swinging until you attack once), which
+  points to a latched attack *input action* upstream of what the mod can cancel. With **Diagnostic mode**
+  on, BCH now logs the character's input/cast state for ~1.5s after each panel close
+  (`[CloseAttackDiag]` in `LogOutput.log`) so the exact latched state can be identified and fixed.
+
+## 0.29.0 — Uriel spawn palette overlay, object search, and overlay/Shift fixes
+
+Building-focused upgrades to Uriel object spawning, plus two overlay fixes from player reports.
+
+**Uriel — Object Spawning**
+
+- **New draggable Spawn Objects overlay.** A compact on-screen palette of the objects you've unlocked,
+  so you can walk around your base and place things **without** opening the big main panel (which turns
+  your camera aside and drops objects off to one side). Cycle a category with the **← / →** arrows, then
+  click **Spawn** next to any object. The overlay's header also has **Despawn**, **Rotate**, and
+  **Refresh**, plus its own **durability + respawn** selector for the session. It's draggable/resizable
+  with its own transparency, remembers whether it was open across logout, and only appears on Uriel
+  servers. Toggle it from the new **Show spawn overlay** button on the Object Spawning tab.
+- **Text search on both object tables.** The Object Spawning tab and the Object Catalog tab each gain a
+  **Search (name or ID)** box that filters the list live as you type — combine it with the category
+  chips to find a specific prefab fast. A **Clear** button resets it.
+- **Building hotkeys moved to the top** of the Object Spawning tab, so they're reachable without
+  scrolling past the object table — they're the controls you reach for while actively building.
+- **Despawn (and Rotate) moved to the Object Spawning tab.** Despawn was on the Object Catalog tab, but
+  it's a spawning action, not catalog/reference — it now sits with the other spawn controls.
+
+**Fixes**
+
+- **Stat abbreviations now shorten the stat-name line too.** With *Abbreviate stat names* on, the
+  Combined overlay was abbreviating the bonus-values sub-row but leaving the "Stats: PhysicalPower,
+  SpellPower…" chosen-stat line in full. Both the weapon and blood name lines now abbreviate.
+- **Stuck auto-attack after closing the panel** — strengthened the close-time attack-cancel so it
+  triggers on **every** way the main panel closes (clicking the X, the toggle hotkey, or the launcher),
+  not just when the cursor happened to be over the panel. Previously a close where the cursor wasn't
+  over the panel could leave the closing click latched as a repeating attack.
+- **Shift overlay recast/charge cooldown** — recast abilities (cast → the slot shows a "recast" icon →
+  the real cooldown only starts on the recast or when the recast window expires) didn't start a timer on
+  the overlay. The cooldown is now also read from the slot's persistent ability group, so a cooldown
+  that lands after the cast window can still be picked up. The Shift overlay's optional diagnostic line
+  gained charge (`ch`) and slot-cooldown (`slotcd`) fields to help pin down any remaining recast cases.
+
+## 0.28.0 — Overlay Visibility options (timed hide, hide the buttons, cleaner chat)
+
+New **Settings → Display → Overlay Visibility** section that shapes what the upper-right **OV** button
+and the **Toggle all overlays** hotkey do. (Requested by a player who wanted to fully clear BCH from
+the screen on demand.)
+
+- **Hide mode — Toggle or Timed.** *Toggle* (default) is the existing sticky behavior: press to hide,
+  press to show. *Timed* hides everything for a configurable countdown and then **auto-reappears**, so
+  you can clear the screen for a screenshot/cutscene without having to remember to toggle back.
+- **Timed duration** — preset picker spanning quick screenshots to long timed video captures:
+  10s / 30s / 1m / 2m / 5m / 10m (default 25s; clamped 5s–10m).
+- **Hide BCH/OV buttons too** — when on, the master hide also hides the always-on launcher cluster for
+  a fully clean screen. **Safety-gated:** it only takes effect when there's a guaranteed way back —
+  Timed hide on, *or* a *Toggle all overlays* hotkey bound — so you can never strand yourself with the
+  panel unreachable. The section shows an inline caution while neither escape route exists.
+- **Relog safety** — re-entering a world (relog / server switch) always returns you to your configured
+  visibility: the session-only master-hide and any pending timed countdown are cleared, so the OV/BCH
+  launcher can never come back hidden after a relog (matches the flag's "reset on game restart" intent).
+- **Keep game chat hidden while hidden** (default on) — fixes a quirk where hiding the chat via the OV
+  toggle (with *Hide chat with OV* on) let V Rising's **native chat pop back up** as if chat had been
+  re-enabled. Now the native chat stays hidden too for a clean screen; turn this off if you'd rather
+  keep the game chat available while BCH overlays are hidden.
+
+Notes:
+
+- The **Toggle all overlays** hotkey already existed (Settings → Display → Hotkeys) — it now also hides
+  the launcher buttons when that option is on, and serves as the "way back" when the buttons are hidden.
+- The master hide still never reveals overlays you've turned off per-overlay; it only re-shows what was
+  already enabled.
+
+## 0.27.1 — Uriel spawn durability + respawn options
+
+Matches Uriel's expanded `.uriel spawn` lifecycle flags. The old single Invulnerable/Breakable toggle
+on the Object Spawning + Object Catalog tabs is replaced with two controls (shared by both tabs):
+
+- **Durability** cycle — **Indestructible** (default) → **Breakable** (raid/decay can destroy it; the
+  owner can't weapon-smash it) → **Smashable** (breakable AND the owner can destroy it; not
+  castle-owned, decays, anyone in the territory can damage it).
+- **Respawn** toggle — when on, a destroyed object auto-respawns until the castle is gone or you
+  despawn it (applies to breakable/smashable objects).
+
+The Spawn buttons append the matching flags (`.uriel spawn <guid> 0 [breakable|smashable] [respawn] here`),
+and the per-row tooltip reflects the current mode.
+
+## 0.27.0 — Uriel admin tools fully built out
+
+The Uriel admin tabs are now complete — every admin command Uriel exposes has a button (previously only
+the read-only ones were wired). Server admin status is still enforced server-side; destructive actions
+use BCH's two-click confirm.
+
+- **Admin: Sharing** — adds a **player target field** (autocompletes from online players): list a
+  specific player's shares (`.uriel sharedall <player>`), **Unshare player** (revert all their shares),
+  and a Danger zone **Unshare ALL** (revert every share + clear the registry). The aimed-container
+  **Debug** dump is kept.
+- **Admin: Objects** — adds:
+  - **Block / Unblock a prefab** with a prefab field that autocompletes off the loaded Object Catalog
+    (or type a GUID/name) — `.uriel block` / `.uriel unblock`.
+  - **Player unlocks** — view a player's unlocks, **Grant** / **Revoke** a specific prefab, and
+    **Grant ALL** with an `all / destructible / indestructible` subset toggle.
+  - **Plot tools** — **Purge plot** and **Force-purge plot** (act on the plot you're standing in), plus
+    a two-step **Arm → Confirm force-despawn** for the object you're aiming at (the server names the
+    target on arm; confirm within 30s).
+  - **Fix:** the **Boss map** button now sends `.uriel bossmap list` (it previously sent a bare
+    `.uriel bossmap`, which the command rejects).
+- **Stairs → Admin: stair cleanup** — an admin-gated row with **Stair purge (5m)** (destroys nearby
+  stair entities; restart the server afterward) and **Refresh (diag)**.
+- **Admin: Config** — unchanged: the storage/prison/stair kill-switches aren't on Uriel's wire, so this
+  tab still shows only the object-spawn flags read from the handshake.
+
+## 0.26.6 — Uriel object lists paginated + breakable spawns; stronger close-attack fix
+
+- **Object lists are now paginated.** Both the Object Spawning (unlocked) list and the Object Catalog
+  show 50 rows per page with **← Prev / Next →** controls and a "Page X/Y · N items" readout — so a
+  large collection (and the ~2,000-item catalog) is fully browsable instead of being cut off. (Rows
+  within a page still scroll in the tab as before.)
+- **Spawn as Invulnerable or Breakable.** A new **Spawn mode** toggle (on both the Object Spawning and
+  Object Catalog tabs) chooses whether the Spawn buttons place an invulnerable object (default) or a
+  breakable/destructible one — it appends the `breakable` token to the spawn command. The setting is
+  shared by both tabs.
+- **Stronger fix for the closing-the-panel auto-attack.** The 0.26.5 fix only engaged if the mouse
+  button was still physically held the moment suppression ended — but a quick click on the X releases
+  the button first, so the attack still latched. Now, for a brief window (~0.4s) after the panel
+  closes, the attack is actively cancelled every frame regardless of button state (extended while the
+  button stays held), which clears the looping attack the cursor re-enable kicks off. Only triggers on
+  the close edge.
+
+## 0.26.5 — Fix: character kept attacking after closing the panel
+
+- **Closing the main panel with a mouse click no longer leaves your character stuck auto-attacking.**
+  When you closed the panel by clicking its X, input suppression ended on the same frame while the
+  mouse button was still physically held, so the game resumed and latched a held primary attack until
+  you clicked again. The attack producer now keeps releasing the attack for the brief moment after the
+  panel closes until the mouse button is actually released — so the closing click can't carry through
+  into the world. It ends the instant you let go (a fresh click attacks normally), with a 1-second
+  safety cap. This mirrors the existing fix that prevents the OPENING click from sticking, and only
+  triggers on the close edge (no effect during normal play). Introduced alongside the 0.25.0
+  input-lock work.
+
+## 0.26.4 — Uriel Object Catalog: own tab + columns
+
+- **The full catalog is now its own tab.** "Object Catalog" (Uriel group) holds the browse-everything
+  list, with its own Load / Re-scan and category filter — so the Object Spawning tab stays focused on
+  your unlocked items + build hotkeys.
+- **Columnar layout with aligned headers.** Both the unlocked list and the catalog now render as a
+  table — **Name · Category · ID · action** — with bold, aligned column headers instead of cramming
+  everything onto one line. The ID column is always shown (it's the spawn id). Owned objects get a
+  **Spawn** button; un-owned catalog rows show **locked**.
+- **New: a "Despawn nearest" button** on the Object Catalog tab — a one-click way to remove the spawned
+  object nearest you (`.uriel despawn`), separate from the Remove build-hotkey.
+
+## 0.26.3 — Uriel spawn-placement fix (matches Uriel's server-side fixes)
+
+- **Spawn now places where you can build.** Per Uriel's updated contract, spawning from a panel button
+  appends a "place at me" token (`.uriel spawn <guid> 0 here`) — without it, the cursor sits on the UI
+  so the placement ray points outside your plot and the spawn fails. Objects now spawn at your
+  location; nudge them into position with the Move build-hotkey (bare `.uriel move` = your aim/cursor).
+- **(No BCH change needed) Object lists populate again.** Uriel's server-side fix — emitting one chat
+  line per `[URIEL:*]` reply instead of a newline-joined block — means the Object Spawning unlocked
+  list and full catalog now fill in (BCH already read one line per message). Page size is now 20/page.
+- Updated the Spawn button tooltips to explain the at-your-location placement + Move workflow.
+
+## 0.26.2 — Uriel Object Spawning UI fixes
+
+- **Fix: long status / diagnostic messages no longer get cut off.** The Object Spawning collection-
+  progress + scan-diagnostic lines, the Storage "nearby containers" list, and the Uriel Settings
+  connection readout now wrap and grow to fit their text instead of being clipped to one line.
+- **Fix: the category filter no longer overflows.** The Object Spawning category chips now flow onto
+  multiple rows (a wrapping grid) instead of spilling off the right edge when there are many categories.
+
+## 0.26.1 — Uriel build-mode hotkeys + object-spawn diagnostics
+
+- **Building hotkeys (Object Spawning tab).** Bind keys to **move**, **rotate**, and **remove** the
+  spawned object nearest you (`.uriel move` / `.uriel rotate` / `.uriel despawn`) so you can arrange
+  Uriel-brought objects without opening a UI. Gated behind a **temporary Build Mode toggle** that is
+  **always OFF at login** and never persists across sessions — turn it on for a building session and
+  off when done. Keys never fire while you're typing or while the panel is open with input
+  suppression. The binds themselves persist; the mode doesn't.
+- **Object-spawn diagnostics.** The Object Spawning tab now tells you *why* the unlocked list /
+  catalog is empty instead of silently doing nothing: it shows "awaiting reply…", a per-page
+  "loading…" during a catalog scan, and — if the server's object-spawn API answers the version
+  handshake but doesn't return rows — a clear **"no reply / disabled"** note after a short timeout.
+  `[URIEL:err] disabled|notready` is surfaced too. (Turn on Uriel → Settings → Diagnostics to log
+  the full wire trace.) This is for diagnosing the reported "Refresh / Load full catalog do nothing"
+  case — most likely the server's `.uriel api unlocked`/`catalog` endpoints aren't returning rows yet.
+- **Fix:** the placed-object management relays now send `.uriel despawn` / `.uriel move` /
+  `.uriel rotate` with no `nearest` token (they re-resolve the target from Uriel's registry on
+  demand), matching the server command shapes.
+- New config: `UrielBuildMoveKey`, `UrielBuildRotateKey`, `UrielBuildRemoveKey`.
+
+## 0.26.0 — Uriel integration (storage sharing, prisons, stairs, object spawning)
+
+New client UI for the sibling server-side mod **Uriel, Lord of Hosts** — storage sharing,
+public prisons, stair restyling, and object spawning. Like the Beelzebub group, the whole
+**URIEL** tab group only appears when the server actually runs Uriel.
+
+- **Detection + the URIEL tab group.** BCH probes `.uriel api version` on load-in and lights up
+  the URIEL group on a `ready=1` handshake (Auto/On/Off, "hidden until confirmed", same as
+  Beelzebub). A greyed header opens an inline diagnostic with **Re-check now** + **Force-enable
+  tabs**, and **Settings and Help → Connection** gains a **Re-detect Uriel** card. Re-detects
+  cleanly on a server switch.
+- **Storage Sharing tab.** Quick-share the nearest chest (take-only / give-only / give+take), or
+  build a custom share — permission, withdrawal limit (stacks + window hours), and a cost row
+  (item id + amount, with a **Find item id** lookup) — combined into one command. Plus pay-chest,
+  unshare, list-my-shares, and unshare-all-mine. Every action targets the container **nearest
+  you** (never your aim ray).
+- **Nearby Public Storage** — client-side detection + overlay. BCH reads replicated castle state
+  to find Uriel-shared containers/cells around you with **no server query** (a placed container
+  with its castle-heart link severed is uniquely "shared"). The Storage tab shows what's public
+  nearby, and a new draggable **Nearby Public Storage** overlay lists them live (name · kind ·
+  distance). Crash-guarded with a session fault-breaker; degrades to empty if detection can't run.
+- **Object Spawning tab.** Your unlocked prefabs with one-click **Spawn**, a collection-progress
+  readout, category filtering, and per-player unlock notifications. An optional **Browse all
+  collectible objects** view shows the full catalog (unlocked marked, the rest "locked"), pulled
+  once and **cached per Uriel version** for instant reloads. World objects have no built-in game
+  icon, so they're grouped by category for now.
+- **Prisons & Stairs tabs.** Share/unshare cells (feed/extract appear natively once shared) with a
+  **Take prisoner** relay; live stair restyling across the six same-shape styles, plus next-style,
+  remove-stairs, and show-styles.
+- **Uriel Quick Start + Uriel Help** guides (Settings and Help group), a Uriel **Settings** tab
+  (diagnostics + connection/state readout), and admin tabs (Sharing / Objects / Config) with the
+  safe read-only tools wired and an admin-status gate.
+- New config: `UrielAvailability`, `UrielDiagnostics`, `ShowUrielSharedOverlay`,
+  `UrielSharedOverlayTransparency`.
+
+Notes: the Uriel wire API is at ApiVersion 1 (object-spawn collection only). Share/prison/stair
+replies are still human text in chat today; the richer share-rules display and a parsed stair-style
+picker arrive when Uriel promotes `api info` / `api shares` / `api stairinfo` to the wire. The
+contextual on-cell Take-Prisoner button and charm-escort timer are a later pass.
+
+## 0.25.0 — The typing keyboard lock, done the way the game does it
+
+- **Game keybinds can no longer fire while you type into BCH fields or use the main panel.** The
+  long-standing complaint — menus (B/M/K/J/P, wheels), abilities, action-bar hotkeys, and admin keybinds
+  triggering mid-typing in the chat window or main-panel forms — is fixed at the source. While a BCH
+  text field has focus (or the main panel is open with `SuppressGameInputWhileUIOpen`), BCH places the
+  game's own native-chat typing-lock context (`ChatFocusedInputContext` — the exact object V Rising
+  itself uses to lock the keyboard while you type in its chat) into V Rising's internal input-context
+  stack, and removes it when blocking ends — the same add-on-focus / remove-on-defocus pattern the
+  native chat uses. Every game action — menus, wheels, abilities, action bar, shapeshift/emote hotkeys,
+  inventory item actions, building keys, interact, admin auth, even the Enter key opening the native
+  chat — is consumed before any game system sees it, and the blocked key-set is *identical* to native
+  chat typing by construction. Previous releases could only drain menu *request entities*, which never
+  covered keys the game reads directly from its input state; that's why leaks kept being reported.
+- **ADMINS: console keybindings no longer fire while you type in BCH fields (or while the panel is open
+  with `SuppressGameInputWhileUIOpen`).** Hotkeys assigned with the console's `keybinding create` command
+  are read outside the game's input pipeline entirely — not even the NATIVE chat's typing lock stops
+  them, which is why they kept triggering mid-typing for admins. BCH now disables them exactly the way
+  the game's own UI text fields do (per-frame `EnableKeybindingUpdates=false`; the game re-arms the flag
+  automatically every frame, so binds resume the instant you stop typing and can never be left stuck
+  off). New General setting `SuppressConsoleKeybindsWhileTyping` (default ON).
+- **Beelzebub ability keybinds now also pause while the main panel is open with
+  `SuppressGameInputWhileUIOpen`** (previously they only paused while typing), matching the suppression
+  already applied to native ability keybinds in that state.
+- **No new crash surface.** This adds zero Harmony detours and injects no callbacks — the context object
+  is the game's own (native code end-to-end; the input dispatcher never calls BCH code), and Add/Remove
+  go through the game's public `AddInputContext`/`RemoveInputContext` API. The 0.16.x crash family came
+  from detouring hot menu systems; none of that is involved here. The older protections (menu-request
+  drain, movement/ability suppression while typing) remain as belt-and-suspenders.
+  (Dev note: two interim approaches were tested and discarded during this cycle — a
+  `GetExistingSystemManaged` lookup that silently found no system on the BCH-bound world, and an
+  Il2CppInterop-injected `IInputContext` implementation whose struct-parameter callbacks native-crashed
+  the game on first dispatch. The live `InputActionSystem` is now captured from `GameplayInputSystem`'s
+  injected reference inside a prefix BCH already owns, and the lesson write-ups live in
+  `docs/LESSONS_LEARNED.md`.)
+- New Compatibility kill-switch `EnableNativeTypingLock` (default ON) so the new lock can be disabled
+  independently for diagnosis, alongside the existing `EnableInputSuppressionPatches` master switch.
+- Removed the dead 0.18.2 input-block code path (it targeted a component that doesn't exist on any
+  entity — the cause of the old "Unknown Type" log spam some testers saw in Diagnostic mode).
+
+## 0.24.8 — Loadout first + large-text button fix
+
+- **Loadout is now the first tab in the BEELZEBUB group** (above Bestiary) — it's the tab players actually
+  live in; the Bestiary is the browse/collection view. Opening the panel to the Beelzebub mod now lands on
+  Loadout too.
+- **Fixed slot-bind buttons word-wrapping vertically at Large+ text size.** With UI font size set to Large
+  or X-Large, the narrow per-slot bind buttons on the Loadout "Assign a captured ability" rows (and other
+  compact Beelzebub buttons) grew their text but not their width, so TMP stacked the caption one letter per
+  line. Compact button widths/heights now scale with the font multiplier (Small/Standard layouts are
+  unchanged), the table column headers scale in lockstep so the columns stay aligned, and button captions
+  can never word-wrap. As before, reopen the panel after changing the text-size setting for it to apply.
+
+## 0.24.7 — Fix: Beelzebub tab group could stay "unavailable" while connected
+
+- **Fixed the BEELZEBUB tab group showing greyed/"unavailable" even though the Connection tab reported
+  Beelzebub Connected.** The left-rail group availability only re-evaluated on the single presence-resolved
+  event, which fires once the instant Beelzebub is first detected. If that one refresh didn't land on the
+  live panel (a build/subscribe timing gap during the handshake-settle window right after login), the group
+  stayed greyed for the rest of the session — while the Connection readout, which listens to a broader set of
+  presence updates, correctly showed Connected. The group now also reconciles on those same presence updates
+  (including the subscribe ACK that arrives immediately after detection), so it lights up reliably. Re-detect
+  in Settings & Help → Connection already worked around it; now it isn't needed.
+
+## 0.24.6 — Fix: non-admins no longer see "[denied] broadcast-msgs" on login
+
+- **Fixed admin-command denial spam in chat for non-admin players.** The Beelzebub announcements editor
+  (Admin: Config) auto-read the broadcast message pool with `api broadcast-msgs` — a server admin-only
+  command — while building its rows. Because the panel reopens to your last-active mod tab on login, any
+  non-admin who'd left off on the Beelzebub Admin: Config tab fired that read every login and got a red
+  `[vcf] [denied] broadcast-msgs` reply in chat. BCH now gates that automatic read behind the local
+  player's admin state, so non-admins never trigger it. (The manual "Refresh list" button was already
+  disabled for non-admins; only the silent auto-read leaked through.)
+- No feature change for admins — the editor still auto-loads its messages as before. The broadcast feature
+  itself is fully server-side and was never affected; this was only stray chat noise.
+
+## 0.24.5 — Admin "Cleanse stuck buffs" (Beelzebub v0.131)
+
+- **NEW "Cleanse stuck buffs" recovery** (Beelzebub → Admin: Players → Recovery) — wires Beelzebub v0.131's
+  `.beelz admin cleanse <player>`, which strips stuck STATE buffs (invisible / phased / immaterial) that
+  survive respawn AND relog. This is a *different* problem from a stuck action bar: it fixes a stuck/invisible
+  **player state**, not slot bindings. Non-destructive (removes the known culprits), so no confirm — sits
+  alongside Respawn / Rebuild slots. The in-panel admin help documents it next to the stuck-bar ladder.
+- Beelzebub v0.127–v0.130's catalog data changes (un-blocked/tamed abilities, label/type/category
+  enrichment) need nothing from BCH — the version-keyed catalog cache invalidates on the update and a normal
+  re-scan shows the new state.
+
+## 0.24.4 — Admin ability config: changes now apply + show up
+
+Fixes the Admin: Abilities editor where a saved field change didn't appear to take effect or update in the
+table.
+
+- **Saves now re-apply tuning + confirm reliably.** After you Save (or Reset to defaults) an ability's
+  config, BCH now sends `.beelz admin reload` so the change takes effect live (the documented "re-apply
+  tuning, no restart" step), then re-scans that ability **after a short delay** to refresh the shown values.
+  Previously the confirm re-scan fired in the same frame as the save, so it raced the write and read back the
+  OLD value — making it look like nothing changed even when it had. The "now:" column now updates to the new
+  value once the re-scan completes.
+
+If a value still doesn't change after this, the server's `Abilities_ApplyConfig` master switch may be off
+(Beelzebub → Admin: Config) — that gates whether per-ability tuning is applied at all.
+
+## 0.24.3 — Beelzebub v0.125 catch-up (leap-height tuning)
+
+Tracks Beelzebub v0.121–v0.125 (ApiVersion still 28). All additive; nothing wire-breaking.
+
+- **New `Leap height` ability-config field** (Beelzebub v0.125) in the Admin: Abilities editor — tames a
+  boss leap/travel ability that flings the caster sky-high (`TravelBuff.Height`; vanilla ~250, try ~20-40).
+  Like `Power window`, it's write-only server-side, so it shows blank and applies on Save via
+  `.beelz admin ability <id> leapheight <v>` (`clear`/`defaults` reverts). Note it's a global prefab edit —
+  it also changes the source boss's leap.
+- **Corrected ability names pick up automatically.** Beelzebub v0.124 fixed 52 abilities that were
+  mis-labelled "Arctic Leap" (Cursed Smith weapon-summons, Bat Vampire leaps, several boss leaps/teleports).
+  BCH's catalog cache is keyed by the Beelzebub version, so it invalidates on the update and re-scans the
+  corrected names — no action needed beyond a normal scan. (v0.123's reply-length fix and v0.125's boss
+  allied-summon behavior are server-side only; nothing for BCH to change.)
+
+## 0.24.2 — Admin action-bar recovery: Purge + Rebuild bar
+
+Wires up Beelzebub's bolstered admin bar-reset commands (Beelzebub → Admin: Players → Recovery). Both are
+gated behind BCH's two-click confirm.
+
+- **NEW "Purge bar" (Beelzebub v0.121)** — the last-resort fix for a creature kit jammed on a player's bar
+  by an engine-level modification leak that survives a relog AND Respawn AND Rebuild slots / Clear slot mods.
+  It wipes all Beelzebub bar integration to vanilla and removes the leaked engine `AbilityGroupSlot`
+  modifications, while **keeping the player's captures + transform unlocks** (they re-slot afterward; must be
+  online). Sends `.beelz admin purge <player> CONFIRM` — two-click confirm, and the literal `CONFIRM` token
+  is sent for you. Try **Respawn** first (it keeps bindings); use Purge only if the bar stays stuck.
+- **NEW "Rebuild bar"** — wires the previously-missing `.beelz admin rebuildbar <player>` recovery command
+  (rebuilds the bar from the player's saved Beelzebub bindings), alongside the existing Rebuild slots /
+  Clear slot mods. Also two-click confirmed.
+- The in-panel admin help now lays out the full stuck-bar **escalation ladder**:
+  rebuildslots → rebuildbar → clearslotmods → respawn → purge.
+
+## 0.24.1 — Stuck-bar recovery uses Beelzebub v0.120's authoritative reset
+
+A follow-up from the Beelzebub v0.120 integration handoff: the **Unstick bar** button now actually cures a
+stuck action bar.
+
+- **"Unstick bar" now uses the authoritative `.beelz resetbar`** on Beelzebub v0.120+. v0.120 changed
+  `resetbar` to clear the engine's deeply-cached slot values AND re-apply your saved loadout — which a plain
+  `.beelz refresh` (the old behavior of this button) can't do, so before this the button didn't reliably
+  unstick a bar. It still reverts any active transform first, and falls back to `.beelz refresh` on older
+  servers. (Gated on the Beelzebub plugin version, since the ApiVersion stayed 28 across v0.119/v0.120.)
+- **Admin recovery tooltips updated** (Beelzebub → Admin: Players → Recovery): **Rebuild slots** is described
+  as v0.120's authoritative cache-clear + grant re-apply, and **Respawn** is called out as the guaranteed
+  cure for a bar that survives a relog.
+
+## 0.24.0 — Secondary chat window, loadout fixes, bar recovery
+
+A testing-feedback pass: a new view-only second chat window, two Beelzebub loadout fixes, a stuck-bar
+recovery button, and a verified dual-mod coexistence reference.
+
+### Chat
+
+- **NEW — secondary, view-only chat window.** Open a second draggable overlay (no input box) that mirrors
+  ONLY the channels you pick — watch two streams at once (e.g. keep it on Clan + System while the main
+  window stays on Global). Enable it and choose its channels from **Game UI → Secondary chat window
+  (view-only)**. It reuses the main window's per-channel tags/colors and shares its text size, theme, and
+  transparency, and its position/size persist like every overlay.
+
+### Beelzebub
+
+- **Loadout slot buttons now update instantly when you switch sets.** Switching the *Editing* set to/from
+  a slot-restricted form (Mounted = 3/6/7 only) used to leave the per-ability bind buttons (P/1-6/U) stale
+  until you hit Refresh. They now re-evaluate the moment the restriction changes — and revert to all 8 when
+  you switch back — with no rebuild cost on ordinary weapon↔weapon switches.
+- **Slot buttons default to KEY labels.** The Loadout slot buttons now read as the in-game key each slot
+  uses (LM / Q / Sp / Sh / E / R / C / T) by default; slot numbers (P / 1-6 / U) are the alternative
+  (toggle in Beelzebub → Settings). Existing installs keep whatever they already had saved.
+- **NEW — "Unstick bar" recovery.** If your action bar gets stuck showing a transformation's abilities
+  after it ends, the Loadout action row has an **Unstick bar** button that reverts any active transform and
+  re-applies your normal bar (`.beelz revert` → `.beelz refresh`). The permanent fix is server-side
+  (Beelzebub v0.120 already prevents the cause); this is a client-side recovery for an already-stuck bar.
+- **Dual-mod coexistence reference** on the Admin: Config tab now spells out exactly which slots Bloodcraft
+  contests (3 = Shift/class, 1+4 = Unarmed) and the two ways to resolve it: `Interop_SlotInjectionPriority`
+  (set 1 so Beelzebub wins) **or** Bloodcraft's `ShiftSlot=false` / `UnarmedSlots=false`. Verified against
+  the Beelzebub↔Bloodcraft interop audit: BCH itself writes no slots and draws no cards over contested
+  ones, so it introduces no conflict — the contest is purely server-side and admin-resolved.
+
+## 0.23.0 — Beelzebub v0.120 / ApiVersion 28 catch-up
+
+Folds in the Beelzebub server changes since v0.118 (ApiVersion 27 → 28, plus the v0.120 behavior/data pass).
+Everything is additive; nothing changes on a server still on an older Beelzebub.
+
+### Beelzebub (now targeting v0.120.0 / ApiVersion 28)
+
+- **`Mounted` is now a loadout form.** The per-form set picker (and the quick-scan slices) now include
+  **Mounted** (riding a horse). Its slot rows are restricted to **3 / 6 / 7** — the only slots the server
+  accepts for it (the horse owns the rest) — with a one-line note explaining why. Gated by the server's
+  `Forms_CustomAbilities_Enabled`.
+- **Form / weapon restriction lists understand `!`-blacklists.** Beelzebub v0.101+ lets an ability's
+  `forms=`/`weapons=` be an allow-list (usable ONLY there) **or** a `!`-prefixed block-list (usable
+  everywhere EXCEPT there). BCH's Kind filter and Weapon grouping now treat a pure block-list as
+  broadly-usable (Magic / "Any weapon") instead of mislabelling it, and you can **edit `forms` / `weapons`
+  directly** in the Admin: Abilities editor (comma-separated; `!` to block).
+- **New `Power window (s)` ability-config field** (`powerwindow`, Beelz v0.120) — granted-cast power window
+  for power-scaled DoT/AoE. Write-only (the server doesn't report it back), so its "now:" reference shows
+  blank until you set it.
+- **Transform-switch safety, now matched to the server.** Beelzebub v0.120 *refuses* a direct
+  transform→transform; BCH's auto-revert-first guard (added 0.22.0) is exactly the right fit, and the
+  transform buttons' tooltips now explain it. The admin **Force** transform tooltip notes you may need
+  **Clear** first.
+- **Dual-mod (Bloodcraft) tip** added to the Admin: Config tab: search `Interop_SlotInjectionPriority`
+  (Beelz v0.120) and set it to `1` so Beelzebub wins a contested spell slot deterministically.
+- **Catalog churn handled automatically.** Beelzebub v0.120 blocks ~106 basic auto-attacks + the
+  shapeshift trigger abilities (they leave the collectible set) and fixes ~42 abilities that returned
+  foreign-language names/descriptions. BCH's disk cache is keyed by the Beelzebub version, so it
+  invalidates on the bump and re-scans fresh English — no action needed beyond a re-scan.
+
+## 0.22.0 — Onboarding, UI tidy-up, and a transform safety guard
+
+A friend-test feedback pass: a one-time first-run welcome, a cleaner/narrower form layout across the whole
+panel, several Beelzebub-tab fixes, and a client-side guard against the transform→transform action-bar bug.
+
+### First open + open-to-active-mod
+
+- **First-run welcome.** The very first time the panel opens it now routes you to the **Quick Start** tab
+  (with a short welcome) instead of dropping you into a feature tab. A one-time persisted flag
+  (`HasSeenWelcome`) makes it happen exactly once; reset it in the `.cfg` to see it again.
+- **Opens to the active mod.** A server that doesn't run Bloodcraft no longer force-opens the Bloodcraft
+  "handshake failed" panel over the mod that's actually active. The left rail now auto-expands the
+  **available** mod (Bloodcraft wins when both are present); the Bloodcraft diagnostic only auto-opens
+  when there's nothing else to show. Applied on initial build/reopen too, not just on detection events.
+
+### Form & layout tidy-up (whole panel)
+
+- **Dropdowns and numeric fields no longer stretch.** Enum/dropdown and numeric inputs across every
+  Bloodcraft / Kindred form now keep a tidy fixed width — only free-form / multi-line text fields stay
+  wide. Same fix applied to the hand-built Beelzebub transform / admin value fields.
+- **Bestiary:** the collection stats and scan status now sit on their own lines, so the pre-scan text
+  no longer overlaps the Refresh / Leaderboard buttons.
+- **Loadout:** the *Assign* controls are reorganized into a search line, a labelled **Group:** row, and a
+  labelled **Filter:** row so grouping reads apart from filters — and the abilities table is taller, showing
+  more rows at once.
+
+### Beelzebub
+
+- **More quick-scan slices.** The quick-scan picker now covers every common ability category plus
+  **per-shapeshift-form** and **per-weapon** slices (and V-Bloods), not just Summons / Spells / V-Bloods.
+- **Admin: Abilities** — each field in the expanded editor now shows the server's **current value**
+  alongside the editor, and **Save** auto re-scans that ability and reports it, so you can confirm a
+  change was applied (the current-value column updates to the new value).
+- **Transform safety guard.** Switching directly from one transformation into another could corrupt your
+  action bar. BCH now **auto-reverts to vampire form first** when you're already transformed (mirroring the
+  familiar revert-then-bind flow) before applying the new transform. This is a client-side mitigation; the
+  authoritative fix is server-side in Beelzebub.
+
+## 0.21.0 — Beelzebub v0.118 catch-up (ApiVersion 27) + chat colors + detection fixes
+
+Brings the Beelzebub integration up to **Beelzebub v0.118.0 (ApiVersion 27)**, adds a big chat-window
+color overhaul, fixes server-switch re-detection, and speeds up the ability scan with a cache + presets.
+
+### Beelzebub (ApiVersion 23 → 27)
+
+- **Reads the new per-ability metadata** Beelzebub now streams: activation **condition** (api24),
+  **review status / tag** curation (api25), and **source tier / VBlood** (api26). Surfaced on the
+  ability tooltip + admin detail, with a new **Review** column and **Review / Tier** filters on the
+  Admin: Abilities table.
+- **Catalog load filters** (api27): the scan can pull just a slice (by weapon / category / unit / form /
+  tag / tier / VBlood) instead of all ~1,700 rows.
+- **Faster scans, paid once.** The full ability scan is now **cached to disk** keyed by the Beelzebub
+  version — later logins load it instantly. New **Quick-scan presets** (Summons / V-Bloods / Spells)
+  pull just that slice in seconds for a fast cold-start.
+- **Bulk ability config** via `admin ability-set` (one command instead of many), and **stable-GUID**
+  command paths for forget / hotkey.
+- **Fix:** the *Reset loadouts* admin button now sends the required `CONFIRM` token (it previously did
+  nothing). **Loadouts:** removed Werewolf / Gargoyle from the per-form picker — they're boss
+  transformations (managed on the Transforms tab), not shapeshift forms.
+
+### Mod detection (Bloodcraft + Beelzebub)
+
+- **Server-switch re-detection fixed.** The *Re-detect* buttons were no-ops once detection had given up
+  (Bloodcraft's `SendRegistration` early-returned; Beelzebub fired a lone probe). Both now restart
+  detection from scratch — a reliable one-click recovery after switching servers.
+- **New inline recovery:** when Beelzebub isn't detected, its rail now shows a **Re-check** /
+  **Force-enable** panel (matching Bloodcraft's), and Bloodcraft's panel gained a **Re-check** button.
+- **Wider detection budget** for slow / high-latency joins so they detect on their own more often.
+
+### Chat window
+
+- **Per-channel colors are fully user-settable** (Global / Local / Clan / System / Whisper) and persist —
+  each colors its tab, its `[tag]`, and (optionally) its message text.
+- **Color message text by channel** toggle, and **Highlight my own messages** in a custom color so you
+  can pick out your own text on any tab.
+- **Confirmed:** the chat window reaches **full transparency** (100% = fully see-through background).
+
+### Quick-start tabs
+
+- Rewrote the three Quick Start tabs (general / Bloodcraft / Beelzebub) for newcomers — a clear
+  "first minute" walkthrough, consistent formatting, and the new recovery / cache / preset features.
+
+### Internal
+
+- Added a gated **menu-layer diagnostic** (Diagnostic mode) that logs which game menus push BCH overlays
+  behind vs stay on top — to drive a future fix for the chat sitting over the map / spell-select.
+
+## 0.20.0 — Beelzebub v0.100 catch-up (ApiVersion 22)
+
+Brings the Beelzebub integration up to date with **Beelzebub v0.100.0 (ApiVersion 22)** — new
+transforms, a transform-loadout editor + on-screen overlay, an admin config catalog, per-transformation
+tuning, and a rebuilt announcements editor — plus an overlay-footer layout fix.
+
+### Abilities & catalog
+
+- **Admin: Abilities table now lists EVERY ability** (enabled *and* disabled/denied), via Beelzebub's
+  new admin-only catalog scope — so you can configure abilities that aren't currently collectible. The
+  Bestiary still shows the player-collectible set. Each row shows whether it's enabled.
+- **Uncaptured abilities now show their unit + real numeric ID.** Beelzebub now streams the owning unit
+  and ability/unit GUIDs on the catalog scan, so the Admin table's Unit and ID columns (and search-by-ID)
+  fill in for abilities you haven't captured yet — no extra scan.
+
+### Transforms
+
+- **Custom transform loadouts.** A new editor on the Transforms tab lets you build a per-form ability set:
+  pick one of your unlocked forms and a phase to see **each slot's current bind** (with a per-slot Clear),
+  then bind any ability from that form's kit, or reset the form to its curated defaults. (On a Beelzebub too
+  old to report current binds, it falls back to build-and-apply — watch chat for confirmation.)
+- **New Transforms overlay.** A draggable on-screen panel (like the Familiar Browser) listing your forms —
+  **double-click one to transform** — with **Phase 1 / Phase 2 / Revert** buttons and the active form shown
+  at top. Toggle it from the Transforms tab, the "Beelz transforms" footer toggle, or the overlay lock.
+- **More forms.** The Transforms tab and admin grant controls no longer assume just Dracula & Morgana —
+  Werewolf, Golem, Gargoyle (and a basic werewolf) are full transforms now, each with multi-phase kits.
+- **Per-transformation duration & cooldown.** The admin transform-tuning editor gained **duration** and
+  **cooldown** fields (per-form overrides; `inherit` to clear), plus the new **Transform_Enabled** master
+  switch and **Transform_CooldownScope** (PerCategory / PerTransformation / Global) in the config tab.
+- New transform-unlock drop-chance / pity config keys surface with descriptions in the config tab.
+
+### Admin
+
+- **Rebuilt announcement editor.** The 100%-collection and leaderboard message pools are now managed
+  message-by-message (add / edit / remove) using Beelzebub's new `broadcast-msg` commands, with the live
+  list read back from the server — fixing the garbled text the old single-string editor showed.
+- New **Reset loadouts** admin button — clears a player's binds + custom loadouts + active transform while
+  keeping their collection (for a player stuck with a broken bar).
+- Clearing a single **primary/ultimate** slot bind now removes just that slot (Beelzebub now accepts the
+  primary/ultimate tokens on unslot).
+
+### UI
+
+- **"Show overlays" footer reflowed.** With 10+ overlay toggles, the row got squished and overlapped the
+  panel border (and the leftmost toggle overlapped the "Show overlays" label) when the window was narrow.
+  The label is now on its own line and the toggles **wrap onto as many rows as the width allows**.
+- Behind the scenes, the announcement + transform reads now use Beelzebub's structured data instead of
+  parsing chat text.
+
+## 0.19.1 — Testing & polish (player-feedback rounds)
+
+A polish pass over 0.19.0 from in-game testing feedback — input fields, overlays, the admin surfaces,
+and summon management. No protocol change; still current with Beelzebub **v0.94.0 (ApiVersion 20)**.
+
+### Summons
+
+- **Summon management moved to the Hotkeys tab.** Stash / Restore / Recall / Clear now live with the
+  other on-screen action controls (they were under Transforms) — summon management is a general feature
+  and works whether or not you're transformed.
+- **New "Summons" overlay.** A small draggable on-screen panel with a one-click **Stash ⟷ Restore**
+  toggle plus Recall and Clear. Show/hide it from a button on the Hotkeys tab or the "Beelz summons"
+  footer toggle; it has its own transparency slider in Settings and auto-hides when Beelzebub isn't
+  detected.
+
+### Admin surfaces
+
+- **Admin tabs are gated to admins.** If you're not logged in as an admin, the admin tabs (Beelzebub,
+  Bloodcraft, and Kindred) show their controls **grayed-out / disabled** rather than hidden, with a
+  **Re-check admin** button (it also re-checks when you switch to the page) — so an admin who authes
+  mid-session can light them up without relogging.
+- **Admin: Abilities table reworked.** Slimmer collapsed rows with dedicated, aligned **Ability / ID /
+  Unit / Enabled** columns; **Enabled** applies immediately; the expanded editor gained a **Cancel /
+  revert** button and **per-field tooltips**; and an **Export config → clipboard** button copies a
+  snapshot of every customized ability. Unit and ID data load during a single **Scan all**, and captured
+  abilities now show their real numeric ID.
+- **Broadcast message pools** (collection-complete / leaderboard) are now a clean **multi-line editor**
+  instead of one cramped field.
+
+### Input fields & overlays
+
+- **The text caret is visible in every field now** — including fields that already have a value (they
+  used to select-all on focus, hiding the caret). Selecting text in a field no longer spams errors.
+- **Overlay transparency is a live slider** (0–100%) with a typed-% box, and now reaches **fully
+  invisible**; the slider handle no longer disappears after a drag.
+- **Overlays stay properly behind game menus** — no more flicker or click stealing when the cursor
+  passes over a panel while a menu is open.
+- **The Shift-spell overlay works on any server** (it reads the game directly), independent of which
+  mods are present.
+- Optional: **abbreviate bonus-stat names** (HUD-extras toggle) for compact overlays, and **block
+  mouse input while the pointer is over a BCH panel** (off by default) so clicks on a panel don't fire
+  attacks/casts.
+
+### Smaller fixes
+
+- Form fields no longer sit cramped against their labels; integer fields are narrower.
+- Chat history is retained much longer in the chat window.
+- "Command not found" handshake noise is filtered out of chat.
+- The main panel title is now vampiric red.
+
+## 0.19.0 — Beelzebub catch-up (now current with Beelzebub v0.94.0 / ApiVersion 20)
+
+BloodCraftHub's Beelzebub integration was built against an older Beelzebub (ApiVersion 8). This
+release brings it fully up to date with Beelzebub **v0.94.0 (ApiVersion 20)** — fixing two things
+that were quietly broken against current servers, lighting up the per-form loadouts that were
+previously a placeholder, and adding the new admin/player surfaces.
+
+### Fixes (were broken against current Beelzebub servers)
+
+- **Tooltips & the Bestiary are complete again.** Beelzebub now sends long ability-info and catalog
+  replies in multiple parts (they outgrew the chat size limit). BCH now reassembles those parts before
+  reading them — previously it saw only the first chunk, so tooltips and catalog rows were truncated.
+- **The "Clear bar" button works again.** It called the old `.beelz resetbar`, which Beelzebub turned
+  into a no-op (it now needs a confirmation token). It now uses the new `.beelz clearbar`.
+
+### Loadouts
+
+- **Per-form ability sets.** Each shapeshift form — Wolf, Bear, Rat, Spider, Toad, Werewolf, Gargoyle —
+  now has its own ability set, alongside the universal and per-weapon sets. Pick the form in the
+  Loadout **Editing** dropdown (shown as e.g. "Wolf (form)") and bind abilities the same way; entering
+  that form auto-loads its abilities (a form with no set falls back to your Universal set). Requires the
+  server's `Forms_CustomAbilities_Enabled` (on by default) to apply in-game, but you can build the sets
+  either way.
+- **Primary + ultimate slots.** Bind abilities to the **left-click (primary)** and **T-key (ultimate)**
+  slots in addition to the six spell slots — the Loadout now shows **all eight slots** (primary, 1-6,
+  ultimate) for every set.
+- **Server loadout presets.** Save your current bindings as a named preset and load it back later
+  (`.beelz preset save/load/list/delete`), from the Loadout tab.
+- **Friendlier names.** The captured-ability lists now use Beelzebub's own friendly ability names when
+  it sends them, instead of BCH's humanized prefab guess.
+
+### Collection & player extras
+
+- **Active-bar tooltips resolve by GUID** (`api info-guid`) — abilities on your bar that aren't in your
+  capture list now show their full tooltip instead of "No name".
+- **Leaderboard** and **My odds** buttons (Bestiary tab), a **Mute repeat-devour message** toggle
+  (Settings tab), and a **100%-collection** event hook.
+- **Recall** and **Clear summons** buttons added next to Stash/Restore (summon management works
+  untransformed).
+
+### Admin
+
+- **Per-ability shaping editor** (Admin: Players): set cooldown, range, charges/charge-time, AoE,
+  projectile speed, effect duration, healing, force-timeout, summon caps/timeout/units, and cast
+  modifiers (interruptible, free-move, interrupt-on-hit, cast speed) on an ability by GUID — plus a
+  **Reset to defaults**. These are server-wide (they also change the source NPC/boss cast).
+- **Server-announcement controls** (Admin: Config): collection-complete + periodic leaderboard
+  broadcasts (status / test / leaderboard on-off; message pools and enables are config keys in the list).
+- **Capture-filter management** (Admin: Config): deny/allow name patterns, deny/allow GUID lists,
+  transform-only reservations, show-rules + reload-rules — manage what's capturable without editing JSON.
+- **Per-unit transform tuning** (Admin: Players): set a transform unit's scalars (difficulty, tier,
+  damage/cooldown/health/speed scale, full-replace, power-scaling) via `admin transform-set`.
+
+### Transforms
+
+- **Transform settings panel.** The Transforms tab now shows each category's (Regular / V-Blood / Shard)
+  mode, duration, and **live cooldown remaining** (from `api transform-config` + `api cooldowns`).
+- **Summon controls:** added **Recall** (`.beelz tp`) and **Clear summons** next to Stash/Restore —
+  summon management works untransformed.
+
+### Test-notes fixes & UX (friend testing)
+
+- **Loadout shows all 8 slots** (Primary / 1-6 / Ultimate) for every set, and a precedence note explains
+  Universal = baseline (a per-weapon/form bind, or any Beelz bind, outranks a vanilla pick on that slot).
+- **Bestiary overhaul:** tabular columns (✓ · Ability · Cat · Kind · Unit), **group-by** (None / Category /
+  Kind / Unit), and **pagination** (browse the full catalog instead of a 200-row cap).
+- **Diagnostics column headers now line up** with the rows on the Loadout/Hotkeys tables.
+- **Input fields are clearly visible** (lighter fill + bright border) instead of grey-on-grey.
+- **New Settings and Help → Connection tab** — always-reachable Bloodcraft + Beelzebub detection status with
+  Re-detect, so you can recover detection even when a mod's tab group is hidden.
+- **Chat window: Copy button** — copies the current tab's conversation to the clipboard (for bug reports).
+- **Admin Config:** settings are grouped by section with clear dividers; enum settings (power-scaling mode,
+  transform mode, difficulty, …) are now **dropdowns** of valid values; many settings have **hover
+  descriptions**.
+- **Auto-refresh on grant** (default on): after you grant/unslot from BCH, the action bar re-applies so the
+  new ability shows immediately (toggle in Beelzebub → Settings).
+- **Optional key labels** for the loadout slot buttons (LM/Q/Sp/Sh/E/R/C/T instead of P/1-6/U) — toggle in
+  Beelzebub → Settings.
+
+### More test-notes fixes & admin tools (friend-testing round 2)
+
+- **Input fields** are clearly readable now (solid fill + bright border, no opacity fade).
+- **Action-bar tooltips** show the ability name + description (load on demand).
+- **Admin Config** rows reflowed so long settings (e.g. broadcast messages) no longer overlap; settings
+  grouped by section; enum settings are dropdowns; many have hover descriptions.
+- **Bestiary**: collapsible groups + Collapse/Expand-all, a Captured/Missing group axis, ID column +
+  copy when diagnostics is on. **Loadout/Hotkeys**: click-to-copy ability IDs (diagnostics).
+- **Tab groups auto-expand by what's detected** — a Beelzebub-only server opens to the Beelzebub group.
+- **Quick Start** split into a general BloodCraftHub guide + a separate Bloodcraft guide.
+- **Admin: Players** — searchable autocomplete for the player / unit / ability fields (type to filter),
+  a live "current target" banner, and a per-ability **shaping editor** with a "Load current settings" view.
+- **New Admin: Abilities tab** — a mass ability-config table: every ability as a row with editable
+  Enabled / Cooldown / Range / Dmg× / CD× cells, a per-row Save (sends each changed field), plus search,
+  category filter, and pagination.
+- **Fixes:** "Clear set" now clears the primary/ultimate slots too; the lag when switching Bestiary↔Loadout
+  tabs is gone (lists rebuild only when their data changed).
+
+_No client crashes or behavior outside the Beelzebub tabs are affected; everything else is unchanged
+from 0.18.4._
+
+## 0.18.4 — Server-switch stability, Shift-overlay redesign, customization
+
+A stability + polish pass driven by friend testing — focused on switching servers without fully
+quitting the game, plus a reworked Shift overlay and new customization options.
+
+### Fixes
+
+- **Fixed a crash-to-desktop when opening BloodCraftHub shortly after switching servers** (without fully
+  quitting the game). BCH cached internal game-world handles that became stale when the world is rebuilt
+  on a server-switch; reusing them crashed the client. They're now rebuilt for the new world on every
+  switch, so opening BCH after a server-hop is safe.
+- **Fixed a crash when renaming a chest / storage box with the BCH chat window enabled.** Pressing
+  Enter to confirm a rename was being grabbed by the chat window (it focused the chat), which armed
+  BCH's "block menu keys while typing" logic; that then destroyed the game's networked UI-transition
+  entity and crashed the client to desktop. Two fixes: BCH no longer steals the Enter key while a game
+  text field (the rename box) is focused, and its menu-key blocker now never touches a networked
+  entity. (Didn't happen with the chat window off.)
+- **Bloodcraft now re-detects when you switch servers (it didn't).** Switching from a Bloodcraft
+  server to one without it left the Bloodcraft tab enabled and its overlays still showing the old
+  server's stats. Root cause: a stuck handshake — after the first registration attempt BCH stopped
+  retrying and *never gave up*, so it never realized the new server has no Bloodcraft. Fixed; the
+  handshake now properly retries and resolves on every server.
+- **Chat resets on a server switch.** The chat window no longer carries the previous server's
+  scrollback or a half-typed message into the new server — it's cleared on leave and repainted
+  empty when you join the next one.
+
+### Behavior change — tabs/overlays are "hidden until confirmed"
+
+- The **Bloodcraft** and **Beelzebub** tab groups (and their overlays) now stay greyed/hidden until
+  *this* server confirms the mod, instead of showing as available during the detection window.
+  Previously Beelzebub would sit enabled through several detection attempts and then suddenly grey
+  out (jarring if you'd opened the tab); now it starts hidden on every login and lights up the
+  moment the server answers — and if a later probe answers, it's restored. On a real Bloodcraft/
+  Beelzebub server this means the tab + overlays appear a second or two after you load in (when the
+  handshake completes) rather than instantly.
+
+### Shift-spell overlay redesign
+
+- The **Shift-spell overlay is now a compact, ability-button-style tile** — a dark beveled frame with
+  the slotted spell's icon, a radial cooldown sweep, the countdown, a "Shift" key label across the
+  bottom, and a charges badge — instead of the old big panel with a separate label row. It's much
+  smaller and more thematic (roughly matching the action-bar slot look), and **resizing the overlay
+  now resizes the button itself** (the tile fills the panel and its text scales with it), rather than
+  just padding empty space. The slotted spell's icon sits on a dark slot so it reads clearly — the blue
+  background now appears ONLY before the icon is identified (on load-in, before your first Shift); once
+  the icon resolves the tile is dark with no tint over the art, and the cooldown sweep is hidden
+  entirely until a cooldown is actually running (it appears only while counting down, then vanishes
+  again — like the action bar). If you'd previously resized it, drag the corner down to shrink it (or
+  reset it in Settings → Size & Positioning).
+- **The Beelzebub action-bar (hotkey) overlay shows each ability's icon** on its buttons — resolved
+  from the ability the hotkey casts — so it reads like the Shift overlay / the native action bar
+  instead of a text label. Buttons whose icon can't be resolved keep their name label. On by default
+  (toggle with `EnableBeelzAbilityIcons`). Same hidden-until-cooling cooldown sweep.
+
+### Performance
+
+- **Fixed a freeze (and likely a crash) on Beelzebub servers with a large captured collection.** Opening
+  BloodCraftHub fetched the description/cooldown for **every** captured ability — hundreds of chat
+  round-trips, each rebuilding the whole list — which froze the UI, and (because it re-ran every time
+  you opened the UI) froze the UI on a fully-collected server. BCH now only fetches details for the rows
+  actually on screen; the rest load on hover, or on demand via the diagnostics Copy button.
+
+### For testers
+
+- **Beelzebub → Loadout: a "Copy" button on each ability row** (shown only when Beelzebub diagnostic
+  details are enabled in Beelzebub → Settings). It copies that ability's full details — name, IDs, unit,
+  category/kind/creature, weapon/form restrictions, scalars, and description/cooldown when known — to the
+  clipboard, ready to paste into the Discord testing docs.
+- Turn on **Diagnostic mode** for the `[Beelz][diag]` / `[Intercept]` log traces — after a server-switch
+  you can watch Bloodcraft re-register (or give up) and Beelzebub re-probe from scratch on the new server.
+
+### Customization
+
+- **New: button color.** Settings → Display → **Button color** recolors the buttons BCH builds — the
+  BCH / OV launcher, Stash All, Familiar Browser buttons, and most others — to a preset or any hex
+  color. Buttons with a deliberate color (the red Danger / WIPE buttons) keep theirs. Applies live.
+- **New: launcher button size.** Settings → Display → **Launcher button size** (60%–120%) shrinks or
+  grows the top-right **BCH / OV** buttons — they render large on some displays.
+
+### Tidy-ups
+
+- Renamed the footer toggle **"Hide chat too" → "Hide chat with OV"** (clearer: it rides along with
+  the upper-right overlay master toggle).
+- **Beelzebub → Hotkeys:** the bind box now states (and enforces) that a hotkey name must be a single
+  word — letters / numbers / `_` / `-` only. The name is sent as a `.beelz cast <name>` chat command, so
+  a name with spaces or symbols silently failed to bind; the Bind button now explains this instead.
+
+## 0.18.3 — Mod-detection on server-switch, chat-suppression fix, overlay tidy-ups
+
+Follow-up to the 0.18.1 fixes (a tester found two still misbehaving) plus several overlay quality-of-life
+additions.
+
+### Fixes
+
+- **Other mods' / system chat messages no longer disappear on load-in.** At login BCH silently queries
+  your prestige + familiar boxes; the handler that reads those replies could keep "listening" as long as
+  *any* colored system messages kept arriving — and quietly eat unrelated ones (e.g. wanted/heat lines)
+  until you ran a BCH command. That listener is now hard-bounded to the brief reply burst, so it can
+  never swallow other mods' messages.
+- **Beelzebub now re-detects reliably when you switch servers without fully restarting the game.**
+  Leaving a game and joining another (e.g. Sov's → the Beelz test server) sometimes left the Beelzebub
+  tabs stuck "Unavailable." The detection handshake now waits for the (heavy) relog to settle and probes
+  longer, so a server-switch reliably re-detects Beelzebub (and re-checks Bloodcraft).
+
+### Overlay improvements
+
+- **Bloodcraft overlays auto-hide on servers without Bloodcraft**, and the **Beelzebub action-bar
+  (hotkey) overlay auto-hides on servers without Beelzebub** — so you don't get empty/orphaned overlays
+  on a server that doesn't run that mod. They return automatically when you're back on a server that does.
+- **New footer quick-toggle: "Beelz hotkeys"** — show/hide the Beelzebub action-bar overlay from the
+  main panel's "Show overlays" row, even on servers where the Beelzebub tab is greyed out (previously the
+  only way to hide it was inside that tab).
+- **New option: "Hide chat too"** (main panel, beside "Lock overlays"). When on, the upper-right
+  "hide all overlays" button also hides the chat window. Default OFF — chat stays visible while the other
+  overlays hide, as before.
+
+### For testers
+
+- The two fixes above include verbose **`[Beelz][diag]` / `[Intercept]`** logging when **Diagnostic mode**
+  is on — reproduce the issue with it enabled and the BepInEx log pinpoints exactly what happened.
+
+## 0.18.2 — Typing in BCH forms no longer moves/casts (+ a known input gap)
+
+A small follow-up to 0.18.1.
+
+### Improvement
+
+- **Typing in a BCH form field (search boxes, name/admin fields, etc.) now stops your character
+  from moving and casting**, the same way typing in the chat window already did. **Escape** always
+  frees the keyboard, and there's a new setting **"Lock keyboard in form fields"** (General,
+  default ON) to toggle it. This is safe by design — it does **not** re-introduce the input
+  patches that caused the 0.16 load crash.
+
+### Known limitation (form fields only)
+
+- **Some in-game menu and hotkey keys can still register while you type in a *form*** — notably the
+  map/build/character menus and the weapon-swap number keys. The **chat window blocks these fully**;
+  forms don't, because the chat window relies on V Rising's native "chat is open" state (which the
+  game gates all input behind), and a client mod can't safely make a form trigger that same internal
+  gate. A complete fix needs deeper game-input work and is planned for a future update. In the
+  meantime the BCH UI is primarily mouse-driven, and **Escape** instantly frees the keyboard.
+
+## 0.18.1 — Logout crash fix + chat-noise fix & cleanup
+
+A stability + chat-clarity follow-up to 0.18.0.
+
+### Fixes
+
+- **Fixed: logging out exited the game to desktop instead of returning to the main menu.** With BCH
+  installed, one of its per-frame patches could throw while the game world was being torn down on
+  logout, and that exception crashed the client to desktop. The patch now bails cleanly during
+  disconnect and can never let an error escape — logout returns you to the main menu as expected.
+- **Fixed: BCH's overlays/panel lingered over the main menu after logging out.** When you leave the
+  game, BCH now tears its UI down (and re-builds it cleanly on your next login — including when you
+  reconnect to a different server), so nothing from the mod shows on the main menu.
+- **Fixed: the Beelzebub tab group could stay "Unavailable" after switching servers without restarting
+  the game.** If you connected to a server *without* Beelzebub first, the detection result stuck — so
+  hopping straight to a Beelzebub server (no full game restart) left the tabs greyed out. BCH now
+  resets Beelzebub (and Bloodcraft) detection when you leave a game, so each server you join is
+  re-detected from scratch. (Exposed by the logout fix above — previously, logging out crashed, so you
+  always restarted the game between servers.)
+- **Fixed: other mods' / system messages intermittently disappearing from chat.** BCH's "generic"
+  reply capture could latch onto a stream of *unrelated* colored system messages from other mods
+  (e.g. KindredPonds, XP Rising) and hide them — until you ran a Bloodcraft/BCH command, which reset
+  it. The capture is now strictly bounded to the short burst right after a command BCH itself sends,
+  so **BCH never hides other players' chat or other mods' messages — only chat copies of its own
+  commands.**
+
+### Chat-noise settings — consolidated
+
+- All chat-suppression controls are now in **one "Chat noise" section** (Settings). The old split
+  between the "Chat noise" and "Chat Logging" sections and the three overlapping *Show…* category
+  toggles are now four clearly-worded **"Hide …"** switches: hide BCH's background-query replies
+  *(on)*, hide chat copies of BCH command replies you trigger *(off — you still see them)*, hide
+  familiar action confirmations *(off)*, and hide command-framework (VCF) error/denied chatter
+  *(on)*. Your existing preferences carry over.
+
+## 0.18.0 — Beelzebub: a full client UI for the ability-capture / transform mod
+
+A big new feature: BloodCraftHub now has a complete client UI for **Beelzebub** ("Lord of
+Gluttony"), the sibling **server-side** mod where defeating units lets you collect their
+abilities, swap them onto your spell bar, cast extras beyond the 6 native slots, and transform
+into Dracula or Morgana. It's all chat-driven (the same way BCH talks to Bloodcraft), and the
+whole **BEELZEBUB** tab group only appears when the server actually runs Beelzebub — so it stays
+out of the way everywhere else.
+
+### The Beelzebub tab group
+
+- **Bestiary** — a collector's checklist of the server's collectible abilities with a % toward
+  100%, filter by Captured / Missing, category, and kind (Magic / Weapon / Form), and a powerful
+  search (by ability, unit, weapon, category…). Press **Scan all** once to load the full list.
+  Abilities you've captured that sit outside the server's curated catalog are shown and tagged
+  *(off-catalog)*.
+- **Loadout** — build a separate ability set **per weapon** (plus a Universal fallback) on the 6
+  bar slots. Pick a set from the dropdown, click a slot number on a captured ability to bind it;
+  the server auto-switches to the matching set when you equip that weapon. Per-slot and whole-set
+  Clear, Copy-from-set, Reset bar / Fix bar.
+- **Hotkeys + Action Bar overlay** — bind abilities *beyond* the 6 slots; each becomes a tile on a
+  draggable on-screen action bar with a cooldown ring. Optional per-tile keyboard shortcut.
+- **Transforms** — become Dracula or Morgana: activate / revert, switch phase, fire the signature
+  summon / detonation, stash summons before a waygate.
+- **Admin: Config & Players** — wrap Beelzebub's admin commands (live config, grant / devour /
+  inspect / recovery / transform control). Always visible; the server enforces admin permission.
+- **Settings** — a per-mod settings tab with a **diagnostics** toggle for testers (shows each
+  ability's ID and writes a copy-paste-able trace to the log), a live connection readout, a
+  re-detect / re-hydrate button, and the action-bar overlay toggle. A **Beelzebub tab group**
+  Auto / On / Off control also lives on the main Settings page (handy to force the tabs on so you
+  can explore the UI before the server has Beelzebub).
+- **Help** — a comprehensive in-app guide (purpose, mechanics, and the full player + admin command
+  reference) plus a short Quick Start.
+
+### Notes
+
+- **Performance** — the Beelzebub tabs are tuned so a fully-collected server doesn't hitch: list
+  rebuilds are gated to the visible tab, the heavy catalog load is an opt-in one-time scan, and
+  tooltip/hover work is throttled.
+- Requires the Beelzebub server mod for the tabs to appear; everything else in BloodCraftHub is
+  unchanged.
+
 ## 0.17.3 — Chat overhaul: whisper anyone, cleaner columns, new-player hints
 
 A big quality-of-life pass on the tabbed chat window, plus some new-player guidance —

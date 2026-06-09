@@ -1,6 +1,6 @@
 # BloodCraftHub
 
-Unified client-side V Rising UI mod that surfaces every chat command of the [Bloodcraft](https://thunderstore.io/c/v-rising/p/zfolmt/Bloodcraft/) server mod — with first-class support for [KindredCommands](https://thunderstore.io/c/v-rising/p/odjit/KindredCommands/) and [KindredLogistics](https://thunderstore.io/c/v-rising/p/odjit/KindredLogistics/) on the same server.
+Unified client-side V Rising UI mod that turns the chat commands of its companion server mods into buttons, forms, and on-screen overlays — first-class support for [Bloodcraft](https://thunderstore.io/c/v-rising/p/zfolmt/Bloodcraft/), [KindredCommands](https://thunderstore.io/c/v-rising/p/odjit/KindredCommands/), and [KindredLogistics](https://thunderstore.io/c/v-rising/p/odjit/KindredLogistics/), plus the sibling **Beelzebub** (ability capture / transforms) and **Uriel** (shared storage / public prisons / stair restyling / object spawning) mods. Each mod's tab group appears only when that mod is detected on your server, so it works whether your server runs one, several, or none.
 
 > ## ⚠ Pre-1.0 public beta — please read
 >
@@ -45,11 +45,61 @@ If you want full BCH functionality on a Quests-only / Professions-only server, a
 ---
 
 **Repo:** https://github.com/KDavidP1987/BloodCraftHub
-**Status:** v0.17.3 — **pre-1.0 public beta**, actively developed (APIs and UI may still shift before 1.0).
+**Status:** v0.27.1 — **pre-1.0 public beta**, actively developed (APIs and UI may still shift before 1.0).
+**Beelzebub integration target:** v0.131.0 (ApiVersion 28).
+**Uriel integration target:** ApiVersion 1 (object-spawn collection).
 
-**At a glance:** a "Game UI" group (works on any server, no server mods needed) + BLOODCRAFT / KINDRED / SETTINGS-AND-HELP tabs · a standalone tabbed chat window · secondary info overlays · every chat command from the 3 backing server mods surfaced as forms + buttons (~250+ commands).
+**At a glance:** a "Game UI" group (works on any server, no server mods needed) + BLOODCRAFT / KINDRED / BEELZEBUB / URIEL / SETTINGS-AND-HELP tab groups · a standalone tabbed chat window · secondary info overlays + a Beelzebub ability action-bar + a Uriel nearby-public-storage overlay · every chat command from the backing server mods surfaced as forms + buttons. Each tab group only appears when the matching server mod is detected.
 
-**New in v0.17.x** — a big client-side release:
+**New in v0.26.0** — Uriel integration (sibling server mod: storage sharing / public prisons / stair restyling / object spawning):
+- **URIEL tab group**, handshake-gated like Beelzebub, with Quick Start + Help guides, a Settings tab, admin tabs (Sharing / Objects / Config), a Connection → Re-detect Uriel card, and an inline "not detected" diagnostic.
+- **Storage Sharing** — quick-share the nearest chest or build a custom share (permission + withdrawal limits + cost), pay-chest, and my-shares management.
+- **Nearby Public Storage** — BCH detects Uriel-shared containers/cells around you **client-side** (no server query) and lists them in the Storage tab + a new draggable overlay.
+- **Object Spawning** — spawn your unlocked prefabs, collection progress, category filter, and an optional full-catalog browse cached per Uriel version.
+- **Prisons & Stairs** — share cells + Take-prisoner relay; live stair restyling across six styles.
+- **0.26.1–0.27.1 follow-ups** — temporary build-mode hotkeys (move / rotate / remove the nearest spawned object); a dedicated **Object Catalog** tab with aligned **Name · Category · ID** columns and **pagination** (50/page) for the full ~2,000-item list; spawn **durability** (Indestructible / Breakable / Smashable) + **Respawn** options; **fully built-out Uriel admin tabs** (player/prefab-targeted grant/revoke/block/share/plot tools with two-click confirms); and fixes for spawn placement, empty-list diagnostics, and the main-panel close no longer leaving your character stuck auto-attacking.
+
+**New in v0.24.x** — chat, loadout & admin polish + Beelzebub v0.120→v0.131 catch-up:
+
+- **Secondary view-only chat window** — a second draggable, display-only overlay that mirrors only the channels you pick, so you can watch two chat streams at once (enable + choose channels in Game UI → chat settings).
+- **First-run welcome + opens to the active mod** — a one-time Quick Start on first launch, and the left rail now opens to whichever mod your server runs (Bloodcraft wins when both are present) instead of always Bloodcraft.
+- **Loadout fixes** — the new **Mounted** form (slots 3/6/7) updates its slot buttons instantly on set-switch; slot buttons default to **key labels** (LM/Q/Sp/Sh/E/R/C/T); and an **Unstick bar** button recovers a bar stuck on a transformation's abilities.
+- **Admin recovery toolkit** (Beelzebub → Admin: Players → Recovery) — **Rebuild bar**, **Purge bar** (last-resort engine-leak fix), and **Cleanse stuck buffs** (invisible/phased player states), plus the existing Respawn / Rebuild slots, with an in-panel escalation-ladder guide.
+- **Admin: Abilities** — saved config changes now apply (`admin reload`) and refresh in the table reliably; new **Power window** + **Leap height** tuning fields; editable form/weapon allow/`!`-block lists.
+- **Tidier forms** — dropdowns and numeric fields across the panel no longer stretch edge-to-edge; the Bestiary and Loadout tabs were de-cluttered.
+- **Dual-mod (Bloodcraft) coexistence** — the Admin: Config tab spells out which spell slots can contest and how to resolve them (`Interop_SlotInjectionPriority`, or Bloodcraft's `ShiftSlot`/`UnarmedSlots`).
+
+**New in v0.20.0** — Beelzebub v0.100 catch-up (ApiVersion 22):
+
+- **Admin: Abilities table now lists every ability** (enabled + disabled) via Beelzebub's new admin catalog scope; uncaptured abilities show their unit + numeric ID. The Bestiary keeps the player-collectible set.
+- **Custom transform loadouts** — a new Transforms-tab editor: pick a form + phase to see **each slot's current bind** (with per-slot Clear), bind from that form's kit, or reset to defaults.
+- **New Transforms overlay** — a draggable on-screen list of your forms; **double-click to transform**, with **Phase 1 / Phase 2 / Revert** buttons.
+- **More transforms** — Werewolf, Golem, Gargoyle (+ a basic werewolf) join Dracula & Morgana, each multi-phase; **per-transformation duration/cooldown** tuning + a **Transform_Enabled** master switch and **Transform_CooldownScope** in the config tab.
+- **Rebuilt announcement editor** — manage the broadcast message pools one message at a time (add/edit/remove via `broadcast-msg`, list read from the server); a **Reset loadouts** admin button; and single primary/ultimate slot clears.
+- **"Show overlays" footer reflowed** — label on its own line, and the 10+ overlay toggles now wrap onto as many rows as the window width allows (no more squish / border overlap when narrow).
+
+**New in v0.19.1** — testing & polish over 0.19.0:
+
+- **Summon management** moved to the Hotkeys tab, plus a new draggable **Summons overlay** with a one-click Stash ⟷ Restore toggle (+ Recall / Clear).
+- **Admin tabs gate to admins** — non-admins see the controls grayed-out (not hidden) with a **Re-check admin** button. The **Admin: Abilities** table is slimmer with aligned ID / Unit / Enabled columns, a Cancel/revert, per-field tooltips, and export-to-clipboard.
+- **Input fields** show the text caret reliably (even when pre-filled) and no longer error on selection; overlay **transparency** is a live slider that now reaches fully-invisible; overlays stay properly **behind game menus**.
+
+**New in v0.19.0** — Beelzebub catch-up (now current with Beelzebub v0.94.0 / ApiVersion 20):
+
+- **Per-form ability sets.** Build a distinct loadout per shapeshift form (Wolf, Bear, Rat, Spider, Toad, Werewolf, Gargoyle) alongside the universal + per-weapon sets — pick the form in the Loadout "Editing" dropdown.
+- **Primary + ultimate slots.** Bind abilities to the left-click (primary) and T-key (ultimate) slots in addition to the six spell slots.
+- **Correct tooltips + catalog.** Reassembles Beelzebub's now-chunked ability/catalog replies, so tooltips and the Bestiary are complete again; active-bar abilities resolve full tooltips by GUID (no more "No name").
+- **Clear-bar fixed** to the per-bucket `.beelz clearbar`; **leaderboard / drop-odds / mute-duplicate-devour** buttons; a **100%-collection** hook.
+- **Admin: a per-ability shaping editor** (cooldown, range, charges, AoE, projectile speed, duration, healing, summon caps, cast modifiers, …), **per-unit transform tuning**, **capture-filter management**, and **server-announcement** controls.
+- **Server loadout presets** (save/load/list/delete) + a **Transforms** panel showing each form's mode / duration / live cooldown.
+
+**Earlier — v0.18.x** — Beelzebub integration + a big stability pass:
+
+- **0.18.0 — Beelzebub support.** A full client UI for [Beelzebub](https://thunderstore.io/c/v-rising/p/zfolmt/) ("Lord of Gluttony", the ability-capture / transform mod): a new **BEELZEBUB** tab group — Bestiary collection tracker, Loadout (per-weapon ability sets), Hotkeys, Transforms, plus admin Config/Players — and a **Beelz action-bar overlay** with on-screen ability buttons, client-side cooldown rings, and optional per-ability keyboard shortcuts. Auto-detects whether the server runs Beelzebub.
+- **0.18.1–0.18.3 — stability + detection.** Fixed a logout-to-desktop crash; overlays no longer linger over the main menu after leaving a game; reliable mod re-detection when you switch servers without fully quitting; other mods' chat messages no longer get swallowed; overlays auto-hide on a server that doesn't run the matching mod.
+- **0.18.4 — server-switch stability + polish.** Fixed crashes when opening BCH after a server switch and when renaming a chest with the chat window open; the **Shift overlay** is now a compact, resizable ability-button tile; the Beelz action-bar shows real ability icons; new **button color** and **launcher button size** options. Full list in the changelog.
+
+**Earlier — v0.17.x** (a big client-side release):
 
 - **0.17.3 — chat overhaul + new-player hints.** *Whisper anyone on the server:* right-click → Whisper on the social page (**P**) now opens in BCH's chat, **double-click a name in chat** to whisper, and the "+ Whisper…" picker / `\whisper <name>` read the **full online roster** (not just people you've seen talk). *Cleaner tabbed chat:* optional **separate channel/name columns** with **auto-fit** so the **message column grows first** when you widen the window, an **All-tab channel filter**, and **`Alt + 1–6` tab hotkeys**. Inline **`\g` / `\local` / `\whisper`** chat commands. New **"you're leaving power on the table" hints** on the Class / Weapon Expertise / Blood Legacy pages + overlays (toggleable, and only for systems your server has enabled). Fixes: "Putrid Rat" V-Blood capture, a stuck basic-attack when clicking chat tabs/input, and Eclipse command-console chat spam. *Known issue:* **Stash All** must be clicked with your inventory/menu **closed** (with "Overlays behind game menus" on, BCH overlays sit behind the menu) — fix planned.
 - **0.17.2 — fixed the load / V-Blood-tracking / waypoint-teleport crash.** Some 0.16.x players crashed on login, on starting to track a V-Blood/boss, or on a waypoint teleport (and then on every load after). The cause was BCH's "don't open menus while typing" feature detouring three of the game's menu-input systems, which tipped a BepInEx IL2CPP interop bug during HUD rebuilds. Those three patches are removed — menu suppression while typing now uses a safe approach instead — while the "don't move / cast while typing" suppression stays. Overlays also now build on a quiet frame a few seconds after login. *Minor known gap:* menu keys can still open a menu while typing into a **main-panel form** (press Escape); a safe fix is planned. *(A form-typing experiment was reverted for stability — see the changelog.)*
@@ -86,11 +136,12 @@ Full per-version history lives in [`CHANGELOG.md`](CHANGELOG.md).
 
 ## What it does
 
-- **Floating BCH + OV button strip** top-right of the screen → BCH opens the main panel; OV is a master overlay show/hide that respects each overlay's individual setting.
-- **Tabbed primary UI** with 3 collapsible groups in the left rail:
+- **Floating BCH + OV button strip** top-right of the screen → BCH opens the main panel; OV is a master overlay show/hide that respects each overlay's individual setting. **Overlay Visibility** options (v0.28, Settings → Display) let OV/its hotkey act as a **timed hide** that auto-reappears after a countdown, optionally **hide the launcher buttons too** for a fully clean screen (safety-gated so you always have a way back), and keep the game's native chat hidden during a hide instead of letting it pop back.
+- **Tabbed primary UI** with collapsible groups in the left rail (each appears only when its server mod is detected):
   - **BLOODCRAFT** (12 tabs): Familiars, Boxes, V-Bloods, All Familiars, Class, Weapon Expertise, Blood Legacy, Unarmed + Shift, Prestige, Levels, Daily Quests, Admin
   - **KINDRED** (6 tabs): Logistics, Logistics: Admin, Commands, Admin: Players, Admin: Server, Admin: World
-  - **SETTINGS AND HELP** (6 tabs): Quick Start, Mod Help, Game Guide, Settings, Vanilla Admin, About
+  - **BEELZEBUB** (v0.19): Bestiary collection tracker, Loadout (universal + per-weapon **+ per-form** ability sets, incl. primary/ultimate slots), Hotkeys, Transforms, Settings, + admin Config / Players (with a per-ability shaping editor)
+  - **SETTINGS AND HELP**: Quick Start, Mod Help, Beelzebub Quick Start + Help, Game Guide, Settings, Vanilla Admin, About
 - **Eight secondary overlays** (toggle from footer): XP tracker (with EXO prestige), Familiar quick-glance, Familiar Browser, Daily Quest tracker, Professions (all eight Bloodcraft profession levels), Shift Spell cooldown (now showing the slotted spell's icon, v0.16), the v0.14 Combined info overlay (one panel with XP + Familiar + Weapon + Blood + Professions + Quests in configurable sections), and the v0.16 Quick Actions overlay (one-click command buttons, shipping with Stash All). Each is independently draggable + resizable, with its own background transparency setting. Visibility persists across sessions; the OV button hides/shows all currently-enabled overlays at once. Combined mode is mutually exclusive with the four standalone info overlays it replaces (XP / Familiar / Daily Quest / Professions).
 - **Freeze character actions while the UI is open** (v0.16, opt-in) — with the main panel open, optionally stop your character from moving, attacking, and casting, and block game-menu hotkeys (build, map, inventory, etc.) so nothing happens in the background while you click around the UI. Especially handy for admins who keep commands or abilities on hotkeys. Toggle in Settings → Display; off by default. Only the gameplay-input systems are suppressed — the panel, cursor, and form typing stay fully responsive.
 - **In-rail Bloodcraft diagnostic + Force-enable** (v0.15.0) — when the Bloodcraft handshake fails (server doesn't run Bloodcraft, runs only Quests/Professions, or has the older hard-Eclipsed config), the BLOODCRAFT group expands to a diagnostic explaining the cause + a one-click button to force-enable tabs so the chat-regex pipeline (`.fam boxes`, `.quest p`, `.bl get`, etc.) remains usable.
@@ -146,6 +197,7 @@ BloodCraftHub talks to the server through chat commands and Bloodcraft's signed 
 | **Bloodcraft** (server) | v1.13.21 | Primary integration target |
 | **KindredCommands** (server) | v2.5.8 | Admin/player commands surfaced under KINDRED |
 | **KindredLogistics** (server) | v1.6.0 | Personal/admin toggles surfaced under KINDRED |
+| **Beelzebub** (server, optional) | v0.100.0 (ApiVersion 22) | Ability capture / transforms surfaced under BEELZEBUB (v0.20) |
 | **Eclipse** (client) | v1.3.13 | Source mod for the signed-protocol design. **⚠ Compatibility needs re-testing** — was incompatible (client crash); Eclipse has since updated and we haven't re-verified. Disable Eclipse while running BloodCraftHub to be safe. See the Eclipse heads-up at the top of this README. |
 | **BloodCraftUI / OnlyFams** (client, optional) | v1.1.0 | Source mod for the panel framework; coexists, doesn't conflict |
 

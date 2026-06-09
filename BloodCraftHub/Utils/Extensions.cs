@@ -59,6 +59,15 @@ public static class Extensions
     /// <summary>True iff <paramref name="entity"/> is not Entity.Null.</summary>
     public static bool HasValue(this Entity entity) => entity != Entity.Null;
 
+    /// <summary>True iff <paramref name="entity"/> is non-null AND still LIVE in the client
+    /// world's EntityManager. Mirrors Eclipse's guard: on logout the world is torn down and
+    /// the local character/user entities stop existing, so hot per-frame patches (ClientChat /
+    /// CommonClientData) must bail BEFORE touching ECS queries (ToEntityArray on a disposing
+    /// world is a native crash that try/catch can't catch). Cheap + safe: the null/client-null
+    /// checks short-circuit before any EntityManager access.</summary>
+    public static bool Exists(this Entity entity)
+        => entity != Entity.Null && !Plugin.IsClientNull() && Plugin.EntityManager.Exists(entity);
+
     private static byte[] StructureToByteArray<T>(T structure) where T : struct
     {
         int size = Marshal.SizeOf(structure);

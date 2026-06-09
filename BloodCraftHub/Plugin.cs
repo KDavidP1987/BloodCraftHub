@@ -133,15 +133,65 @@ public class Plugin : BasePlugin
         // entities only while menus should be blocked; no detour on the hot menu systems.
         CoreUpdateBehavior.Actions.Add(Patches.InputSuppression.DrainMenuOpenRequests);
 
+        // 0.25.0: THE typing keyboard lock — registers a BCH IInputContext in the game's
+        // own input-consumer stack (the mechanism the NATIVE chat uses to lock the
+        // keyboard while typing), so menu/wheel/hotkey/admin ButtonInputActions are
+        // consumed at the source while a BCH field has focus. Replaces the dead 0.18.2
+        // BlockInputState-component attempt (that component never existed on an entity —
+        // it's the by-ref accumulator of this very pipeline). No Harmony detour involved;
+        // see Patches/TypingInputLock.cs for the full design + crash-safety notes.
+        CoreUpdateBehavior.Actions.Add(Patches.TypingInputLock.Tick);
+
         // 0.17.2: drive the deferred overlay restore (armed by UIOnInitialize). Pushes
         // overlay construction off the volatile login frame onto a quiet one. No-op
         // until armed and the UiBuildDelaySeconds window elapses.
         CoreUpdateBehavior.Actions.Add(UIManager.TickDeferredRestore);
 
+        // 0.18.1: hide all BCH UI after the player leaves the game so nothing lingers over the
+        // main menu. The ClientBootstrapSystem.OnDestroy teardown hook only QUEUES the hide (a flag);
+        // this tick does the actual SetActive(false) on the following main-menu frame, where the
+        // GameObject toggles are safe (the disposing world is gone by then). No-op (one bool) otherwise.
+        CoreUpdateBehavior.Actions.Add(UIManager.TickPendingHide);
+
         // 0.17.3: keep the HIDDEN native chat from ever trapping input under takeover
         // (e.g. the P-key social menu's right-click "Whisper" focusing it). No-op unless
         // native-chat hide is active and the native chat somehow grabbed focus.
         CoreUpdateBehavior.Actions.Add(UIManager.TickNativeChatGuard);
+
+        // 0.28: drive the TIMED master-hide countdown. When the user hides overlays while Timed mode is
+        // on (Settings → Display → Overlay Visibility), this auto-restores them after the configured
+        // duration. No-op (one float compare) unless a timed hide is pending.
+        CoreUpdateBehavior.Actions.Add(UIManager.TickOverlayHideTimer);
+
+        // 0.18.4: re-apply overlay availability when the Bloodcraft/Beelzebub handshake resolves,
+        // independently of the (lazily-built) MainPanel. Under the "hidden until confirmed" model the
+        // BC/Beelz overlays only appear once the server ACKs; without this a player who never opens the
+        // main panel would never see them re-appear. Cheap (two bool reads + compare); applies only on
+        // a transition frame. See BCHubUIManager.TickOverlayAvailability.
+        CoreUpdateBehavior.Actions.Add(UIManager.TickOverlayAvailability);
+
+        // 0.18: Beelzebub detection/handshake + event-driven re-fetch driver. Sends
+        // `.beelz api version` with back-off once the player is in-world; gates the
+        // Beelzebub tab group on a ready=1 ACK. No-op (single bool check) once presence
+        // is resolved — on a server without Beelzebub it gives up after a few silent
+        // probes that get no reply, so it never spams chat.
+        CoreUpdateBehavior.Actions.Add(Services.Beelzebub.BeelzProtocolService.Tick);
+
+        // 0.18: per-ability keyboard shortcuts for the Beelz action bar. Fires `.beelz cast`
+        // when a bound key is pressed. No-op (count/bool checks) until the player binds a key
+        // on the Beelzebub → Hotkeys tab and a Beelzebub server is present.
+        CoreUpdateBehavior.Actions.Add(Services.Beelzebub.BeelzProtocolService.TickKeybinds);
+
+        // 0.26: Uriel detection/handshake driver. Sends `.uriel api version` with back-off once the
+        // player is in-world; gates the Uriel tab group on a ready=1 ACK. No-op (bool checks) once
+        // presence is resolved — on a server without Uriel it gives up after a few silent probes that
+        // get no reply, so it never spams chat. Mirrors the Beelzebub tick above.
+        CoreUpdateBehavior.Actions.Add(Services.Uriel.UrielProtocolService.Tick);
+
+        // 0.26: Uriel build-mode hotkeys (move/rotate/remove the nearest spawned object). Fires bound
+        // keys only while build mode is ON (session-only, off by default) and a Uriel server is present;
+        // suppressed while typing / panel-open. No-op (one bool check) otherwise.
+        CoreUpdateBehavior.Actions.Add(Services.Uriel.UrielBuildMode.Tick);
 
         // 0.17.2: selective patch manifest (was CreateAndPatchAll over the whole
         // assembly). Lets an affected player drop individual patch GROUPS via the
@@ -167,7 +217,15 @@ public class Plugin : BasePlugin
     /// <summary>Called from InitializationPatch once the player is in-world.</summary>
     public static void UIOnInitialize()
     {
-        if (UIManager.IsInitialized) return;
+        if (UIManager.IsInitialized)
+        {
+            // 0.18.1 relog: the UI was built in a prior session and persists (DontDestroyOnLoad);
+            // it was hidden on logout (RequestHideForLogout). Re-show it instead of rebuilding.
+            // RestoreAfterRelogIfNeeded no-ops unless a logout actually occurred, so repeated HUD
+            // Awakes within one session don't thrash the overlays.
+            UIManager.RestoreAfterRelogIfNeeded();
+            return;
+        }
         // SetupAndShowUI is light (canvas + floating launcher) and sets IsInitialized,
         // which CommonClientDataSystem_OnUpdate_Postfix needs to begin capturing
         // LocalCharacter/LocalUser — so it stays synchronous on the spawn frame.
@@ -193,8 +251,10 @@ public class Plugin : BasePlugin
     // than a toggleable feature. Skipping a group means the Harmony detour is never
     // installed at all — not merely a no-op prefix — so the test is meaningful.
     // InitializationPatch is mandatory (it boots the UI + binds the player) and is
-    // always applied. EscapeMenuPatch / VersionStringPatch / GameManagerPatch carry
-    // no active [HarmonyPatch] targets, so they're intentionally absent here.
+    // always applied. EscapeMenuPatch (0.18.1) is also always applied — it tears down the
+    // UI + session state on logout so nothing lingers over the main menu and a relog
+    // re-binds cleanly. VersionStringPatch / GameManagerPatch carry no active [HarmonyPatch]
+    // targets, so they're intentionally absent here.
     private void ApplyPatches(Harmony h)
     {
         // 0.17.2 crash-bisect TEST variants compile a constant that force-disables a
@@ -211,6 +271,9 @@ public class Plugin : BasePlugin
         bool moveInput = inputBase && !BloodCraftHub.Config.BuildVariant.ForceMoveInputOff;
 
         h.CreateClassProcessor(typeof(Patches.InitializationPatch)).Patch();
+        // NOTE: EscapeMenuPatch is intentionally NOT patched — hooking EscapeMenuView.OnDestroy
+        // crashed the client to desktop on logout (native interop fault during world teardown;
+        // see EscapeMenuPatch.cs). Logout teardown is left completely untouched.
 
         if (chat)
         {
@@ -228,6 +291,10 @@ public class Plugin : BasePlugin
         }
         else
             Log.LogWarning("[compat] Input-suppression (movement/ability) SKIPPED — your character may move/cast while you type. Diagnostic.");
+
+        // 0.18.2 (REVERTED): the ChatOpenGatePatch (forcing ClientChatSystem.IsChatOpen=true while a BCH
+        // field was focused) did not lock forms — the game reads chat-open state from an internal field,
+        // not that property — and confused the chat system. Removed; form-field key-leak remains a known gap.
 
         // 0.17.2 CRASH FIX: the 3 menu-suppression patches (MenuInputSystem /
         // OpenHUDMenuSystem / ActionWheelSystem) are deliberately NOT attached —
@@ -276,6 +343,18 @@ public class Plugin : BasePlugin
         LogUtils.LogInfo("Client world bound; game data initialized.");
     }
 
+    /// <summary>Release the client-world binding when the player leaves the game (called from the
+    /// ClientBootstrapSystem.OnDestroy patch). Nulling _client makes IsClientNull() true, so any BCH
+    /// per-frame code still ticking during teardown either skips (IsClientNull guards) or throws a
+    /// MANAGED NullReferenceException via Plugin.EntityManager (caught by CoreUpdateBehavior) instead
+    /// of NATIVE-crashing on the disposed world. GameDataOnInitialize re-binds the next world on relog.</summary>
+    public static void ResetGameData()
+    {
+        _client = null;
+        IsGameDataInitialized = false;
+        LocalCharacter = Entity.Null;
+    }
+
     // 0.15.0: per-frame hotkey poll. BCHotkey.IsDown returns true only on
     // the frame the binding's main key transitions Up -> Down AND every
     // modifier is currently held — fires once per press regardless of how
@@ -284,6 +363,10 @@ public class Plugin : BasePlugin
     private static void TickHotkeys()
     {
         if (UIManager == null || !UIManager.IsInitialized) return;
+        // 0.18.2: part of the full keyboard lockdown — don't fire BCH's own toggle hotkeys
+        // while the user is typing in the chat window or any BCH form field, so a keystroke
+        // meant for the text box never toggles a panel/overlay (mirrors the Beelz keybind guard).
+        if (Patches.InputSuppression.ChatInputActive) return;
 
         var mainHotkey = Settings.HotkeyToggleMainPanel;
         if (!mainHotkey.IsEmpty && mainHotkey.IsDown())

@@ -660,11 +660,14 @@ public class CombinedOverlayPanel : ResizeablePanelBase
         // human-readable as plain text. Decode to enum names using the same
         // helper the standalone Wep tab uses (MainPanel:3286).
         var stats = PlayerStateService.DecodeWeaponBonusStats(s.BonusStatsRaw);
-        _wepStatsLine.text = (stats == null || stats.Count == 0)
+        // 0.29: abbreviate the chosen-stat NAME list too (not just the bonus-values sub-row below) when
+        // the acronyms setting is on — a tester saw the values sub-row abbreviated but this "Stats: …"
+        // names line left in full. Format is a no-op on the "none chosen" branches (no stat names match).
+        _wepStatsLine.text = OverlayStatText.Format((stats == null || stats.Count == 0)
             ? (Services.ProgressionHints.ExpertiseStatsMissing()
                 ? Services.ProgressionHints.Colored("Stats: none — ⚔ pick for free damage")
                 : "Stats: (none chosen)")
-            : $"Stats: {string.Join(", ", stats)}";
+            : $"Stats: {string.Join(", ", stats)}");
         SyncBar(_wepBar, _wepBarFill, s.Progress, Settings.ShowProgressBarExpertise);
 
         // 0.14.0 friend-test v6: Bonus stat values sub-row (Settings.ShowOverlayBonusStats).
@@ -694,11 +697,12 @@ public class CombinedOverlayPanel : ResizeablePanelBase
         _blLine.text = $"{s.Type}   Lv {s.Level} ({s.Progress * 100f:0.#}%){prestige}";
         // 0.14.0 friend-test: decode same as Expertise above.
         var stats = PlayerStateService.DecodeBloodBonusStats(s.BonusStatsRaw);
-        _blStatsLine.text = (stats == null || stats.Count == 0)
+        // 0.29: abbreviate the chosen-stat NAME list too (see RenderExpertise note above).
+        _blStatsLine.text = OverlayStatText.Format((stats == null || stats.Count == 0)
             ? (Services.ProgressionHints.LegacyStatsMissing()
                 ? Services.ProgressionHints.Colored("Stats: none — ⚔ pick for free power")
                 : "Stats: (none chosen)")
-            : $"Stats: {string.Join(", ", stats)}";
+            : $"Stats: {string.Join(", ", stats)}");
         SyncBar(_blBar, _blBarFill, s.Progress, Settings.ShowProgressBarLegacy);
 
         RenderBlBonusValuesSubRow();
@@ -721,7 +725,7 @@ public class CombinedOverlayPanel : ResizeablePanelBase
         bool hasData = lines != null && lines.Count > 0;
         if (_wepBonusValuesLine.gameObject.activeSelf != (show && hasData))
             _wepBonusValuesLine.gameObject.SetActive(show && hasData);
-        if (show && hasData) _wepBonusValuesLine.text = string.Join("\n", lines);
+        if (show && hasData) _wepBonusValuesLine.text = OverlayStatText.Format(string.Join("\n", lines));
     }
 
     private void RenderWepCounterSubRow()
@@ -751,7 +755,7 @@ public class CombinedOverlayPanel : ResizeablePanelBase
         bool hasData = info.StatLines != null && info.StatLines.Count > 0;
         if (_blBonusValuesLine.gameObject.activeSelf != (show && hasData))
             _blBonusValuesLine.gameObject.SetActive(show && hasData);
-        if (show && hasData) _blBonusValuesLine.text = string.Join("\n", info.StatLines);
+        if (show && hasData) _blBonusValuesLine.text = OverlayStatText.Format(string.Join("\n", info.StatLines));
     }
 
     private void RenderBlCounterSubRow()

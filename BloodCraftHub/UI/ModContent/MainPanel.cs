@@ -72,6 +72,9 @@ public partial class MainPanel : ResizeablePanelBase
     private Toggle _profOverlayToggle;
     private Toggle _shiftOverlayToggle;
     private Toggle _quickActionsOverlayToggle;
+    private Toggle _beelzOverlayToggle; // 0.18.3: footer quick-toggle for the Beelz action-bar overlay
+    private Toggle _beelzSummonsOverlayToggle; // 0.19: footer quick-toggle for the Beelz summons overlay
+    private Toggle _beelzTransformOverlayToggle; // 0.20: footer quick-toggle for the Beelz transforms overlay
     // 0.14.0: combined overlay toggle + per-PanelType GameObject tracker so
     // ApplyCombinedFooterVisibility can hide the 4 info toggles when combined
     // mode is on (and restore them when it flips off).
@@ -290,6 +293,54 @@ public partial class MainPanel : ResizeablePanelBase
         },
         new TabGroupDef
         {
+            // 0.18: client UI for the server-side Beelzebub mod (ability capture
+            // /transform). The whole group is gated on the `.beelz api version`
+            // handshake (see IsTabGroupAvailable("Beelzebub")) — most servers
+            // won't have Beelzebub, so it stays unavailable until detected. Admin
+            // tabs are inline (always visible with a "requires admin" note; the
+            // server enforces permissions — same model as the Kindred admin tabs).
+            Title = "Beelzebub",
+            StartExpanded = false,
+            Tabs = new[]
+            {
+                // 0.24.8: Loadout first — it's the tab players actually live in;
+                // the Bestiary is the browse/collection view.
+                (PanelType.BeelzLoadoutTab,      "Loadout"),
+                (PanelType.BeelzBestiaryTab,     "Bestiary"),
+                (PanelType.BeelzHotkeysTab,      "Hotkeys"),
+                (PanelType.BeelzTransformsTab,   "Transforms"),
+                (PanelType.BeelzSettingsTab,     "Settings"),
+                (PanelType.BeelzAdminConfigTab,  "Admin: Config"),
+                (PanelType.BeelzAdminPlayersTab, "Admin: Players"),
+                (PanelType.BeelzAdminAbilityTableTab, "Admin: Abilities"),
+            },
+        },
+        new TabGroupDef
+        {
+            // 0.26: client UI for the server-side Uriel mod (storage sharing,
+            // public prisons, stair swap, object spawning). The whole group is
+            // gated on the `.uriel api version` handshake (see
+            // IsTabGroupAvailable("Uriel")) — most servers won't have Uriel, so
+            // it stays unavailable until detected. One player tab per sub-feature;
+            // admin tabs are inline (always visible with a "requires admin" gate;
+            // the server enforces permissions — same model as the other admin tabs).
+            Title = "Uriel",
+            StartExpanded = false,
+            Tabs = new[]
+            {
+                (PanelType.UrielStorageTab,      "Storage Sharing"),
+                (PanelType.UrielPrisonTab,       "Prisons"),
+                (PanelType.UrielStairsTab,       "Stairs"),
+                (PanelType.UrielObjectsTab,      "Object Spawning"),
+                (PanelType.UrielObjectCatalogTab,"Object Catalog"),
+                (PanelType.UrielSettingsTab,     "Settings"),
+                (PanelType.UrielAdminSharingTab, "Admin: Sharing"),
+                (PanelType.UrielAdminObjectsTab, "Admin: Objects"),
+                (PanelType.UrielAdminConfigTab,  "Admin: Config"),
+            },
+        },
+        new TabGroupDef
+        {
             // 0.17: standalone client-side UI enhancements that work on ANY
             // server, with no Bloodcraft/Kindred dependency. Always available
             // (see IsTabGroupAvailable) so it shows even on vanilla servers.
@@ -312,15 +363,29 @@ public partial class MainPanel : ResizeablePanelBase
             Tabs = new[]
             {
                 (PanelType.QuickStartTab,    "Quick Start"),
+                // 0.19: Bloodcraft-specific getting-started, parallel to the Beelzebub Quick Start.
+                (PanelType.BloodcraftQuickStartTab, "Bloodcraft Quick Start"),
                 // 0.13.0: Bloodcraft mechanics deep-dive (classes /
-                // prestige / EXO / professions / quests). Sits between
-                // Quick Start and Game Guide so reading top-to-bottom
-                // goes BCH intro → Bloodcraft mechanics → game-wide
-                // resources → settings → admin → about.
-                (PanelType.ModHelpTab,       "Mod Help"),
+                // prestige / EXO / professions / quests). 0.18: relabeled
+                // "Bloodcraft Help" now that there's a parallel Beelzebub
+                // guide below — the old "Mod Help" read as generic.
+                (PanelType.ModHelpTab,       "Bloodcraft Help"),
+                // 0.18: parallel getting-started + mechanics guides for the
+                // Beelzebub ability-capture/transform mod (sibling to the
+                // Bloodcraft ones above).
+                (PanelType.BeelzQuickStartTab, "Beelzebub Quick Start"),
+                (PanelType.BeelzModHelpTab,    "Beelzebub Help"),
+                // 0.26: parallel getting-started + reference guides for the Uriel
+                // mod (sibling to the Bloodcraft / Beelzebub ones above).
+                (PanelType.UrielQuickStartTab, "Uriel Quick Start"),
+                (PanelType.UrielModHelpTab,    "Uriel Help"),
                 // 0.12.1: V Rising game guide + community-resource links.
                 (PanelType.GameGuideTab,     "Game Guide"),
                 (PanelType.SettingsTab,      "Settings"),
+                // 0.19: always-reachable connection/detection status + re-detect for both server mods.
+                // Lives here (not inside a mod's own group) so you can re-detect even when that group
+                // is hidden because the mod wasn't detected.
+                (PanelType.ConnectionTab,    "Connection"),
                 (PanelType.VanillaAdminTab,  "Vanilla Admin"),
                 (PanelType.AboutTab,         "About"),
             },
@@ -339,6 +404,9 @@ public partial class MainPanel : ResizeablePanelBase
 
     private readonly System.Collections.Generic.Dictionary<string, bool>             _groupExpanded   = new();
     private readonly System.Collections.Generic.Dictionary<string, GameObject>       _groupContent    = new();
+    // F1: groups the user manually expanded/collapsed this session — the detection-based default
+    // expansion (ApplyDetectionDefaultExpansion) leaves these alone. Cleared on a server-switch (Reset).
+    private readonly System.Collections.Generic.HashSet<string>                      _userToggledGroups = new();
     private readonly System.Collections.Generic.Dictionary<string, TextMeshProUGUI>  _groupHeaderText = new();
     // 0.12.1: keep header ButtonRef around so the Bloodcraft handshake retry
     // (in EclipseProtocolService) can flip the group from tentative-available
@@ -360,6 +428,8 @@ public partial class MainPanel : ResizeablePanelBase
     // same expanded group.
     private readonly System.Collections.Generic.Dictionary<string, GameObject>       _groupTabListGo  = new();
     private GameObject _bloodcraftDiagnosticGo;
+    private GameObject _beelzDiagnosticGo;   // inline "not detected — enable / re-check" panel for the Beelzebub rail
+    private GameObject _urielDiagnosticGo;   // 0.26: same inline diagnostic for the Uriel rail
     private bool _availabilitySubscribed;
     private GameObject _tabStripGo;
 
@@ -385,6 +455,11 @@ public partial class MainPanel : ResizeablePanelBase
         if (!active && _isFullscreen)
             SetFullscreen(false);
         base.SetActive(active);
+        // PERF: Beelzebub tabs skip their state-change rebuilds while the panel is hidden
+        // (so a heavily-collected server's api-info enrichment can't thrash the UI off-
+        // screen). When the panel reopens, resync whatever Beelz tab is active so it
+        // reflects state that arrived while it was closed.
+        if (active) RefreshBeelzTabOnShow(ActiveTab);
     }
 
     // 0.9.7: fullscreen toggle state. Snapshot of pre-fullscreen Rect data so
@@ -564,10 +639,14 @@ public partial class MainPanel : ResizeablePanelBase
         BuildLastResponsePanel(ContentRoot);
         BuildOverlayFooter(ContentRoot);
         BuildTooltipFooter(ContentRoot);
+        // B4: a clearer, branded title (default was the raw PanelId "MainPanel"). Bold + accent so it
+        // stands out; the title bar is also the drag handle.
+        SetTitle("<b><color=#C41E3A>BloodCraftHub</color> Main Panel</b>");   // vampiric blood-red accent
+
         // 0.9.7: maximize/restore button in the title bar, left of "—".
         BuildMaximizeButton();
 
-        ShowTab(ActiveTab);
+        ShowTab(InitialTabForFirstShow());
 
         // 0.9.6: per-frame ticker that auto-refreshes the wep / blood-legacy
         // stat-values on a 10s cadence while their tab is the active page.
@@ -772,6 +851,25 @@ public partial class MainPanel : ResizeablePanelBase
             Services.EclipseProtocolService.AvailabilityChanged += OnBloodcraftAvailabilityChanged;
             // 0.15.0: per-feature flag transitions also drive UI refresh.
             PlayerStateService.FeatureFlagsChanged += OnFeatureFlagsChanged;
+            // 0.18: Beelzebub presence transitions flip the Beelzebub group from
+            // tentative -> available (or -> unavailable on give-up). Reuses the same
+            // refresh-all handler (it re-evaluates every group's availability).
+            Services.Beelzebub.BeelzProtocolService.AvailabilityChanged += OnBloodcraftAvailabilityChanged;
+            // 0.24.7: ALSO reconcile the group off BeelzState.PresenceChanged — not just the single
+            // AvailabilityChanged fire. AvailabilityChanged fires exactly once (in OnVersion when presence
+            // first resolves); if that one deferred refresh doesn't land on the live panel (build/subscribe
+            // timing during the handshake-settle window), the BEELZEBUB group stays "(unavailable)" forever
+            // while the Connection readout — which DOES listen to PresenceChanged — shows Connected. That
+            // exact contradiction was the tester report. PresenceChanged also fires on SetSubscribed
+            // (`[BEELZ:bch] state=on`, which arrives right after detection), so binding the group refresh to
+            // it guarantees a second reconciliation pass. The handler dedupes (deferred-action guard) and
+            // RefreshAllTabGroupAvailability is idempotent, so the extra fires are cheap.
+            Services.Beelzebub.BeelzState.PresenceChanged += OnBloodcraftAvailabilityChanged;
+            // 0.26: Uriel presence transitions flip the Uriel group available/unavailable. Same dual
+            // subscription as Beelzebub (one-shot AvailabilityChanged + the repeated PresenceChanged) so
+            // a late ACK that misses the single deferred refresh still reconciles the group header.
+            Services.Uriel.UrielProtocolService.AvailabilityChanged += OnBloodcraftAvailabilityChanged;
+            Services.Uriel.UrielState.PresenceChanged += OnBloodcraftAvailabilityChanged;
             _availabilitySubscribed = true;
         }
 
@@ -814,6 +912,13 @@ public partial class MainPanel : ResizeablePanelBase
 
         foreach (var group in TabGroups)
             BuildTabGroup(stripContent, group);
+
+        // Reconcile the initial group expansion with what's actually detected RIGHT NOW (a rebuild after
+        // detection settled, or an already-connected reopen). Without this, a rebuild would honor the
+        // hard-coded StartExpanded / diagnostic-auto-expand and could open the Bloodcraft group on a
+        // server that doesn't run it. The event path (RefreshAllTabGroupAvailability) re-applies this as
+        // detection resolves during the first login's handshake window.
+        ApplyDetectionDefaultExpansion();
     }
 
     private void BuildTabGroup(GameObject parent, TabGroupDef group)
@@ -827,7 +932,7 @@ public partial class MainPanel : ResizeablePanelBase
         //                         instead of sub-tabs; header still expandable.
         //   disabled             — user explicitly set Off in .cfg; grayed.
         bool available  = IsTabGroupAvailable(group.Title);
-        bool diagnostic = IsBloodcraftDiagnosticState(group.Title);
+        bool diagnostic = IsModDiagnosticState(group.Title);
         // Header is interactable when group is usable OR when we have a
         // diagnostic to show. Only the explicit-Off case fully disables it.
         bool headerInteractable = available || diagnostic;
@@ -931,16 +1036,17 @@ public partial class MainPanel : ResizeablePanelBase
             }
         }
 
-        // 0.15.0: build the Bloodcraft diagnostic panel alongside the sub-tab
-        // list. Hidden whenever the group is in normal-available state; shown
-        // when registration gave up + user setting is still Auto.
+        // 0.15.0: build the inline diagnostic panel alongside the sub-tab list. Hidden whenever the group
+        // is normal-available; shown when the mod's Auto-mode handshake gave up. Both mod rails get one.
         if (group.Title == "Bloodcraft")
-        {
             BuildBloodcraftDiagnosticPanel(content);
-        }
+        else if (group.Title == "Beelzebub")
+            BuildBeelzDiagnosticPanel(content);
+        else if (group.Title == "Uriel")
+            BuildUrielDiagnosticPanel(content);
 
         // Apply initial visibility — diagnostic OR sub-tab list, never both.
-        ApplyBloodcraftGroupVisibility(group.Title, diagnostic);
+        ApplyModGroupVisibility(group.Title, diagnostic);
 
         content.SetActive(startExpanded);
         if (headerInteractable) header.OnClick = () => ToggleGroup(group.Title);
@@ -950,13 +1056,16 @@ public partial class MainPanel : ResizeablePanelBase
     // RefreshTabGroupAvailability (when the handshake completes or gives up
     // mid-session) so the diagnostic + sub-tab visibility stays consistent
     // with the current Bloodcraft availability state.
-    private void ApplyBloodcraftGroupVisibility(string groupTitle, bool diagnostic)
+    // Swap the sub-tab list ↔ the inline diagnostic panel for a mod group (Bloodcraft OR Beelzebub).
+    private void ApplyModGroupVisibility(string groupTitle, bool diagnostic)
     {
-        if (groupTitle != "Bloodcraft") return;
         if (_groupTabListGo.TryGetValue(groupTitle, out var tabListGo) && tabListGo != null)
             tabListGo.SetActive(!diagnostic);
-        if (_bloodcraftDiagnosticGo != null)
-            _bloodcraftDiagnosticGo.SetActive(diagnostic);
+        GameObject diagGo = groupTitle == "Bloodcraft" ? _bloodcraftDiagnosticGo
+                          : groupTitle == "Beelzebub"  ? _beelzDiagnosticGo
+                          : groupTitle == "Uriel"      ? _urielDiagnosticGo
+                          : null;
+        if (diagGo != null) diagGo.SetActive(diagnostic);
     }
 
     // 0.15.0 (reverted): per-tab visibility/dimming based on detected system
@@ -1069,6 +1178,12 @@ public partial class MainPanel : ResizeablePanelBase
         TooltipHover.Attach(btn.GameObject,
             "Flip BloodcraftAvailability to On for the rest of the session. The Bloodcraft tabs become navigable so you can manually issue commands (.quest p / .fam boxes / .bl get / etc.) and read replies in the Last server response panel. Live overlay updates still won't work because the server's structured broadcast remains disabled — see the README's Server compatibility section for the full picture.");
 
+        // Re-check — restart detection from scratch (fixes the server-switch case: the old re-detect
+        // no-op'd once registration had given up). The most common one-click recovery after a server switch.
+        AddDiagnosticActionButton(card, "DiagRecheckBtn", "Re-check now",
+            "Restart Bloodcraft detection and re-send the registration handshake. Use after switching servers if the tabs didn't light up on their own.",
+            () => { try { Services.EclipseProtocolService.Reset(); Services.EclipseProtocolService.SendRegistration(); } catch { } RefreshAllTabGroupAvailability(); });
+
         // Footnote — points to the .cfg setting for permanence.
         var footnote = UIFactory.CreateLabel(card, "DiagFootnote",
             "To persist across sessions, set BloodcraftAvailability=On in kdpen.BloodCraftHub.cfg.",
@@ -1078,6 +1193,156 @@ public partial class MainPanel : ResizeablePanelBase
             minHeight: 30, flexibleHeight: 0);
         footnote.TextMesh.fontStyle = FontStyles.Italic;
         footnote.TextMesh.enableWordWrapping = true;
+    }
+
+    // Shared styled action button for the inline diagnostic panels (Force-enable / Re-check), matching
+    // the diagnostic card's button look so Bloodcraft + Beelzebub panels stay consistent.
+    private ButtonRef AddDiagnosticActionButton(GameObject card, string name, string label, string tooltip, System.Action onClick)
+    {
+        var btn = UIFactory.CreateButton(card, name, label);
+        UIFactory.SetLayoutElement(btn.GameObject,
+            minWidth: 120, preferredWidth: 130, flexibleWidth: 1,
+            minHeight: 28, preferredHeight: 30, flexibleHeight: 0);
+        var t = btn.Component.GetComponentInChildren<TextMeshProUGUI>();
+        if (t != null) { t.fontSize = Theme.ScaledUI(11); t.fontStyle = FontStyles.Bold; t.enableWordWrapping = true; }
+        btn.OnClick = onClick;
+        TooltipHover.Attach(btn.GameObject, tooltip);
+        return btn;
+    }
+
+    // Inline "Beelzebub not detected" panel for the Beelzebub rail — mirrors the Bloodcraft diagnostic so a
+    // user can recover WITHOUT leaving the game (the long-standing ask). Shown when the `.beelz api version`
+    // handshake gave up in Auto mode (IsBeelzDiagnosticState). Two actions: Re-check (restart detection) and
+    // Force-enable (flip the tab group On for the session so the command/loadout tabs are reachable anyway).
+    private void BuildBeelzDiagnosticPanel(GameObject parent)
+    {
+        var card = UIFactory.CreateVerticalGroup(parent, "BeelzDiagnostic",
+            forceWidth: true, forceHeight: false,
+            childControlWidth: true, childControlHeight: true,
+            spacing: 4, padding: new Vector4(6, 6, 6, 6),
+            bgColor: Theme.CardBackground);
+        UIFactory.SetLayoutElement(card,
+            minWidth: 130, preferredWidth: 140, flexibleWidth: 1,
+            minHeight: 0, flexibleHeight: 0);
+        _beelzDiagnosticGo = card;
+
+        var heading = UIFactory.CreateLabel(card, "BeelzDiagHeading", "Beelzebub not detected",
+            TextAlignmentOptions.MidlineLeft, color: Color.yellow, fontSize: Theme.ScaledUI(11));
+        UIFactory.SetLayoutElement(heading.GameObject,
+            minWidth: 120, preferredWidth: 130, flexibleWidth: 1,
+            minHeight: 18, preferredHeight: 20, flexibleHeight: 0);
+        heading.TextMesh.fontStyle = FontStyles.Bold;
+        heading.TextMesh.enableWordWrapping = true;
+
+        var body = UIFactory.CreateLabel(card, "BeelzDiagBody",
+            "No reply to the Beelzebub handshake on this server.\n\n" +
+            "Likely causes:\n" +
+            "• Beelzebub isn't installed on this server.\n" +
+            "• You just switched servers and it's still loading — click Re-check.\n" +
+            "• A slow connection let the first probes time out.",
+            TextAlignmentOptions.TopLeft, color: Theme.MutedBody, fontSize: Theme.ScaledUI(10));
+        UIFactory.SetLayoutElement(body.GameObject,
+            minWidth: 120, preferredWidth: 130, flexibleWidth: 1,
+            minHeight: 96, flexibleHeight: 1);
+        body.TextMesh.enableWordWrapping = true;
+        body.TextMesh.overflowMode = TextOverflowModes.Overflow;
+
+        // Re-check — the primary recovery: restart the handshake loop from scratch (Reset re-anchors +
+        // re-probes). This is the in-tab equivalent of Settings & Help → Connection → Re-detect.
+        AddDiagnosticActionButton(card, "BeelzDiagRecheckBtn", "Re-check now",
+            "Restart Beelzebub detection and re-probe (.beelz api version). Use after switching servers if the tabs didn't light up on their own.",
+            () => { try { Services.Beelzebub.BeelzProtocolService.Reset(); Services.Beelzebub.BeelzClient.RequestVersion(); } catch { } RefreshAllTabGroupAvailability(); });
+
+        // Force-enable — make the tabs reachable even with no handshake, so loadout/command tabs work as a
+        // console (live overlays stay empty until a real handshake). Session-only; .cfg makes it permanent.
+        AddDiagnosticActionButton(card, "BeelzDiagForceEnableBtn", "Force-enable tabs",
+            "Flip BeelzebubAvailability to On for the rest of the session so the Beelzebub tabs are navigable. Live data needs a real handshake; set BeelzebubAvailability=On in kdpen.BloodCraftHub.cfg to persist.",
+            OnBeelzForceEnableClicked);
+
+        var footnote = UIFactory.CreateLabel(card, "BeelzDiagFootnote",
+            "To persist across sessions, set BeelzebubAvailability=On in kdpen.BloodCraftHub.cfg.",
+            TextAlignmentOptions.TopLeft, color: Theme.MutedBody, fontSize: Theme.ScaledUI(9));
+        UIFactory.SetLayoutElement(footnote.GameObject,
+            minWidth: 120, preferredWidth: 130, flexibleWidth: 1,
+            minHeight: 30, flexibleHeight: 0);
+        footnote.TextMesh.fontStyle = FontStyles.Italic;
+        footnote.TextMesh.enableWordWrapping = true;
+    }
+
+    private void OnBeelzForceEnableClicked()
+    {
+        try
+        {
+            Settings.SetBeelzebubAvailability(Settings.ModAvailability.On);
+            LogUtils.LogInfo("Beelzebub availability force-enabled by user via diagnostic panel. Session-only — edit kdpen.BloodCraftHub.cfg to make it permanent.");
+        }
+        catch (System.Exception ex) { LogUtils.LogError($"OnBeelzForceEnableClicked failed: {ex}"); }
+        RefreshAllTabGroupAvailability();
+    }
+
+    // 0.26: inline "Uriel not detected" panel for the Uriel rail — mirrors the Beelzebub diagnostic so a
+    // user can recover WITHOUT leaving the game. Shown when the `.uriel api version` handshake gave up in
+    // Auto mode (IsUrielDiagnosticState). Two actions: Re-check (restart detection) and Force-enable.
+    private void BuildUrielDiagnosticPanel(GameObject parent)
+    {
+        var card = UIFactory.CreateVerticalGroup(parent, "UrielDiagnostic",
+            forceWidth: true, forceHeight: false,
+            childControlWidth: true, childControlHeight: true,
+            spacing: 4, padding: new Vector4(6, 6, 6, 6),
+            bgColor: Theme.CardBackground);
+        UIFactory.SetLayoutElement(card,
+            minWidth: 130, preferredWidth: 140, flexibleWidth: 1,
+            minHeight: 0, flexibleHeight: 0);
+        _urielDiagnosticGo = card;
+
+        var heading = UIFactory.CreateLabel(card, "UrielDiagHeading", "Uriel not detected",
+            TextAlignmentOptions.MidlineLeft, color: Color.yellow, fontSize: Theme.ScaledUI(11));
+        UIFactory.SetLayoutElement(heading.GameObject,
+            minWidth: 120, preferredWidth: 130, flexibleWidth: 1,
+            minHeight: 18, preferredHeight: 20, flexibleHeight: 0);
+        heading.TextMesh.fontStyle = FontStyles.Bold;
+        heading.TextMesh.enableWordWrapping = true;
+
+        var body = UIFactory.CreateLabel(card, "UrielDiagBody",
+            "No reply to the Uriel handshake on this server.\n\n" +
+            "Likely causes:\n" +
+            "• Uriel isn't installed on this server.\n" +
+            "• You just switched servers and it's still loading — click Re-check.\n" +
+            "• A slow connection let the first probes time out.",
+            TextAlignmentOptions.TopLeft, color: Theme.MutedBody, fontSize: Theme.ScaledUI(10));
+        UIFactory.SetLayoutElement(body.GameObject,
+            minWidth: 120, preferredWidth: 130, flexibleWidth: 1,
+            minHeight: 96, flexibleHeight: 1);
+        body.TextMesh.enableWordWrapping = true;
+        body.TextMesh.overflowMode = TextOverflowModes.Overflow;
+
+        AddDiagnosticActionButton(card, "UrielDiagRecheckBtn", "Re-check now",
+            "Restart Uriel detection and re-probe (.uriel api version). Use after switching servers if the tabs didn't light up on their own.",
+            () => { try { Services.Uriel.UrielProtocolService.Reset(); Services.Uriel.UrielClient.RequestVersion(); } catch { } RefreshAllTabGroupAvailability(); });
+
+        AddDiagnosticActionButton(card, "UrielDiagForceEnableBtn", "Force-enable tabs",
+            "Flip UrielAvailability to On for the rest of the session so the Uriel tabs are navigable. Live data needs a real handshake; set UrielAvailability=On in kdpen.BloodCraftHub.cfg to persist.",
+            OnUrielForceEnableClicked);
+
+        var footnote = UIFactory.CreateLabel(card, "UrielDiagFootnote",
+            "To persist across sessions, set UrielAvailability=On in kdpen.BloodCraftHub.cfg.",
+            TextAlignmentOptions.TopLeft, color: Theme.MutedBody, fontSize: Theme.ScaledUI(9));
+        UIFactory.SetLayoutElement(footnote.GameObject,
+            minWidth: 120, preferredWidth: 130, flexibleWidth: 1,
+            minHeight: 30, flexibleHeight: 0);
+        footnote.TextMesh.fontStyle = FontStyles.Italic;
+        footnote.TextMesh.enableWordWrapping = true;
+    }
+
+    private void OnUrielForceEnableClicked()
+    {
+        try
+        {
+            Settings.SetUrielAvailability(Settings.ModAvailability.On);
+            LogUtils.LogInfo("Uriel availability force-enabled by user via diagnostic panel. Session-only — edit kdpen.BloodCraftHub.cfg to make it permanent.");
+        }
+        catch (System.Exception ex) { LogUtils.LogError($"OnUrielForceEnableClicked failed: {ex}"); }
+        RefreshAllTabGroupAvailability();
     }
 
     // 0.15.0: click handler for the diagnostic's Force-enable button. Flips
@@ -1112,15 +1377,18 @@ public partial class MainPanel : ResizeablePanelBase
                 {
                     Settings.ModAvailability.On  => true,
                     Settings.ModAvailability.Off => false,
-                    // 0.12.1: during the handshake retry window
-                    // (~15 s after world entry — see REGISTRATION_MAX_ATTEMPTS),
-                    // treat as tentatively available instead of greying out.
-                    // Pre-0.12.1 returned plain UserRegistered which produced
-                    // a "Bloodcraft Unavailable" race for users on actual
-                    // Bloodcraft servers. Now we only mark Unavailable once
-                    // the registration has REALLY given up.
-                    _ => Services.EclipseProtocolService.UserRegistered
-                      || !Services.EclipseProtocolService.RegistrationGaveUp,
+                    // 0.18.3: "hidden until confirmed". Available only once the server has
+                    // ACKed our registration (UserRegistered) — NOT optimistically during the
+                    // probe window. Rationale (server-switch follow-up): the old
+                    // `UserRegistered || !RegistrationGaveUp` showed the tab as available the
+                    // whole time, so on a server WITHOUT Bloodcraft it stayed enabled showing the
+                    // previous server's stale data until give-up (and a stuck-Pending bug meant
+                    // give-up never fired — see ClientChatPatch). Now it greys out the instant we
+                    // relog and only lights up when THIS server confirms Bloodcraft. Under Eclipse
+                    // stand-down we never register (Eclipse owns the HUD) but BCH still works as a
+                    // command console, so keep the tab available there.
+                    _ => Services.EclipseProtocolService.StandDownForEclipse()
+                      || Services.EclipseProtocolService.UserRegistered,
                 };
             case "Kindred":
                 return Settings.KindredAvailability switch
@@ -1128,6 +1396,29 @@ public partial class MainPanel : ResizeablePanelBase
                     Settings.ModAvailability.On   => true,
                     Settings.ModAvailability.Off  => false,
                     _ => true, // no probe wired - assume present
+                };
+            case "Beelzebub":
+                return Settings.BeelzebubAvailability switch
+                {
+                    Settings.ModAvailability.On  => true,
+                    Settings.ModAvailability.Off => false,
+                    // 0.18.3: "hidden until confirmed" (was `IsPresent || !DetectionGaveUp`).
+                    // Available ONLY once the `.beelz api version` handshake ACKs ready=1. We no
+                    // longer show the tab as tentatively-available during the probe window — testers
+                    // saw it sit enabled through 5-7 probes and then suddenly grey out (jarring if
+                    // you'd opened the tab). Now it starts greyed on every relog and lights up the
+                    // moment THIS server confirms Beelzebub; if a later probe ACKs it's restored.
+                    _ => Services.Beelzebub.BeelzProtocolService.IsPresent,
+                };
+            case "Uriel":
+                return Settings.UrielAvailability switch
+                {
+                    Settings.ModAvailability.On  => true,
+                    Settings.ModAvailability.Off => false,
+                    // "hidden until confirmed" — available ONLY once the `.uriel api version` handshake
+                    // ACKs ready=1 (same model as Beelzebub). Greyed on relog; lights up when THIS server
+                    // confirms Uriel; recover via the inline diagnostic Re-check or Connection → Re-detect.
+                    _ => Services.Uriel.UrielProtocolService.IsPresent,
                 };
             case "Game UI":
                 return true; // standalone client-side enhancements; no server probe
@@ -1149,6 +1440,32 @@ public partial class MainPanel : ResizeablePanelBase
         return Services.EclipseProtocolService.RegistrationGaveUp
             && !Services.EclipseProtocolService.UserRegistered;
     }
+
+    /// <summary>Beelzebub analogue: in Auto mode, the handshake (`.beelz api version`) gave up without a
+    /// ready ACK. Shows the inline "not detected — enable / re-check" panel under the Beelzebub rail,
+    /// mirroring Bloodcraft's. Distinct from "available" — the header stays interactable so the user can
+    /// expand to read it and recover.</summary>
+    private static bool IsBeelzDiagnosticState(string title)
+    {
+        if (title != "Beelzebub") return false;
+        if (Settings.BeelzebubAvailability != Settings.ModAvailability.Auto) return false;
+        return Services.Beelzebub.BeelzProtocolService.DetectionGaveUp
+            && !Services.Beelzebub.BeelzProtocolService.IsPresent;
+    }
+
+    /// <summary>Uriel analogue: in Auto mode, the `.uriel api version` handshake gave up without a
+    /// ready ACK. Shows the inline "not detected — enable / re-check" panel under the Uriel rail.</summary>
+    private static bool IsUrielDiagnosticState(string title)
+    {
+        if (title != "Uriel") return false;
+        if (Settings.UrielAvailability != Settings.ModAvailability.Auto) return false;
+        return Services.Uriel.UrielProtocolService.DetectionGaveUp
+            && !Services.Uriel.UrielProtocolService.IsPresent;
+    }
+
+    /// <summary>Any mod group can show an inline diagnostic when its Auto-mode handshake fails.</summary>
+    private static bool IsModDiagnosticState(string title)
+        => IsBloodcraftDiagnosticState(title) || IsBeelzDiagnosticState(title) || IsUrielDiagnosticState(title);
 
     /// <summary>0.15.0: map each Bloodcraft tab to the Bloodcraft system that
     /// backs it. Returns null when the tab isn't tied to a single system
@@ -1186,6 +1503,7 @@ public partial class MainPanel : ResizeablePanelBase
     private void ToggleGroup(string title)
     {
         if (!_groupExpanded.TryGetValue(title, out var current)) return;
+        _userToggledGroups.Add(title);   // F1: user took manual control — stop auto-defaulting this group
         var next = !current;
         _groupExpanded[title] = next;
         if (_groupContent.TryGetValue(title, out var go))
@@ -1217,6 +1535,10 @@ public partial class MainPanel : ResizeablePanelBase
             BloodCraftHub.Behaviors.CoreUpdateBehavior.Actions.Remove(_deferredAvailabilityRefresh);
             _deferredAvailabilityRefresh = null;
             RefreshAllTabGroupAvailability();
+            // 0.18.3: also hide/show overlays to match the mod that just resolved (BC stream overlays
+            // when Bloodcraft isn't present; the Beelz action-bar overlay when Beelzebub isn't present).
+            try { Plugin.UIManager?.ApplyAvailabilityToOverlays(); }
+            catch (System.Exception ex) { LogUtils.LogError($"ApplyAvailabilityToOverlays failed: {ex}"); }
         };
         BloodCraftHub.Behaviors.CoreUpdateBehavior.Actions.Add(_deferredAvailabilityRefresh);
     }
@@ -1247,13 +1569,98 @@ public partial class MainPanel : ResizeablePanelBase
     {
         foreach (var title in new System.Collections.Generic.List<string>(_groupHeaderText.Keys))
             RefreshTabGroupAvailability(title);
+        ApplyDetectionDefaultExpansion();
         AutoResizeIfEnabled();
+    }
+
+    /// <summary>0.18.3: public entry so the relog path (BCHubUIManager.RestoreAfterRelogIfNeeded)
+    /// can re-evaluate every tab group's availability the instant we re-enter a world. After a
+    /// server-switch the protocol services have been Reset (UserRegistered=false / IsPresent=false),
+    /// so this greys the Bloodcraft + Beelzebub groups back out — they only re-light when THIS
+    /// server's handshake ACKs (which fires AvailabilityChanged → RefreshAllTabGroupAvailability
+    /// again). Without this the headers kept the previous server's "available" state until the
+    /// (slow) give-up or ACK resolved.</summary>
+    public void RefreshTabGroupAvailabilityNow()
+    {
+        try { RefreshAllTabGroupAvailability(); }
+        catch (System.Exception ex) { LogUtils.LogError($"RefreshTabGroupAvailabilityNow failed: {ex}"); }
+    }
+
+    // F1: default the Bloodcraft/Beelzebub group expansion by what's detected — Bloodcraft expands when
+    // present; Beelzebub expands when present AND Bloodcraft isn't (so a Beelz-only server opens to the
+    // Beelzebub group, not an empty Bloodcraft one). Only touches EXPANSION (content + header arrow),
+    // never header interactability — so it can't lock a group closed. Skips a group the user manually
+    // toggled this session, and only acts on interactable headers. Re-applied as detection resolves.
+    private void ApplyDetectionDefaultExpansion()
+    {
+        bool bc   = IsTabGroupAvailable("Bloodcraft");
+        bool bz   = IsTabGroupAvailable("Beelzebub");
+        bool bcDg = IsModDiagnosticState("Bloodcraft");
+        bool bzDg = IsModDiagnosticState("Beelzebub");
+
+        // Pick the ONE mod group to auto-open. Prefer a genuinely-AVAILABLE mod (Bloodcraft wins when both
+        // are present — the user's "Bloodcraft first" rule). Only when NEITHER mod is available do we fall
+        // back to a group that's showing a diagnostic, so the recovery panel stays reachable. This is the
+        // fix for the reported bug: a server WITHOUT Bloodcraft used to force-open the Bloodcraft
+        // "handshake failed" diagnostic over the mod that's actually active (Beelzebub). Now the active
+        // mod wins, and the Bloodcraft diagnostic only auto-opens when there's nothing else to show.
+        string primary =
+              bc   ? "Bloodcraft"
+            : bz   ? "Beelzebub"
+            : bcDg ? "Bloodcraft"
+            : bzDg ? "Beelzebub"
+            : null;
+
+        void Apply(string title, bool desired)
+        {
+            if (_userToggledGroups.Contains(title)) return;
+            bool usable = IsTabGroupAvailable(title) || IsModDiagnosticState(title);
+            if (desired && !usable) return;   // never EXPAND a dead header; always allow COLLAPSE
+            if (_groupExpanded.TryGetValue(title, out var cur) && cur == desired) return;
+            _groupExpanded[title] = desired;
+            if (_groupContent.TryGetValue(title, out var go)) go.SetActive(desired);
+            if (_groupHeaderText.TryGetValue(title, out var txt)) txt.text = FormatGroupHeader(title, desired, usable);
+        }
+        Apply("Bloodcraft", primary == "Bloodcraft");
+        Apply("Beelzebub",  primary == "Beelzebub");
+        AutoResizeIfEnabled();
+    }
+
+    // Set one tab group's expansion to an exact state (used by the first-run path to open the Settings &
+    // Help group so the Quick Start tab's rail entry is visible). Mirrors the Apply local above without
+    // the detection/primary logic; no-op if already in the requested state.
+    private void SetGroupExpandedState(string title, bool expanded)
+    {
+        if (!_groupExpanded.TryGetValue(title, out var cur) || cur == expanded) return;
+        _groupExpanded[title] = expanded;
+        if (_groupContent.TryGetValue(title, out var go)) go.SetActive(expanded);
+        if (_groupHeaderText.TryGetValue(title, out var txt))
+            txt.text = FormatGroupHeader(title, expanded, IsTabGroupAvailable(title) || IsModDiagnosticState(title));
+    }
+
+    // 0.22 first-run onboarding + open-to-active-mod. The very first time the panel ever opens we route the
+    // user to the Quick Start tab (a one-time, mod-agnostic welcome) instead of dropping them into a feature
+    // tab, and flip the persisted HasSeenWelcome flag so it happens exactly once. On every later open we pick
+    // the active mod's primary tab when detection already resolved (a reopen / rebuild); during the first
+    // login's handshake window neither mod is confirmed yet, so we keep the existing default and let the
+    // rail's group expansion follow detection as it settles.
+    private PanelType InitialTabForFirstShow()
+    {
+        if (!Config.Settings.HasSeenWelcome)
+        {
+            Config.Settings.SetHasSeenWelcome(true);
+            SetGroupExpandedState("Settings and Help", true);   // reveal the Quick Start rail entry
+            return PanelType.QuickStartTab;
+        }
+        if (IsTabGroupAvailable("Bloodcraft")) return PanelType.FamiliarsTab;
+        if (IsTabGroupAvailable("Beelzebub"))  return PanelType.BeelzLoadoutTab;   // 0.24.8: Loadout is now the group's primary tab
+        return ActiveTab;   // default (FamiliarsTab) until a handshake confirms a mod
     }
 
     private void RefreshTabGroupAvailability(string title)
     {
         bool available  = IsTabGroupAvailable(title);
-        bool diagnostic = IsBloodcraftDiagnosticState(title);
+        bool diagnostic = IsModDiagnosticState(title);
         bool headerInteractable = available || diagnostic;
         bool expanded = _groupExpanded.TryGetValue(title, out var e) && e;
 
@@ -1289,7 +1696,7 @@ public partial class MainPanel : ResizeablePanelBase
         }
 
         // 0.15.0: swap sub-tab list ↔ diagnostic panel based on current state.
-        ApplyBloodcraftGroupVisibility(title, diagnostic);
+        ApplyModGroupVisibility(title, diagnostic);
     }
 
     // -----------------------------------------------------------------------
@@ -1409,14 +1816,26 @@ public partial class MainPanel : ResizeablePanelBase
                 case PanelType.QuickStartTab:
                     BuildQuickStartTab(page);
                     break;
+                case PanelType.BloodcraftQuickStartTab:
+                    BuildBloodcraftQuickStartTab(page);
+                    break;
                 case PanelType.ModHelpTab:
                     BuildModHelpTab(page);
+                    break;
+                case PanelType.BeelzQuickStartTab:
+                    BuildBeelzQuickStartTab(page);
+                    break;
+                case PanelType.BeelzModHelpTab:
+                    BuildBeelzModHelpTab(page);
                     break;
                 case PanelType.GameGuideTab:
                     BuildGameGuideTab(page);
                     break;
                 case PanelType.SettingsTab:
                     BuildSettingsTab(page);
+                    break;
+                case PanelType.ConnectionTab:
+                    BuildConnectionTab(page);
                     break;
                 case PanelType.AboutTab:
                     BuildAboutTab(page);
@@ -1426,6 +1845,63 @@ public partial class MainPanel : ResizeablePanelBase
                     break;
                 case PanelType.GameUITab:
                     BuildGameUITab(page);
+                    break;
+                case PanelType.BeelzBestiaryTab:
+                    BuildBeelzBestiaryTab(page);
+                    break;
+                case PanelType.BeelzLoadoutTab:
+                    BuildBeelzLoadoutTab(page);
+                    break;
+                case PanelType.BeelzHotkeysTab:
+                    BuildBeelzHotkeysTab(page);
+                    break;
+                case PanelType.BeelzTransformsTab:
+                    BuildBeelzTransformsTab(page);
+                    break;
+                case PanelType.BeelzSettingsTab:
+                    BuildBeelzSettingsTab(page);
+                    break;
+                case PanelType.BeelzAdminConfigTab:
+                    BuildBeelzAdminConfigTab(page);
+                    break;
+                case PanelType.BeelzAdminPlayersTab:
+                    BuildBeelzAdminPlayersTab(page);
+                    break;
+                case PanelType.BeelzAdminAbilityTableTab:
+                    BuildBeelzAdminAbilityTableTab(page);
+                    break;
+                case PanelType.UrielStorageTab:
+                    BuildUrielStorageTab(page);
+                    break;
+                case PanelType.UrielPrisonTab:
+                    BuildUrielPrisonTab(page);
+                    break;
+                case PanelType.UrielStairsTab:
+                    BuildUrielStairsTab(page);
+                    break;
+                case PanelType.UrielObjectsTab:
+                    BuildUrielObjectsTab(page);
+                    break;
+                case PanelType.UrielObjectCatalogTab:
+                    BuildUrielObjectCatalogTab(page);
+                    break;
+                case PanelType.UrielSettingsTab:
+                    BuildUrielSettingsTab(page);
+                    break;
+                case PanelType.UrielAdminSharingTab:
+                    BuildUrielAdminSharingTab(page);
+                    break;
+                case PanelType.UrielAdminObjectsTab:
+                    BuildUrielAdminObjectsTab(page);
+                    break;
+                case PanelType.UrielAdminConfigTab:
+                    BuildUrielAdminConfigTab(page);
+                    break;
+                case PanelType.UrielQuickStartTab:
+                    BuildUrielQuickStartTab(page);
+                    break;
+                case PanelType.UrielModHelpTab:
+                    BuildUrielModHelpTab(page);
                     break;
                 default:
                     AddComingSoonBody(page, label);
@@ -1572,6 +2048,31 @@ public partial class MainPanel : ResizeablePanelBase
         AddChatOptionToggle(chatCard, "System",   Config.Settings.AllTabShowSystem,  v => Config.Settings.SetAllTabShowSystem(v));
         AddChatOptionToggle(chatCard, "Whispers", Config.Settings.AllTabShowWhisper, v => Config.Settings.SetAllTabShowWhisper(v));
 
+        // 0.24: a SECOND, view-only chat window that mirrors only the channels ticked below — watch two
+        // streams at once (e.g. keep this one on Clan + System while the main window stays on Global).
+        AddSectionHeading(chatCard, "Secondary chat window (view-only)");
+        AddBodyText(chatCard,
+            "Open a second, draggable DISPLAY-ONLY window (no input box) that shows ONLY the channels you tick " +
+            "below — handy for admins watching System / Clan apart from Global. Move/resize it like any overlay " +
+            "(turn off \"Lock overlays\" first). It shares the chat window's text size, colors, and transparency.");
+        var secondaryChatBtn = UIFactory.CreateButton(chatCard, "ToggleSecondaryChatBtn", "Open / close secondary chat window");
+        UIFactory.SetLayoutElement(secondaryChatBtn.GameObject,
+            minWidth: 200, preferredWidth: 280, flexibleWidth: 1, minHeight: 30, preferredHeight: 30, flexibleHeight: 0);
+        secondaryChatBtn.OnClick = () =>
+        {
+            try { Plugin.UIManager?.ToggleOverlay(PanelType.SecondaryChatOverlay); }
+            catch (System.Exception ex) { Utils.LogUtils.LogError($"Toggle secondary chat failed: {ex}"); }
+        };
+        TooltipHover.Attach(secondaryChatBtn.GameObject, "Show or hide the view-only secondary chat window.");
+        AddBodyText(chatCard, "<color=#9FD0FF>Channels shown in the secondary window:</color>");
+        void SecondaryChan(string label, bool val, System.Action<bool> set) =>
+            AddChatOptionToggle(chatCard, label, val, v => { set(v); Plugin.UIManager?.RefreshSecondaryChatOverlay(); });
+        SecondaryChan("Global",   Config.Settings.SecondaryChatShowGlobal,  Config.Settings.SetSecondaryChatShowGlobal);
+        SecondaryChan("Local",    Config.Settings.SecondaryChatShowLocal,   Config.Settings.SetSecondaryChatShowLocal);
+        SecondaryChan("Clan",     Config.Settings.SecondaryChatShowClan,    Config.Settings.SetSecondaryChatShowClan);
+        SecondaryChan("System",   Config.Settings.SecondaryChatShowSystem,  Config.Settings.SetSecondaryChatShowSystem);
+        SecondaryChan("Whispers", Config.Settings.SecondaryChatShowWhisper, Config.Settings.SetSecondaryChatShowWhisper);
+
         // 0.17.3: tab-switch hotkeys — <Modifier>+1..6 selects a tab while the chat
         // window is open and you're not typing in it (1=All … 6=Whispers).
         AddSectionHeading(chatCard, "Tab-switch hotkeys");
@@ -1602,21 +2103,23 @@ public partial class MainPanel : ResizeablePanelBase
             TooltipHover.Attach(b.GameObject, $"Use {mm} + number keys 1-6 to switch chat tabs (1=All … 6=Whispers). The key isn't consumed, so pick a modifier that doesn't clash.");
         }
 
-        // Global channel color — used for its [G]/[Global] label tag AND its tab
-        // (when "Color tabs by channel" is on). The other channels have fixed
-        // colors; Global previously rendered plain white.
-        AddSectionHeading(chatCard, "Global channel color");
-        var globalColorRow = UIFactory.CreateHorizontalGroup(chatCard, "ChatGlobalColorRow",
-            forceExpandWidth: true, forceExpandHeight: false,
-            childControlWidth: true, childControlHeight: true,
-            spacing: 6, padding: new Vector4(2, 2, 2, 2));
-        UIFactory.SetLayoutElement(globalColorRow,
-            minWidth: 200, preferredWidth: 280, flexibleWidth: 1,
-            minHeight: 28, preferredHeight: 30, flexibleHeight: 0);
-        foreach (var preset in new[] {
-            ("Coral", Config.Settings.DEFAULT_CHAT_GLOBAL_HEX), ("White", "#FFFFFF"),
-            ("Amber", "#FFD479"), ("Cyan", "#66CCFF"), ("Violet", "#C9A0FF") })
-            AddPanelBgPresetButton(globalColorRow, preset.Item1, preset.Item2, ApplyChatGlobalColorHex);
+        // Per-channel colors — each picker sets the color used for BOTH that channel's message text AND
+        // its tab (when "Color tabs by channel" is on). 0.21: all five are now user-settable + persisted
+        // (previously only Global was; Local/Clan/System/Whisper were fixed).
+        AddSectionHeading(chatCard, "Channel colors");
+        AddChatChannelColorRow(chatCard, "Global channel",  "Global",  Config.Settings.DEFAULT_CHAT_GLOBAL_HEX,  ApplyChatGlobalColorHex);
+        AddChatChannelColorRow(chatCard, "Local channel",   "Local",   Config.Settings.DEFAULT_CHAT_LOCAL_HEX,   ApplyChatLocalColorHex);
+        AddChatChannelColorRow(chatCard, "Clan channel",    "Clan",    Config.Settings.DEFAULT_CHAT_CLAN_HEX,    ApplyChatClanColorHex);
+        AddChatChannelColorRow(chatCard, "System messages", "System",  Config.Settings.DEFAULT_CHAT_SYSTEM_HEX,  ApplyChatSystemColorHex);
+        AddChatChannelColorRow(chatCard, "Whispers",        "Whisper", Config.Settings.DEFAULT_CHAT_WHISPER_HEX, ApplyChatWhisperColorHex);
+
+        // 0.21: extend the channel color to the message BODY (not just the [tag]/tab), and a distinct
+        // color for YOUR OWN messages so you can pick out your text on any tab.
+        AddChatOptionToggle(chatCard, "Color message text by channel color",
+            Config.Settings.ChatColorMessageByChannel, Config.Settings.SetChatColorMessageByChannel);
+        AddChatOptionToggle(chatCard, "Highlight my own messages in a custom color",
+            Config.Settings.ChatColorOwnMessages, Config.Settings.SetChatColorOwnMessages);
+        AddChatChannelColorRow(chatCard, "My messages", "Own", Config.Settings.DEFAULT_CHAT_OWN_HEX, ApplyChatOwnColorHex);
 
         // Chat window background — transparency + theme color, independent of the
         // other overlays / the main panel (same controls as Settings → Display).
@@ -1634,13 +2137,33 @@ public partial class MainPanel : ResizeablePanelBase
         Plugin.UIManager?.RefreshChatWindowBackground();
     }
 
-    // 0.17.0: persist the Global channel color + live-refresh the chat window so
-    // the label tags and colored tab update immediately.
-    private void ApplyChatGlobalColorHex(string hex)
+    // 0.21: one labeled row of color-preset swatches for a chat channel (heading + swatches). The shared
+    // palette leads with the channel's own default so "reset to default" is one click. Each swatch persists
+    // via `apply` and live-refreshes the chat window (tabs + message text recolor together).
+    private void AddChatChannelColorRow(GameObject parent, string heading, string rowKey, string defaultHex, System.Action<string> apply)
     {
-        Config.Settings.SetChatGlobalColorHex(hex);
-        Plugin.UIManager?.RefreshChatWindowOverlay();
+        AddSectionHeading(parent, heading);
+        var row = UIFactory.CreateHorizontalGroup(parent, $"Chat{rowKey}ColorRow",
+            forceExpandWidth: true, forceExpandHeight: false,
+            childControlWidth: true, childControlHeight: true,
+            spacing: 6, padding: new Vector4(2, 2, 2, 2));
+        UIFactory.SetLayoutElement(row,
+            minWidth: 200, preferredWidth: 280, flexibleWidth: 1,
+            minHeight: 28, preferredHeight: 30, flexibleHeight: 0);
+        foreach (var preset in new[] {
+            ("Default", defaultHex), ("White", "#FFFFFF"), ("Coral", "#FF8A5B"), ("Amber", "#FFD479"),
+            ("Green", "#90EE90"), ("Cyan", "#66CCFF"), ("Blue", "#B0E0FF"), ("Pink", "#FF9CEF"), ("Violet", "#C9A0FF") })
+            AddPanelBgPresetButton(row, preset.Item1, preset.Item2, apply);
     }
+
+    // 0.17.0 / 0.21: persist a channel color + live-refresh the chat window so the label tags and colored
+    // tab update immediately.
+    private void ApplyChatGlobalColorHex(string hex)  { Config.Settings.SetChatGlobalColorHex(hex);  Plugin.UIManager?.RefreshChatWindowOverlay(); }
+    private void ApplyChatLocalColorHex(string hex)   { Config.Settings.SetChatLocalColorHex(hex);   Plugin.UIManager?.RefreshChatWindowOverlay(); }
+    private void ApplyChatClanColorHex(string hex)    { Config.Settings.SetChatClanColorHex(hex);    Plugin.UIManager?.RefreshChatWindowOverlay(); }
+    private void ApplyChatSystemColorHex(string hex)  { Config.Settings.SetChatSystemColorHex(hex);  Plugin.UIManager?.RefreshChatWindowOverlay(); }
+    private void ApplyChatWhisperColorHex(string hex) { Config.Settings.SetChatWhisperColorHex(hex); Plugin.UIManager?.RefreshChatWindowOverlay(); }
+    private void ApplyChatOwnColorHex(string hex)     { Config.Settings.SetChatOwnMessageColorHex(hex); Plugin.UIManager?.RefreshChatWindowOverlay(); }
 
     // 0.17: small labeled toggle for the Game UI chat-window options. Persists
     // via the supplied setter, then re-renders the live chat overlay so the
@@ -4634,6 +5157,7 @@ public partial class MainPanel : ResizeablePanelBase
 
     private void BuildAdminTab(GameObject page)
     {
+        page = BeginAdminGate(page);   // gray out + disable the admin controls below for non-admins
         // 0.10.12: wrap the admin note + diagnostics row in cards. The
         // forms below are collapsibles which are already self-contained
         // visual units; an outer card around the long form stack would
@@ -4935,6 +5459,7 @@ public partial class MainPanel : ResizeablePanelBase
 
     private void BuildKindredLogisticsAdminTab(GameObject page)
     {
+        page = BeginAdminGate(page);   // gray out + disable the admin controls below for non-admins
         // 0.10.12: card-wrap the admin info + admin-globals + spawn-form
         // sections.
         var noteCard = AddCard(page, "KLAdminNoteCard");
@@ -5323,7 +5848,7 @@ public partial class MainPanel : ResizeablePanelBase
         // ── Region 3 ─────────────────────────────────────────────────────
         AddSectionHeading(page, "About the author");
         AddGuideSection(page, "",
-            "Maintained by kdpen (in-game: Chaos). I play on The Shadow " +
+            "Maintained by Chaos. I play on The Shadow " +
             "Realm — a Brutal, PvE community server — and built this mod " +
             "to give that community a click-driven alternative to typing " +
             "every Bloodcraft command. Feedback, bug reports, and pull " +
@@ -5382,9 +5907,9 @@ public partial class MainPanel : ResizeablePanelBase
             "Adjust text size and overlay transparency. " +
             "Text-size changes apply when the panel is closed and reopened " +
             "(or when an overlay is toggled off and back on). Transparency " +
-            "changes apply immediately. 0% transparency = solid background; " +
-            "100% transparency = invisible background (capped internally at " +
-            "95% so the drag handle stays visible).");
+            "changes apply immediately — drag the slider or type a 0–100 value. " +
+            "0% transparency = solid background; 100% = fully invisible " +
+            "background (the panel is still draggable and its text stays visible).");
 
         AddTextScaleRow(page, "UI text size",
             currentScaleSetting: () => Config.Settings.UITextScale,
@@ -5409,6 +5934,9 @@ public partial class MainPanel : ResizeablePanelBase
                 Plugin.UIManager.RequestRebuildAllOverlays();
             });
 
+        // 0.18.4: launcher (BCH/OV) button size — some displays render them large.
+        AddLauncherButtonSizeRow(page);
+
         AddSpacer(page, 4);
         AddSectionHeading(page, "Overlay transparency");
 
@@ -5432,6 +5960,14 @@ public partial class MainPanel : ResizeablePanelBase
         AddTransparencyRow(page, "Combined overlay",
             () => Config.Settings.CombinedOverlayTransparency,
             v => Config.Settings.SetCombinedOverlayTransparency(v));
+        // 0.19: Beelz summons overlay transparency.
+        AddTransparencyRow(page, "Beelz summons",
+            () => Config.Settings.BeelzSummonsOverlayTransparency,
+            v => Config.Settings.SetBeelzSummonsOverlayTransparency(v));
+        // 0.20: Beelz transforms overlay transparency.
+        AddTransparencyRow(page, "Beelz transforms",
+            () => Config.Settings.BeelzTransformOverlayTransparency,
+            v => Config.Settings.SetBeelzTransformOverlayTransparency(v));
 
         AddSpacer(page, 8);
         BuildCombinedOverlaySection(page);
@@ -5440,15 +5976,20 @@ public partial class MainPanel : ResizeablePanelBase
         BuildPanelBackgroundColorSection(page);
 
         AddSpacer(page, 8);
+        BuildButtonColorSection(page);
+
+        AddSpacer(page, 8);
         AddSectionHeading(page, "HUD extras");
         AddShowProgressBarsToggle(page);
         AddShowOverlayBonusStatsToggle(page);
+        AddShowOverlayStatAcronymsToggle(page);
         AddShowOverlayXpCounterToggle(page);
         AddProgressBarHeightControls(page);
         AddOverlayEdgePaddingControls(page);
         AddShowPrestigeSubLineToggle(page);
         AddOverlaysBehindMenusToggle(page);
         AddSuppressInputToggle(page);
+        AddBlockInputOverUiToggle(page);
         AddOverlayAlignmentToggle(page);
         AddAutoScanVBloodsToggle(page);
 
@@ -5456,20 +5997,196 @@ public partial class MainPanel : ResizeablePanelBase
         BuildProfessionTrackedSection(page);
 
         AddSpacer(page, 8);
-        AddSectionHeading(page, "Chat noise");
-        AddSuppressActionChatterToggle(page);
+        // 0.18: all chat-suppression controls consolidated into one "Chat noise" section
+        // (was split with the separate "Chat Logging" section below). See BuildChatNoiseSection.
+        BuildChatNoiseSection(page);
         AddSpacer(page, 8);
         // 0.9.7: per-component size adjustment + reset-to-default controls.
         BuildSizePositioningSection(page);
+        // 0.18: the old "Chat Logging" section + its 3 Show* category toggles + Show/Hide-All
+        // buttons were merged into the consolidated "Chat noise" section above
+        // (BuildChatNoiseSection). The underlying ShowChat* config keys are preserved.
+
         AddSpacer(page, 8);
-        // 0.10.6: Chat Logging diagnostic toggles. At the bottom of Settings
-        // so users see it last when scanning the page top-to-bottom.
-        BuildChatLoggingSection(page);
+        // 0.18: Beelzebub tab-group availability (Auto/On/Off). Lives here on the
+        // always-reachable global Settings tab — never inside the Beelzebub group it
+        // can hide (that would lock the user out of the control).
+        BuildBeelzAvailabilityGlobalSetting(page);
+
+        AddSpacer(page, 8);
+        // 0.28: master overlay-hide options (Toggle vs Timed, hide the launcher buttons too, keep the
+        // game chat hidden). Sits just above Hotkeys because it pairs with the "Toggle all overlays"
+        // bind there.
+        BuildOverlayVisibilitySection(page);
 
         AddSpacer(page, 8);
         // 0.15.0: optional keyboard hotkeys for the floating BCH / OV button
         // actions + diagnostic mode toggle. Both opt-in.
         BuildHotkeysSection(page);
+    }
+
+    // 0.28: "Overlay Visibility" — shapes what the OV button / the "Toggle all overlays" hotkey do.
+    // Toggle vs Timed auto-reappear, optionally hide the launcher cluster too (gated on a guaranteed
+    // way back), and keep the game's native chat hidden during a hide instead of letting it pop back.
+    private void BuildOverlayVisibilitySection(GameObject page)
+    {
+        AddSectionHeading(page, "Overlay Visibility");
+
+        AddGuideSection(page, "",
+            "Controls the upper-right 'OV' button and the 'Toggle all overlays' hotkey — the master " +
+            "show/hide for every BCH overlay you've enabled. (It never reveals overlays you've turned " +
+            "off per-overlay.) Choose whether a hide stays until you toggle back, or auto-reappears " +
+            "after a countdown; optionally hide the BCH/OV launcher buttons too for a fully clean screen.");
+
+        // ── Hide mode: Toggle vs Timed ──────────────────────────────────────
+        var modeRow = UIFactory.CreateHorizontalGroup(page, "DisplayRow_OVHideMode",
+            forceExpandWidth: true, forceExpandHeight: false,
+            childControlWidth: true, childControlHeight: true,
+            spacing: 6, padding: new Vector4(2, 2, 2, 2));
+        UIFactory.SetLayoutElement(modeRow,
+            minWidth: 360, preferredWidth: 400, flexibleWidth: 1,
+            minHeight: 30, preferredHeight: 32, flexibleHeight: 0);
+
+        var modeLbl = UIFactory.CreateLabel(modeRow, "Lbl_OVHideMode", "Hide mode:",
+            TextAlignmentOptions.MidlineLeft, color: null, fontSize: 13);
+        UIFactory.SetLayoutElement(modeLbl.GameObject,
+            minWidth: 90, preferredWidth: 100, flexibleWidth: 0,
+            minHeight: 22, preferredHeight: 24, flexibleHeight: 0);
+
+        var modeHint = UIFactory.CreateLabel(modeRow, "Hint_OVHideMode",
+            FormatOVHideModeHint(),
+            TextAlignmentOptions.MidlineLeft, color: null, fontSize: 11);
+        UIFactory.SetLayoutElement(modeHint.GameObject,
+            minWidth: 150, preferredWidth: 180, flexibleWidth: 1,
+            minHeight: 22, preferredHeight: 24, flexibleHeight: 0);
+        modeHint.TextMesh.fontStyle = FontStyles.Italic;
+
+        // Forward-declared so the mode buttons can refresh the gate warning after flipping Timed mode
+        // (toggling Timed on can satisfy the launcher-hide safety gate).
+        System.Action refreshGateWarning = null;
+
+        void PickMode(bool timed)
+        {
+            Config.Settings.SetOverlayTimedHide(timed);
+            modeHint.TextMesh.text = FormatOVHideModeHint();
+            refreshGateWarning?.Invoke();
+        }
+        AddScaleButton(modeRow, "Toggle", () => PickMode(false));
+        AddScaleButton(modeRow, "Timed",  () => PickMode(true));
+
+        // ── Timed duration presets ─────────────────────────────────────────
+        var durRow = UIFactory.CreateHorizontalGroup(page, "DisplayRow_OVHideDuration",
+            forceExpandWidth: true, forceExpandHeight: false,
+            childControlWidth: true, childControlHeight: true,
+            spacing: 6, padding: new Vector4(2, 2, 2, 2));
+        UIFactory.SetLayoutElement(durRow,
+            minWidth: 360, preferredWidth: 400, flexibleWidth: 1,
+            minHeight: 30, preferredHeight: 32, flexibleHeight: 0);
+
+        var durLbl = UIFactory.CreateLabel(durRow, "Lbl_OVHideDuration", "Timed duration:",
+            TextAlignmentOptions.MidlineLeft, color: null, fontSize: 13);
+        UIFactory.SetLayoutElement(durLbl.GameObject,
+            minWidth: 100, preferredWidth: 110, flexibleWidth: 0,
+            minHeight: 22, preferredHeight: 24, flexibleHeight: 0);
+
+        var durHint = UIFactory.CreateLabel(durRow, "Hint_OVHideDuration",
+            FormatOVHideDurationHint(),
+            TextAlignmentOptions.MidlineLeft, color: null, fontSize: 11);
+        UIFactory.SetLayoutElement(durHint.GameObject,
+            minWidth: 70, preferredWidth: 80, flexibleWidth: 0,
+            minHeight: 22, preferredHeight: 24, flexibleHeight: 0);
+        durHint.TextMesh.fontStyle = FontStyles.Italic;
+
+        void PickDuration(int seconds)
+        {
+            Config.Settings.SetOverlayHideDurationSeconds(seconds);
+            durHint.TextMesh.text = FormatOVHideDurationHint();
+        }
+        // Spread from quick screenshots to long timed video captures (up to the 10-minute cap).
+        AddScaleButton(durRow, "10s", () => PickDuration(10));
+        AddScaleButton(durRow, "30s", () => PickDuration(30));
+        AddScaleButton(durRow, "1m",  () => PickDuration(60));
+        AddScaleButton(durRow, "2m",  () => PickDuration(120));
+        AddScaleButton(durRow, "5m",  () => PickDuration(300));
+        AddScaleButton(durRow, "10m", () => PickDuration(600));
+
+        // ── Hide launcher buttons too (gated) ───────────────────────────────
+        AddOverlayVisToggle(page, "Hide BCH/OV buttons too", Config.Settings.HideLauncherButtonsWithOverlays,
+            "When ON, hiding overlays also hides the always-on BCH and OV launcher buttons for a fully clean screen. " +
+            "Only takes effect when there's a guaranteed way back — Timed hide on, or a 'Toggle all overlays' hotkey bound below.",
+            v => { Config.Settings.SetHideLauncherButtonsWithOverlays(v); refreshGateWarning?.Invoke(); });
+
+        // Live gate warning — shown only when the user has asked to hide the buttons but neither escape
+        // route (timed mode / bound hotkey) exists, so the setting is currently being ignored for safety.
+        var gateWarn = UIFactory.CreateLabel(page, "OVHideGateWarning", "",
+            TextAlignmentOptions.TopLeft, color: null, fontSize: 11);
+        UIFactory.SetLayoutElement(gateWarn.GameObject,
+            minWidth: 360, preferredWidth: 400, flexibleWidth: 1,
+            minHeight: 18, preferredHeight: 34, flexibleHeight: 0);
+        gateWarn.TextMesh.enableWordWrapping = true;
+        gateWarn.TextMesh.overflowMode = TextOverflowModes.Overflow;
+        gateWarn.TextMesh.fontStyle = FontStyles.Italic;
+        refreshGateWarning = () =>
+        {
+            bool wantsButtonHide = Config.Settings.HideLauncherButtonsWithOverlays;
+            bool safe = Config.Settings.CanHideLauncherButtons;
+            if (wantsButtonHide && !safe)
+            {
+                gateWarn.TextMesh.text = "Note: the launcher buttons won't hide yet — turn on Timed hide above, " +
+                    "or bind the 'Toggle all overlays' hotkey below, so you have a way to bring the UI back.";
+                gateWarn.TextMesh.color = WARNING_TINT;
+            }
+            else
+            {
+                gateWarn.TextMesh.text = string.Empty;
+            }
+        };
+        refreshGateWarning();
+
+        // ── Keep game chat hidden during a hide ─────────────────────────────
+        AddOverlayVisToggle(page, "Keep game chat hidden while hidden",
+            Config.Settings.KeepNativeChatHiddenWhileOverlaysHidden,
+            "Only applies when 'Hide chat with OV' (on the main panel footer) is on. ON (default) keeps the " +
+            "game's native chat hidden during a master hide for a clean screen, instead of letting it pop " +
+            "back up. Turn OFF if you'd rather still have the game chat available while BCH overlays are hidden.",
+            v => Config.Settings.SetKeepNativeChatHiddenWhileOverlaysHidden(v));
+    }
+
+    private static string FormatOVHideModeHint()
+        => Config.Settings.OverlayTimedHide
+            ? "(timed — auto-reappears)"
+            : "(toggle — stays hidden until pressed again)";
+
+    private static string FormatOVHideDurationHint()
+        => $"(current: {FormatHideDuration(Config.Settings.OverlayHideDurationSeconds)})";
+
+    // Compact duration label: "30s", "1m", "2m 30s" — keeps the hint readable now that the range
+    // extends to 10 minutes.
+    private static string FormatHideDuration(int seconds)
+    {
+        if (seconds < 60) return $"{seconds}s";
+        int m = seconds / 60, s = seconds % 60;
+        return s == 0 ? $"{m}m" : $"{m}m {s}s";
+    }
+
+    // 0.28: simple full-width labeled toggle for the Overlay Visibility section. Distinct from
+    // AddChatOptionToggle (which refreshes the chat overlay) — this just persists the bool + runs an
+    // optional follow-up so the gate warning can update live.
+    private void AddOverlayVisToggle(GameObject parent, string label, bool initial, string tooltip,
+        System.Action<bool> setter)
+    {
+        var t = UIFactory.CreateToggle(parent, label + "Toggle");
+        UIFactory.SetLayoutElement(t.GameObject,
+            minWidth: 280, preferredWidth: 380, flexibleWidth: 1,
+            minHeight: 24, preferredHeight: 24, flexibleHeight: 0);
+        t.Text.text = label;
+        t.Text.fontSize = Theme.ScaledUI(13);
+        t.Text.alignment = TextAlignmentOptions.MidlineLeft;
+        t.Text.enableWordWrapping = false;
+        t.Text.overflowMode = TextOverflowModes.Overflow;
+        t.Toggle.isOn = initial;
+        if (!string.IsNullOrEmpty(tooltip)) TooltipHover.Attach(t.GameObject, tooltip);
+        t.OnValueChanged += v => setter(v);
     }
 
     // 0.15.0: configurable hotkeys + diagnostic mode toggle, all under one
@@ -5753,91 +6470,13 @@ public partial class MainPanel : ResizeablePanelBase
     }
 
     // -----------------------------------------------------------------------
-    // 0.10.6: Chat Logging section
-    //
-    // Diagnostic visibility controls for chat replies BCH parses + mirrors to
-    // its own UI. Three toggles (BchAuto / Bloodcraft / Kindred) plus master
-    // Show All / Hide All buttons. Per the design discussion with the user:
-    //   - Toggling a category off suppresses ONLY the chat copies of commands
-    //     whose data BCH renders structurally. Action confirmations and any
-    //     command BCH doesn't parse stay visible regardless.
-    //   - Suppression doesn't touch ClearServerMessages (the global admin
-    //     toggle) — those are independent.
-    //   - Data extraction always works regardless of these settings (the
-    //     intercept parses BEFORE the destroy decision, so flipping every
-    //     toggle to "hide" doesn't break any feature).
+    // 0.10.6/0.18: per-category chat-visibility toggle helper. The old standalone
+    // "Chat Logging" section (3 Show* toggles + Show/Hide-All buttons) was merged
+    // into the consolidated "Chat noise" section (BuildChatNoiseSection); this
+    // helper is still used there to build the inverted "Hide …" rows. Suppression
+    // is purely cosmetic — data extraction parses BEFORE the destroy decision, so
+    // hiding never breaks a feature.
     // -----------------------------------------------------------------------
-    private void BuildChatLoggingSection(GameObject page)
-    {
-        AddSectionHeading(page, "Chat Logging");
-
-        // 0.10.13: dropped italic + bumped 11 → 13 + applied muted color
-        // so the help paragraph is legible at standard text size.
-        var help = UIFactory.CreateLabel(page, "ChatLoggingHelp",
-            $"<color={Theme.MutedBodyHex}>Diagnostic toggles. Each controls whether chat shows the SERVER REPLIES " +
-            "to commands BCH already mirrors to its UI. Action confirmations and " +
-            "commands without a BCH UI display stay visible regardless. Suppression " +
-            "is purely cosmetic — data collection (familiars, V-Bloods, expertise, " +
-            "etc.) always works.</color>",
-            TextAlignmentOptions.TopLeft, color: null, fontSize: Theme.ScaledUI(13));
-        UIFactory.SetLayoutElement(help.GameObject,
-            minWidth: 360, preferredWidth: 400, flexibleWidth: 1,
-            minHeight: 48, preferredHeight: 68, flexibleHeight: 0);
-        help.TextMesh.fontStyle = FontStyles.Normal;
-        help.TextMesh.enableWordWrapping = true;
-        help.TextMesh.overflowMode = TextOverflowModes.Overflow;
-
-        // Master Show All / Hide All buttons row.
-        var masterRow = UIFactory.CreateHorizontalGroup(page, "ChatLogMasterRow",
-            forceExpandWidth: true, forceExpandHeight: false,
-            childControlWidth: true, childControlHeight: true,
-            spacing: 6, padding: new Vector4(0, 0, 0, 0));
-        UIFactory.SetLayoutElement(masterRow,
-            minWidth: 360, preferredWidth: 400, flexibleWidth: 1,
-            minHeight: 28, preferredHeight: 30, flexibleHeight: 0);
-
-        var showAll = UIFactory.CreateButton(masterRow, "ChatShowAllBtn", "Show all mod chat");
-        UIFactory.SetLayoutElement(showAll.GameObject,
-            minWidth: 140, preferredWidth: 180, flexibleWidth: 1,
-            minHeight: 26, preferredHeight: 28, flexibleHeight: 0);
-        var showAllTxt = showAll.Component.GetComponentInChildren<TextMeshProUGUI>();
-        if (showAllTxt != null) { showAllTxt.fontSize = Theme.ScaledUI(12); showAllTxt.alignment = TextAlignmentOptions.Center; }
-        TooltipHover.Attach(showAll.GameObject,
-            "Enable visibility for all three Chat Logging categories — useful when diagnosing why a BCH feature isn't picking up server data. Does NOT touch the global ClearServerMessages admin setting.");
-        showAll.OnClick = () => { Config.Settings.ShowAllChat(); RefreshChatLoggingTogglesUI(); };
-
-        var hideAll = UIFactory.CreateButton(masterRow, "ChatHideAllBtn", "Hide all mod chat");
-        UIFactory.SetLayoutElement(hideAll.GameObject,
-            minWidth: 140, preferredWidth: 180, flexibleWidth: 1,
-            minHeight: 26, preferredHeight: 28, flexibleHeight: 0);
-        var hideAllTxt = hideAll.Component.GetComponentInChildren<TextMeshProUGUI>();
-        if (hideAllTxt != null) { hideAllTxt.fontSize = Theme.ScaledUI(12); hideAllTxt.alignment = TextAlignmentOptions.Center; }
-        TooltipHover.Attach(hideAll.GameObject,
-            "Disable visibility for all three Chat Logging categories — maximum chat quiet. Action confirmations and any command BCH doesn't parse will still appear in chat (those have no alternative UI display).");
-        hideAll.OnClick = () => { Config.Settings.HideAllChat(); RefreshChatLoggingTogglesUI(); };
-
-        AddSpacer(page, 4);
-
-        _chatBchAutoToggle    = AddChatLoggingToggle(page, "BCH internal auto-fires",
-            "Replies to BCH's own automatic background commands — V-Blood scanner searches, the XP overlay bonus-stats ticker, the Wep/Blood-Legacy tab auto-refresh. Off by default to avoid spam from background polling. Turn ON if you want to see what BCH is sending and verify the server is replying.",
-            () => Config.Settings.ShowChatBchAuto,
-            v => Config.Settings.SetShowChatBchAuto(v));
-
-        _chatBloodcraftToggle = AddChatLoggingToggle(page, "Bloodcraft command replies",
-            "Replies to user-initiated Bloodcraft commands BCH structurally parses — .fam boxes / .fam l / .fam s / .bl get / .wep get / .prestige get. On by default. Off = the BCH UI is the only place this data shows (less chat noise). Action confirmations (.fam b, .fam ub, etc.) and commands BCH doesn't parse stay visible regardless.",
-            () => Config.Settings.ShowChatBloodcraft,
-            v => Config.Settings.SetShowChatBloodcraft(v));
-
-        _chatKindredToggle    = AddChatLoggingToggle(page, "Kindred command replies",
-            "Same as the Bloodcraft toggle, applied to KindredCommands / KindredLogistics commands. BCH doesn't structurally parse any Kindred replies in this version, so the toggle is currently a no-op — reserved for future Kindred structured parsing.",
-            () => Config.Settings.ShowChatKindred,
-            v => Config.Settings.SetShowChatKindred(v));
-    }
-
-    private UI.Framework.UniverseLib.UI.Models.ToggleRef _chatBchAutoToggle;
-    private UI.Framework.UniverseLib.UI.Models.ToggleRef _chatBloodcraftToggle;
-    private UI.Framework.UniverseLib.UI.Models.ToggleRef _chatKindredToggle;
-
     private UI.Framework.UniverseLib.UI.Models.ToggleRef AddChatLoggingToggle(
         GameObject parent, string label, string tooltip,
         System.Func<bool> get, System.Action<bool> set)
@@ -5864,16 +6503,6 @@ public partial class MainPanel : ResizeablePanelBase
         TooltipHover.Attach(t.GameObject, tooltip);
         t.OnValueChanged += v => set(v);
         return t;
-    }
-
-    /// <summary>0.10.6: re-read the three toggle states from settings and push to
-    /// the rendered UI. Called after Show All / Hide All so the visible
-    /// checkbox state matches the setting state.</summary>
-    private void RefreshChatLoggingTogglesUI()
-    {
-        if (_chatBchAutoToggle    != null) _chatBchAutoToggle.Toggle.isOn    = Config.Settings.ShowChatBchAuto;
-        if (_chatBloodcraftToggle != null) _chatBloodcraftToggle.Toggle.isOn = Config.Settings.ShowChatBloodcraft;
-        if (_chatKindredToggle    != null) _chatKindredToggle.Toggle.isOn    = Config.Settings.ShowChatKindred;
     }
 
     // -----------------------------------------------------------------------
@@ -6220,6 +6849,40 @@ public partial class MainPanel : ResizeablePanelBase
             // BonusStatsTick). Combined overlay is event-driven; nudge it
             // to re-render now so the sub-rows show/hide without waiting
             // for the next data event (could be ~10s).
+            Plugin.UIManager?.RefreshCombinedOverlaySections();
+        };
+    }
+
+    // B5 (0.19): abbreviate bonus-stat names on the overlays so each stays on one line and the
+    // wrapped sub-row can't overlap the bar/row around it at large text. Off by default (full names).
+    private void AddShowOverlayStatAcronymsToggle(GameObject parent)
+    {
+        var row = UIFactory.CreateHorizontalGroup(parent, "ShowOverlayStatAcronymsRow",
+            forceExpandWidth: true, forceExpandHeight: false,
+            childControlWidth: true, childControlHeight: true,
+            spacing: 6, padding: new Vector4(2, 2, 2, 2));
+        UIFactory.SetLayoutElement(row,
+            minWidth: 360, preferredWidth: 400, flexibleWidth: 1,
+            minHeight: 28, preferredHeight: 30, flexibleHeight: 0);
+
+        var t = UIFactory.CreateToggle(row, "ShowOverlayStatAcronymsToggle");
+        UIFactory.SetLayoutElement(t.GameObject,
+            minWidth: 360, preferredWidth: 400, flexibleWidth: 1,
+            minHeight: 24, preferredHeight: 26, flexibleHeight: 0);
+        t.Text.text = "Abbreviate bonus-stat names on overlays (PhysicalPower → PhysPwr)";
+        t.Text.fontSize = Theme.ScaledUI(12);
+        t.Text.alignment = TextAlignmentOptions.MidlineLeft;
+        UIFactory.SetLayoutElement(t.Text.gameObject,
+            minWidth: 320, preferredWidth: 360, flexibleWidth: 1,
+            minHeight: 22, preferredHeight: 24, flexibleHeight: 0);
+        t.Toggle.isOn = Config.Settings.ShowOverlayStatAcronyms;
+        TooltipHover.Attach(t.GameObject,
+            "Shortens the bonus-stat names shown on the XP and Combined overlays (Eclipse-style: PhysicalPower → PhysPwr, SpellCriticalStrikeChance → SpellCritCh, etc.) so each stat stays on one line. Helps the bonus-stats sub-row from overlapping the progress bar / next row at Large or X-Large overlay text. Off = full names.");
+        t.OnValueChanged += value =>
+        {
+            Config.Settings.SetShowOverlayStatAcronyms(value);
+            // XP overlay re-renders on its next BonusStatsTick frame; nudge the combined overlay
+            // (event-driven) to re-render immediately so the names switch without a data-event wait.
             Plugin.UIManager?.RefreshCombinedOverlaySections();
         };
     }
@@ -6572,6 +7235,9 @@ public partial class MainPanel : ResizeablePanelBase
         if (_profOverlayToggle     != null) _profOverlayToggle.SetIsOnWithoutNotify(Plugin.UIManager?.IsOverlayOpen(PanelType.ProfessionOverlay) ?? false);
         if (_shiftOverlayToggle    != null) _shiftOverlayToggle.SetIsOnWithoutNotify(Plugin.UIManager?.IsOverlayOpen(PanelType.ShiftSpellOverlay) ?? false);
         if (_quickActionsOverlayToggle != null) _quickActionsOverlayToggle.SetIsOnWithoutNotify(Plugin.UIManager?.IsOverlayOpen(PanelType.QuickActionsOverlay) ?? false);
+        if (_beelzOverlayToggle    != null) _beelzOverlayToggle.SetIsOnWithoutNotify(Plugin.UIManager?.IsOverlayOpen(PanelType.BeelzActionBarOverlay) ?? false);
+        if (_beelzSummonsOverlayToggle != null) _beelzSummonsOverlayToggle.SetIsOnWithoutNotify(Plugin.UIManager?.IsOverlayOpen(PanelType.BeelzSummonsOverlay) ?? false);
+        if (_beelzTransformOverlayToggle != null) _beelzTransformOverlayToggle.SetIsOnWithoutNotify(Plugin.UIManager?.IsOverlayOpen(PanelType.BeelzTransformOverlay) ?? false);
         if (_combinedOverlayToggle != null) _combinedOverlayToggle.SetIsOnWithoutNotify(Config.Settings.ShowCombinedOverlay);
         if (_combinedMasterToggle  != null) _combinedMasterToggle.SetIsOnWithoutNotify(Config.Settings.ShowCombinedOverlay);
     }
@@ -6754,6 +7420,35 @@ public partial class MainPanel : ResizeablePanelBase
         t.OnValueChanged += v => Config.Settings.SetSuppressGameInputWhileUIOpen(v);
     }
 
+    // B3 (0.19): toggle for suppressing the primary attack / cast when left-clicking over ANY BCH
+    // panel/overlay (the chat window is always covered). Default OFF; read every frame by
+    // InputSuppression.ShouldBlockAbilities so flipping it takes effect immediately.
+    private void AddBlockInputOverUiToggle(GameObject parent)
+    {
+        var row = UIFactory.CreateHorizontalGroup(parent, "BlockInputOverUiRow",
+            forceExpandWidth: true, forceExpandHeight: false,
+            childControlWidth: true, childControlHeight: true,
+            spacing: 6, padding: new Vector4(2, 2, 2, 2));
+        UIFactory.SetLayoutElement(row,
+            minWidth: 360, preferredWidth: 400, flexibleWidth: 1,
+            minHeight: 28, preferredHeight: 30, flexibleHeight: 0);
+
+        var t = UIFactory.CreateToggle(row, "BlockInputOverUiToggle");
+        UIFactory.SetLayoutElement(t.GameObject,
+            minWidth: 360, preferredWidth: 400, flexibleWidth: 1,
+            minHeight: 24, preferredHeight: 26, flexibleHeight: 0);
+        t.Text.text = "Don't attack/cast when clicking over a BCH panel or overlay";
+        t.Text.fontSize = Theme.ScaledUI(12);
+        t.Text.alignment = TextAlignmentOptions.MidlineLeft;
+        UIFactory.SetLayoutElement(t.Text.gameObject,
+            minWidth: 320, preferredWidth: 360, flexibleWidth: 1,
+            minHeight: 22, preferredHeight: 24, flexibleHeight: 0);
+        t.Toggle.isOn = Config.Settings.BlockInputWhenPointerOverUI;
+        TooltipHover.Attach(t.GameObject,
+            "When ON, a LEFT-CLICK while the cursor is over any BCH panel or overlay won't fire your primary attack or spell cast — so clicking a button or an overlay can't leak into the world as an attack / stuck cast (the chat window is always protected regardless). Only the attack/cast is suppressed — movement, camera, and menus are untouched, so it can't freeze the game. Default OFF.");
+        t.OnValueChanged += v => Config.Settings.SetBlockInputWhenPointerOverUI(v);
+    }
+
     /// <summary>0.10.2: cycle button — text alignment for overlay rows
     /// (Left = default; Right = useful when the overlay is pinned to the
     /// right edge of the screen). Toggling rebuilds open overlays so the
@@ -6802,6 +7497,47 @@ public partial class MainPanel : ResizeablePanelBase
     private static string FormatOverlayAlignText()
         => Config.Settings.OverlayTextAlignmentSetting == Config.Settings.OverlayAlignment.Right ? "Right" : "Left";
 
+    /// <summary>0.18: consolidated "Chat noise" controls — ALL of BCH's chat-suppression in
+    /// one place, every toggle phrased "Hide …" and scoped to BCH's OWN command/query traffic.
+    /// Replaces the old split between the "Chat noise" block and the separate "Chat Logging"
+    /// section, and the confusing 3-way Show* category split (Bloodcraft + the no-op Kindred
+    /// toggle are merged into one "command replies you trigger" control). Underlying config keys
+    /// (ShowChatBchAuto / ShowChatBloodcraft / ShowChatKindred / SuppressFamiliarActionChatter /
+    /// SuppressCommandFrameworkErrors) are unchanged, so saved prefs carry over. The KEY promise —
+    /// reinforced by the 0.18 generic-capture fix in MessageService — is that BCH never hides
+    /// other players' chat or other mods' system messages; only chat copies of its OWN commands.</summary>
+    private void BuildChatNoiseSection(GameObject page)
+    {
+        AddSectionHeading(page, "Chat noise");
+        AddBodyText(page,
+            "BloodCraftHub only ever hides chat tied to its OWN commands and queries — it never touches other " +
+            "players' chat or other mods' system messages. These control which of BCH's own chat copies it hides:");
+
+        // 1. BCH's automatic background polling (overlay bonus-stats ticker, V-Blood scanner, tab
+        //    auto-refresh). Backed by ShowChatBchAuto, inverted. Default hidden.
+        AddChatLoggingToggle(page, "Hide BloodCraftHub's background query replies",
+            "BCH quietly polls the server to keep its panels and overlays current (the XP overlay bonus-stats ticker, " +
+            "the V-Blood scanner, tab auto-refresh). On (default) keeps those replies out of chat. Turn off to see " +
+            "exactly what BCH is sending — useful when diagnosing why a BCH feature isn't picking up server data.",
+            () => !Config.Settings.ShowChatBchAuto,
+            hide => Config.Settings.SetShowChatBchAuto(!hide));
+
+        // 2. Replies to commands the USER triggers (button clicks / typed). Backed by
+        //    ShowChatBloodcraft + ShowChatKindred (merged), inverted. Default shown (OFF).
+        AddChatLoggingToggle(page, "Hide chat copies of BCH command replies you trigger",
+            "When you click a BCH button or type a Bloodcraft / Kindred command, the reply is mirrored into BCH's " +
+            "panels. OFF (default) means the reply ALSO appears in chat as usual; ON keeps chat cleaner (the data " +
+            "still shows in BCH's UI). Big list dumps (like the full familiar box list) are always mirrored to their " +
+            "tab rather than chat. Action confirmations and commands BCH doesn't parse stay visible regardless.",
+            () => !Config.Settings.ShowChatBloodcraft,
+            hide => { Config.Settings.SetShowChatBloodcraft(!hide); Config.Settings.SetShowChatKindred(!hide); });
+
+        // 3. Familiar bind/unbind/switch-box confirmations (Bloodcraft action chatter).
+        AddSuppressActionChatterToggle(page);
+        // 4. Command-framework (VCF) "[error]"/"[denied]" chatter.
+        AddSuppressCommandFrameworkErrorsToggle(page);
+    }
+
     /// <summary>0.9.1: opt-in toggle to suppress the chat confirmation lines
     /// Bloodcraft prints when the user bind / unbind / switch-box / move /
     /// smartbind / permanent-remove a familiar. The structured data pipes
@@ -6837,6 +7573,45 @@ public partial class MainPanel : ResizeablePanelBase
         t.OnValueChanged += value =>
         {
             Config.Settings.SetSuppressFamiliarActionChatter(value);
+        };
+    }
+
+    /// <summary>0.18: opt-out toggle to hide VampireCommandFramework (VCF) error chatter
+    /// from chat — the "[error]" / "[denied]" / "parameter conversion errors" system lines
+    /// that surface when a command BCH sends (or an admin button clicked by a non-admin)
+    /// isn't usable on this server. BCH is primarily a Bloodcraft client but can load on
+    /// Beelzebub-only / Kindred-only / vanilla servers, where these are pure noise. On by
+    /// default; reads live so flipping it takes effect on the next inbound message.</summary>
+    private void AddSuppressCommandFrameworkErrorsToggle(GameObject parent)
+    {
+        var row = UIFactory.CreateHorizontalGroup(parent, "SuppressVcfErrorsRow",
+            forceExpandWidth: true, forceExpandHeight: false,
+            childControlWidth: true, childControlHeight: true,
+            spacing: 6, padding: new Vector4(2, 2, 2, 2));
+        UIFactory.SetLayoutElement(row,
+            minWidth: 360, preferredWidth: 400, flexibleWidth: 1,
+            minHeight: 28, preferredHeight: 30, flexibleHeight: 0);
+
+        var t = UIFactory.CreateToggle(row, "SuppressVcfErrorsToggle");
+        UIFactory.SetLayoutElement(t.GameObject,
+            minWidth: 360, preferredWidth: 400, flexibleWidth: 1,
+            minHeight: 24, preferredHeight: 26, flexibleHeight: 0);
+        t.Text.text = "Hide command-framework (VCF) error / denied chatter";
+        t.Text.fontSize = Theme.ScaledUI(12);
+        t.Text.alignment = TextAlignmentOptions.MidlineLeft;
+        UIFactory.SetLayoutElement(t.Text.gameObject,
+            minWidth: 320, preferredWidth: 360, flexibleWidth: 1,
+            minHeight: 22, preferredHeight: 24, flexibleHeight: 0);
+        t.Toggle.isOn = Config.Settings.SuppressCommandFrameworkErrors;
+        TooltipHover.Attach(t.GameObject,
+            "When on (default), BCH eats the '[error]', '[denied]', and 'parameter conversion error' chat lines that " +
+            "a command framework (VCF — used by Bloodcraft, Beelzebub, and KindredCommands) prints when a command BCH " +
+            "issues can't run here — e.g. a Bloodcraft command on a server without Bloodcraft, or an admin button " +
+            "clicked by a non-admin. These are never BCH's own data, so they're just noise. Turn it OFF if you want to " +
+            "see why a command you typed yourself failed.");
+        t.OnValueChanged += value =>
+        {
+            Config.Settings.SetSuppressCommandFrameworkErrors(value);
         };
     }
 
@@ -6900,8 +7675,11 @@ public partial class MainPanel : ResizeablePanelBase
         btn.OnClick = () => onClick();
     }
 
-    /// <summary>Renders a labeled row with five buttons (0% / 25% / 50% / 75% / 100%)
-    /// for a single overlay's background transparency.</summary>
+    /// <summary>B6 (0.19): renders a labeled row with a live SLIDER (0–100%) plus a typed numeric box
+    /// for a single overlay's background transparency. 0% = solid, 100% = fully invisible. Replaces the
+    /// old five-button presets — testers wanted fine control and a typed value, and true 100% (the floor
+    /// was raised to 1.0 in Settings). Slider and box stay in sync; both apply immediately + refresh live
+    /// opacities so the change is visible without toggling the overlay off and on.</summary>
     private void AddTransparencyRow(GameObject parent, string overlayLabel,
                                     System.Func<float> currentValue,
                                     System.Action<float> applyValue)
@@ -6921,50 +7699,67 @@ public partial class MainPanel : ResizeablePanelBase
             minWidth: 130, preferredWidth: 150, flexibleWidth: 0,
             minHeight: 22, preferredHeight: 24, flexibleHeight: 0);
 
-        var hint = UIFactory.CreateLabel(row, $"Hint_{overlayLabel}",
-            FormatTransparencyHint(currentValue()),
-            TMPro.TextAlignmentOptions.MidlineLeft, color: null, fontSize: 10);
-        UIFactory.SetLayoutElement(hint.GameObject,
-            minWidth: 60, preferredWidth: 70, flexibleWidth: 0,
-            minHeight: 22, preferredHeight: 24, flexibleHeight: 0);
-        hint.TextMesh.fontStyle = TMPro.FontStyles.Italic;
+        int startPct = Mathf.Clamp(Mathf.RoundToInt(currentValue() * 100f), 0, 100);
 
-        void Pick(float v)
+        var sliderGo = UIFactory.CreateSlider(row, $"OpacitySlider_{overlayLabel}", out var slider);
+        UIFactory.SetLayoutElement(sliderGo,
+            minWidth: 120, preferredWidth: 180, flexibleWidth: 1,
+            minHeight: 22, preferredHeight: 24, flexibleHeight: 0);
+        slider.minValue = 0f;
+        slider.maxValue = 100f;
+        slider.wholeNumbers = true;
+        slider.value = startPct;
+
+        // Breathing room so the slider handle (at 100%) doesn't butt up against the numeric box.
+        var gap = UIFactory.CreateUIObject($"OpacityGap_{overlayLabel}", row);
+        UIFactory.SetLayoutElement(gap,
+            minWidth: 12, preferredWidth: 12, flexibleWidth: 0,
+            minHeight: 10, preferredHeight: 10, flexibleHeight: 0);
+
+        var box = UIFactory.CreateInputField(row, $"OpacityInput_{overlayLabel}", "0");
+        UIFactory.SetLayoutElement(box.GameObject,
+            minWidth: 44, preferredWidth: 48, flexibleWidth: 0,
+            minHeight: 22, preferredHeight: 24, flexibleHeight: 0);
+        box.Component.contentType = TMPro.TMP_InputField.ContentType.IntegerNumber;
+        box.Component.characterLimit = 3;
+        box.Text = startPct.ToString();
+
+        var pctLbl = UIFactory.CreateLabel(row, $"OpacityPct_{overlayLabel}", "%",
+            TMPro.TextAlignmentOptions.MidlineLeft, color: null, fontSize: 12);
+        UIFactory.SetLayoutElement(pctLbl.GameObject,
+            minWidth: 14, preferredWidth: 16, flexibleWidth: 0,
+            minHeight: 22, preferredHeight: 24, flexibleHeight: 0);
+
+        // Re-entry guard so slider→box and box→slider mirroring doesn't recurse.
+        bool syncing = false;
+        void Apply(int pct)
         {
-            applyValue(v);
-            hint.TextMesh.text = FormatTransparencyHint(v);
-            // 0.9.2: push the new alpha to existing panel backgrounds so
-            // the user sees the change without having to toggle the
-            // overlay off and on.
+            pct = Mathf.Clamp(pct, 0, 100);
+            applyValue(pct / 100f);
             Plugin.UIManager.RefreshAllOpacities();
         }
-        AddOpacityButton(row, "0%",   () => Pick(0.00f));
-        AddOpacityButton(row, "25%",  () => Pick(0.25f));
-        AddOpacityButton(row, "50%",  () => Pick(0.50f));
-        AddOpacityButton(row, "75%",  () => Pick(0.75f));
-        AddOpacityButton(row, "100%", () => Pick(1.00f));
-    }
-
-    private static string FormatTransparencyHint(float v)
-    {
-        // Snap to nearest preset for the display so floating-point drift
-        // doesn't show "27%" for a freshly-clicked 25%.
-        if (v < 0.13f) return "(0%)";
-        if (v < 0.38f) return "(25%)";
-        if (v < 0.63f) return "(50%)";
-        if (v < 0.88f) return "(75%)";
-        return "(100%)";
-    }
-
-    private static void AddOpacityButton(GameObject row, string text, System.Action onClick)
-    {
-        var btn = UIFactory.CreateButton(row, $"Op_{text}", text);
-        UIFactory.SetLayoutElement(btn.GameObject,
-            minWidth: 36, preferredWidth: 42, flexibleWidth: 0,
-            minHeight: 22, preferredHeight: 24, flexibleHeight: 0);
-        var t = btn.Component.GetComponentInChildren<TextMeshProUGUI>();
-        if (t != null) t.fontSize = 10;
-        btn.OnClick = () => onClick();
+        System.Action<float> onSlider = v =>
+        {
+            if (syncing) return;
+            syncing = true;
+            int pct = Mathf.Clamp(Mathf.RoundToInt(v), 0, 100);
+            box.Text = pct.ToString();
+            Apply(pct);
+            syncing = false;
+        };
+        System.Action<string> onBox = s =>
+        {
+            if (syncing) return;
+            syncing = true;
+            if (!int.TryParse(s, out int pct)) pct = Mathf.RoundToInt(currentValue() * 100f);
+            pct = Mathf.Clamp(pct, 0, 100);
+            box.Text = pct.ToString();
+            slider.value = pct;
+            Apply(pct);
+            syncing = false;
+        };
+        slider.onValueChanged.AddListener(onSlider);
+        box.Component.onEndEdit.AddListener(onBox);
     }
 
     // 0.12.0: panel color preset sections. Two zones — "Panel background"
@@ -6975,6 +7770,7 @@ public partial class MainPanel : ResizeablePanelBase
     // surfaces a row of seven curated presets per zone.
     private TextMeshProUGUI _panelBgCurrentLabel;
     private TextMeshProUGUI _innerBgCurrentLabel;
+    private TextMeshProUGUI _buttonBgCurrentLabel; // 0.18.4: button color "Current:" label
 
     private void BuildPanelBackgroundColorSection(GameObject page)
     {
@@ -7171,6 +7967,85 @@ public partial class MainPanel : ResizeablePanelBase
         => $"Current: {Config.Settings.PanelBackgroundColorHex}";
     private static string FormatInnerBgCurrentText()
         => $"Current: {Config.Settings.InnerPanelBackgroundColorHex}";
+
+    // 0.18.4: button background-color picker. Reuses the same preset-row + info-row infrastructure as
+    // the panel color pickers; recolors every themed button live (BCHubUIManager.RefreshAllButtonColors).
+    private static readonly (string Label, string Hex)[] ButtonColorPresets = new[]
+    {
+        ("Default", Config.Settings.DEFAULT_BUTTON_BG_HEX), // #4D4D4D neutral grey
+        ("Dark",    "#2A2A2A"),
+        ("Slate",   "#3A4256"),
+        ("Steel",   "#46505C"),
+        ("Wine",    "#5A2230"),
+        ("Forest",  "#2A4A2E"),
+        ("Indigo",  "#352B5E"),
+        ("Crimson", "#6E1F26"),
+    };
+
+    private void BuildButtonColorSection(GameObject page)
+    {
+        AddSectionHeading(page, "Button color");
+        AddPanelColorHelp(page, "ButtonColorHelp",
+            "Sets the background color of the buttons BCH builds — the BCH / OV launcher buttons, Stash All, the Familiar Browser buttons, and most others. " +
+            "Buttons with a deliberate color (the red Danger / WIPE buttons) keep their own color. Changes apply immediately.");
+        AddPanelColorPresetRow(page, "ButtonColorPresetRow", ApplyButtonBgHex, ButtonColorPresets);
+        _buttonBgCurrentLabel = AddPanelColorInfoRow(page, "ButtonColorInfoRow",
+            FormatButtonBgCurrentText,
+            resetHex: Config.Settings.DEFAULT_BUTTON_BG_HEX,
+            resetTooltip: "Restore the default button color (#4D4D4D neutral grey — the original look).",
+            applyAction: ApplyButtonBgHex);
+    }
+
+    private void ApplyButtonBgHex(string hex)
+    {
+        Config.Settings.SetButtonBackgroundColorHex(hex);
+        Plugin.UIManager?.RefreshAllButtonColors();
+        if (_buttonBgCurrentLabel != null) _buttonBgCurrentLabel.text = FormatButtonBgCurrentText();
+    }
+
+    private static string FormatButtonBgCurrentText()
+        => $"Current: {Config.Settings.ButtonBackgroundColorHex}";
+
+    // 0.18.4: launcher (BCH/OV) button size — a segmented control 60%–120%, applied live via the
+    // floating panel's localScale (Settings.FloatingButtonScale). Mirrors AddTextScaleRow's layout.
+    private void AddLauncherButtonSizeRow(GameObject parent)
+    {
+        var row = UIFactory.CreateHorizontalGroup(parent, "DisplayRow_LauncherSize",
+            forceExpandWidth: true, forceExpandHeight: false,
+            childControlWidth: true, childControlHeight: true,
+            spacing: 6, padding: new Vector4(2, 2, 2, 2));
+        UIFactory.SetLayoutElement(row,
+            minWidth: 360, preferredWidth: 400, flexibleWidth: 1,
+            minHeight: 30, preferredHeight: 32, flexibleHeight: 0);
+
+        var lbl = UIFactory.CreateLabel(row, "Lbl_LauncherSize", "Launcher button size:",
+            TextAlignmentOptions.MidlineLeft, color: null, fontSize: 13);
+        UIFactory.SetLayoutElement(lbl.GameObject,
+            minWidth: 140, preferredWidth: 160, flexibleWidth: 0,
+            minHeight: 22, preferredHeight: 24, flexibleHeight: 0);
+
+        var hint = UIFactory.CreateLabel(row, "Hint_LauncherSize",
+            FormatLauncherSizeHint(Config.Settings.FloatingButtonScale),
+            TextAlignmentOptions.MidlineLeft, color: null, fontSize: 11);
+        UIFactory.SetLayoutElement(hint.GameObject,
+            minWidth: 80, preferredWidth: 90, flexibleWidth: 0,
+            minHeight: 22, preferredHeight: 24, flexibleHeight: 0);
+        hint.TextMesh.fontStyle = FontStyles.Italic;
+
+        void Pick(float v)
+        {
+            Config.Settings.SetFloatingButtonScale(v);
+            Plugin.UIManager?.RefreshFloatingButtonScale();
+            hint.TextMesh.text = FormatLauncherSizeHint(v);
+        }
+        AddScaleButton(row, "60%",  () => Pick(0.6f));
+        AddScaleButton(row, "75%",  () => Pick(0.75f));
+        AddScaleButton(row, "85%",  () => Pick(0.85f));
+        AddScaleButton(row, "100%", () => Pick(1.0f));
+        AddScaleButton(row, "120%", () => Pick(1.2f));
+    }
+
+    private static string FormatLauncherSizeHint(float v) => $"(current: {v * 100f:0}%)";
 
     /// <summary>One row showing a label, the URL, and an "Open" button that
     /// hands the URL to <see cref="UnityEngine.Application.OpenURL"/> so the
@@ -7670,22 +8545,70 @@ public partial class MainPanel : ResizeablePanelBase
         });
     }
 
+    // General "what is BloodCraftHub" getting-started — server-mod-agnostic. The Bloodcraft-specific
+    // walkthrough lives in BuildBloodcraftQuickStartTab (parallel to the Beelzebub Quick Start).
     private void BuildQuickStartTab(GameObject page)
     {
         AddGuideSection(page,
-            "Welcome to BloodCraftHub",
-            "BloodCraftHub is the unified UI for the Bloodcraft V Rising mod. " +
-            "Every chat command from Bloodcraft can be issued from this UI - " +
-            "just open the matching tab and use the buttons or forms. The " +
-            "left rail groups tabs into BLOODCRAFT / KINDRED / HELP - click " +
-            "a group header to collapse or expand it. The footer toggles the " +
-            "secondary overlays (XP, Familiar), auto-resize, and the input " +
-            "block while typing.\n\n" +
-            "Tip: this main panel and every overlay are BOTH draggable AND " +
-            "resizable. Drag from anywhere inside to move; drag the bottom-" +
-            "right (or any edge) to resize. The maximize button in the top-" +
-            "right of this main panel toggles fullscreen, and the Settings " +
-            "tab has size controls if you prefer click-to-resize.");
+            "<color=#C41E3A>Welcome to BloodCraftHub!</color>",
+            "It looks like this is your first time here, so we opened to Quick Start instead of dropping you " +
+            "straight into a feature tab. This page is a 60-second tour. You can come back any time from " +
+            "<b>Settings and Help → Quick Start</b>, and each mod has its own Quick Start tab too. " +
+            "When you're ready, just click a tab on the left rail.");
+
+        AddGuideSection(page,
+            "What is BloodCraftHub?",
+            "BloodCraftHub (BCH) is a client-side companion UI for several server-side V Rising mods. " +
+            "It turns each mod's chat commands into buttons and forms and adds on-screen overlays — so you " +
+            "can play the mods without memorizing commands.\n\n" +
+            "BCH works with: <b>Bloodcraft</b> (leveling, familiars, classes, expertise, blood legacy, " +
+            "prestige, quests), the <b>Kindred</b> suite (KindredCommands + KindredLogistics), and " +
+            "<b>Beelzebub</b> (ability capture + transforms). It also has a standalone tabbed chat window " +
+            "and Game-UI tweaks that work on ANY server, even one with no mods.");
+
+        AddGuideSection(page,
+            "Your first minute",
+            "<b>1.</b> Click the <b>BCH</b> button (top-right of your screen) to open this panel — or press " +
+            "the keybind shown in Settings.\n" +
+            "<b>2.</b> Look at the left rail. BCH auto-detects your server's mods, so you'll see a group for " +
+            "each one it finds: <b>BLOODCRAFT</b>, <b>BEELZEBUB</b>, <b>KINDRED</b>, plus <b>SETTINGS AND HELP</b> " +
+            "(always there).\n" +
+            "<b>3.</b> Open the Quick Start tab for whichever mod your server runs:\n" +
+            "   • Bloodcraft server → the <b>Bloodcraft Quick Start</b> tab.\n" +
+            "   • Beelzebub server → the <b>Beelzebub Quick Start</b> tab.\n" +
+            "<b>4.</b> That's it — each mod's tabs are buttons and forms. Hover anything to see what it does " +
+            "(the description shows in the bar at the bottom of the panel).");
+
+        AddGuideSection(page,
+            "Don't see a mod's tabs?",
+            "A group only appears once BCH confirms that mod on your server. If you know a mod is installed " +
+            "but its group is greyed or missing — common right after switching servers — you have two easy " +
+            "fixes:\n" +
+            "• Click the greyed <b>group header</b>: it expands to a small panel with a <b>Re-check now</b> " +
+            "button (restarts detection) and a <b>Force-enable</b> button (shows the tabs anyway).\n" +
+            "• Or open <b>Settings and Help → Connection</b> and press the matching <b>Re-detect</b>.\n\n" +
+            "Game UI and the chat window always work, even on a vanilla server.");
+
+        AddGuideSection(page,
+            "Moving things around",
+            "• <b>Left rail:</b> click a group header to collapse/expand it. Groups for detected mods " +
+            "auto-expand.\n" +
+            "• <b>Buttons:</b> the top-right <b>BCH</b> button opens this panel; <b>OV</b> toggles all overlays.\n" +
+            "• <b>Drag + resize:</b> this panel and every overlay move by their title bar and resize from any " +
+            "edge or corner; the maximize button toggles fullscreen.\n" +
+            "• <b>Footer:</b> toggles the secondary overlays, auto-resize, and the \"block typing from " +
+            "triggering the game\" option.\n" +
+            "• <b>Settings and Help → Settings</b> has display / colour / size options.");
+    }
+
+    private void BuildBloodcraftQuickStartTab(GameObject page)
+    {
+        AddGuideSection(page,
+            "Bloodcraft — getting started",
+            "Bloodcraft is the server-side mod that adds leveling, familiars, classes, weapon expertise, " +
+            "blood legacy, prestige, and quests. BloodCraftHub surfaces all of it under the BLOODCRAFT tab " +
+            "group (visible when your server runs Bloodcraft). This walkthrough covers the core systems; " +
+            "the <b>Bloodcraft Help</b> tab has the deeper mechanics reference.");
 
         AddGuideSection(page,
             "Leveling (passive)",
@@ -7713,22 +8636,18 @@ public partial class MainPanel : ResizeablePanelBase
 
         AddGuideSection(page,
             "Classes",
-            "A class specializes your character with weapon synergies, " +
-            "stat bonuses, and a unique spell. Use Class -> List Classes " +
-            "to see what's available on your server. To pick a class, type " +
-            "`.class s <ClassName>` in chat - a UI selector lands in a " +
-            "later phase. Most classes grant a spell that can occupy your " +
-            "shift slot (see Unarmed + Shift below).");
+            "A class specializes your character with weapon synergies, stat bonuses, and a unique spell. " +
+            "On the <b>Class</b> tab, use <b>List Classes</b> to see what's available, then choose one with " +
+            "<b>.class s (ClassName)</b> in chat. Most classes grant a spell that can occupy your shift slot " +
+            "(see Unarmed + Shift below).");
 
         AddGuideSection(page,
             "Weapon Expertise",
-            "Each weapon type (Sword, Axe, Mace, ...) tracks its own " +
-            "expertise level. Switch to a weapon and use it - expertise " +
-            "rises. The Weapon Expertise tab shows level, progress, " +
-            "prestige, and the bonus stats you've chosen for the currently-" +
-            "equipped weapon. Choose a stat with `.wep cst <Weapon> <Stat>` " +
-            "(stat picker coming to UI in a later phase). Common choices: " +
-            "PhysicalPower / SpellPower / one of the crit chances.");
+            "Each weapon type (Sword, Axe, Mace, …) tracks its own expertise level. Switch to a weapon and " +
+            "use it — expertise rises. The <b>Weapon Expertise</b> tab shows level, progress, prestige, and " +
+            "the bonus stats you've chosen for the currently-equipped weapon. Pick a stat with " +
+            "<b>.wep cst (Weapon) (Stat)</b>; common choices: PhysicalPower / SpellPower / one of the crit " +
+            "chances.");
 
         AddGuideSection(page,
             "Unarmed + Shift slot",
@@ -7740,9 +8659,9 @@ public partial class MainPanel : ResizeablePanelBase
             "want to keep.\n\n" +
             "Shift slot: by default your shift ability is your travel " +
             "spell (wolf, bat, etc.). Bloodcraft can replace it with a " +
-            "class spell instead. Toggle the override from Class -> " +
-            "Toggle Shift. Pick which class spell goes in the slot with " +
-            "`.class csp <#>`.");
+            "class spell instead. Toggle the override from <b>Class → " +
+            "Toggle Shift</b>. Pick which class spell goes in the slot with " +
+            "<b>.class csp (#)</b>.");
 
         AddGuideSection(page,
             "Prestige",
@@ -7758,12 +8677,11 @@ public partial class MainPanel : ResizeablePanelBase
 
         AddGuideSection(page,
             "Tips",
-            "- Hover any control to see what it does (footer at panel bottom).\n" +
-            "- Auto-resize ON: the panel grows to fit the active tab. Turn " +
-            "off if you prefer manual sizing.\n" +
-            "- The secondary overlays (XP, Familiar, Familiar Browser, Daily " +
-            "Quest) are independent draggable panels - toggle them in the " +
-            "footer.");
+            "• Hover any control to see what it does (description shows in the bar at the panel bottom).\n" +
+            "• Auto-resize ON: the panel grows to fit the active tab. Turn it off if you prefer manual " +
+            "sizing.\n" +
+            "• The secondary overlays (XP, Familiar, Familiar Browser, Daily Quest) are independent " +
+            "draggable panels — toggle them in the footer.");
     }
 
     private static void AddGuideSection(GameObject parent, string title, string body)
@@ -7986,6 +8904,12 @@ public partial class MainPanel : ResizeablePanelBase
     private static readonly UnityEngine.Color ARTICLE_HEADING_ACCENT =
         new UnityEngine.Color(0.90f, 0.72f, 0.36f, 1f); // warm gold
 
+    // 0.28: amber caution tint for inline "this setting is being ignored / needs attention" warnings
+    // (e.g. the launcher-hide safety gate in the Overlay Visibility section). Distinct from the gold
+    // heading accent — more orange so it reads as a caution, not a section marker.
+    private static readonly UnityEngine.Color WARNING_TINT =
+        new UnityEngine.Color(0.95f, 0.58f, 0.20f, 1f);
+
     private static void AddSectionHeading(GameObject parent, string text)
     {
         if (string.IsNullOrWhiteSpace(text))
@@ -8084,6 +9008,56 @@ public partial class MainPanel : ResizeablePanelBase
             UIFactory.SetLayoutElement(washObj, ignoreLayout: true);
         }
         return card;
+    }
+
+    // Admin gating. Call at the top of an admin tab build as `page = BeginAdminGate(page);` — it appends
+    // an always-interactive status banner + "Re-check admin" button to the real page, then returns a
+    // CanvasGroup-wrapped content root that the rest of the tab builds into. When the local player is NOT
+    // authed as a server admin, that content is grayed out + non-interactive (you can SEE the layout but
+    // can't use the table/buttons). Re-evaluated whenever the tab is (re)built (i.e. switching to it) AND
+    // on demand via the Re-check button — so authing via `adminauth` while already on the page is picked
+    // up without leaving. The server enforces admin permission regardless; this is purely UI gating.
+    private GameObject BeginAdminGate(GameObject page)
+    {
+        var header = UIFactory.CreateHorizontalGroup(page, "AdminGateHeader",
+            forceExpandWidth: true, forceExpandHeight: false, childControlWidth: true, childControlHeight: true,
+            spacing: 8, padding: new Vector4(2, 2, 2, 4));
+        UIFactory.SetLayoutElement(header, minWidth: 360, preferredWidth: 400, flexibleWidth: 1,
+            minHeight: 26, preferredHeight: 30, flexibleHeight: 0);
+
+        var statusLbl = AddInfoLabel(header, "AdminGateStatus", "", FontStyles.Bold, Theme.ScaledUI(12));
+        UIFactory.SetLayoutElement(statusLbl.gameObject, minWidth: 230, preferredWidth: 300, flexibleWidth: 1,
+            minHeight: 22, preferredHeight: 24, flexibleHeight: 0);
+        statusLbl.enableWordWrapping = true;
+
+        var btn = UIFactory.CreateButton(header, "AdminGateRecheck", "Re-check admin");
+        UIFactory.SetLayoutElement(btn.GameObject, minWidth: 112, preferredWidth: 124, flexibleWidth: 0,
+            minHeight: 24, preferredHeight: 26, flexibleHeight: 0);
+        var bt = btn.Component.GetComponentInChildren<TextMeshProUGUI>();
+        if (bt != null) bt.fontSize = Theme.ScaledUI(11);
+        TooltipHover.Attach(btn.GameObject,
+            "Re-check whether you're authed as a server admin. If you just ran adminauth in the F1 console, click this to enable the admin controls without leaving the page.");
+
+        var content = UIFactory.CreateVerticalGroup(page, "AdminGateContent",
+            forceWidth: true, forceHeight: false, childControlWidth: true, childControlHeight: true,
+            spacing: 4, padding: new Vector4(0, 0, 0, 0));
+        UIFactory.SetLayoutElement(content, minWidth: 360, preferredWidth: 400, flexibleWidth: 1,
+            minHeight: 60, flexibleHeight: 0);
+        var cg = content.AddComponent<UnityEngine.CanvasGroup>();
+
+        void Apply()
+        {
+            bool admin = Services.MessageService.IsLocalAdmin();
+            cg.interactable = admin;
+            cg.blocksRaycasts = admin;
+            cg.alpha = admin ? 1f : 0.45f;
+            statusLbl.text = admin
+                ? "<color=#90EE90><b>✓ Admin</b></color>  <color=#888888>— admin controls enabled.</color>"
+                : "<color=#FFD75A><b>Not authed as admin.</b></color> <color=#888888>Run <b>adminauth</b> in the F1 console, then click Re-check →</color>";
+        }
+        btn.OnClick = Apply;
+        Apply();
+        return content;
     }
 
     /// <summary>0.10.9: a left-aligned label paired with a right-aligned
@@ -8275,31 +9249,33 @@ public partial class MainPanel : ResizeablePanelBase
             bgColor: Theme.CardBackground);
         UIFactory.SetLayoutElement(footerWrap, minHeight: 62, flexibleHeight: 0, flexibleWidth: 1);
 
-        // Row 1: label + overlay toggles on one line. The label acts as
-        // the container's section heading-in-line so the toggles read
-        // as "Overlay visibility: [XP] [Familiar] [Browser] [Quest]
-        // [Professions]" without sacrificing a full row of vertical
-        // real estate for a separate heading.
-        var row1 = UIFactory.CreateHorizontalGroup(footerWrap, "OverlayFooterRow1",
-            forceExpandWidth: true, forceExpandHeight: false,
-            childControlWidth: false, childControlHeight: false,
-            spacing: 10, padding: new Vector4(0, 0, 0, 0));
-        UIFactory.SetLayoutElement(row1, minHeight: 26, flexibleHeight: 0, flexibleWidth: 1);
-
-        var visLabel = UIFactory.CreateLabel(row1, "OverlayVisLabel",
+        // "Show overlays:" header on its OWN line — keeping it inline with the first toggle made the
+        // leftmost (Combined) toggle overlap the label. (0.20.1)
+        var visLabel = UIFactory.CreateLabel(footerWrap, "OverlayVisLabel",
             "Show overlays:",
             TextAlignmentOptions.MidlineLeft, color: null, fontSize: Theme.ScaledUI(12));
         UIFactory.SetLayoutElement(visLabel.GameObject,
-            minWidth: 110, preferredWidth: 120, flexibleWidth: 0,
-            minHeight: 24, preferredHeight: 26, flexibleHeight: 0);
+            minHeight: 20, preferredHeight: 22, flexibleHeight: 0, flexibleWidth: 1);
         visLabel.TextMesh.fontStyle = FontStyles.Bold;
         visLabel.TextMesh.enableWordWrapping = false;
         visLabel.TextMesh.overflowMode = TextOverflowModes.Overflow;
 
+        // The overlay toggles flow through a WRAPPING grid (0.20.1). There are 10+ overlays now; a single
+        // fixed HorizontalLayoutGroup squished them and overran the panel border when the window was narrow.
+        // GridLayoutGroup.Constraint.Flexible fits as many columns as the current width allows (1 when very
+        // narrow, more as you widen the panel) and wraps the rest onto new rows; the parent VLG
+        // (childControlHeight) reads the grid's reported preferred height so the card grows with the rows.
+        var toggleGrid = UIFactory.CreateUIObject("OverlayToggleGrid", footerWrap);
+        var grid = toggleGrid.AddComponent<UnityEngine.UI.GridLayoutGroup>();
+        grid.cellSize = new Vector2(Theme.ScaledUI(170), Theme.ScaledUI(26));   // wide enough for "Familiar Browser"
+        grid.spacing = new Vector2(6, 4);
+        grid.constraint = UnityEngine.UI.GridLayoutGroup.Constraint.Flexible;
+        grid.childAlignment = TextAnchor.UpperLeft;
+
         // 0.14.0: Combined toggle first — when it's checked, the 4 info
         // overlay toggles below hide (mutual exclusion). Familiar Browser
         // and Shift spell stay visible either way.
-        _combinedOverlayToggle = AddOverlayToggle(row1, "Combined",       PanelType.CombinedOverlay);
+        _combinedOverlayToggle = AddOverlayToggle(toggleGrid, "Combined",       PanelType.CombinedOverlay);
         // 0.14.0 friend-test v5: tooltip on the footer Combined toggle —
         // its label is less self-explanatory than the per-system labels.
         if (_overlayToggleGOs.TryGetValue(PanelType.CombinedOverlay, out var combinedToggleGO))
@@ -8307,13 +9283,22 @@ public partial class MainPanel : ResizeablePanelBase
             TooltipHover.Attach(combinedToggleGO,
                 "Toggle the combined info overlay — one panel with XP / Familiar / Weapon / Blood / Professions / Quests sections in a single container. When on, the standalone XP / Familiar / Daily Quest / Professions overlays auto-hide; their per-section visibility is controlled in Settings → Display → Combined overlay.");
         }
-        _xpOverlayToggle    = AddOverlayToggle(row1, "XP",                PanelType.ExperienceOverlay);
-        _famOverlayToggle   = AddOverlayToggle(row1, "Familiar",          PanelType.FamiliarOverlay);
-        _famBrowserToggle   = AddOverlayToggle(row1, "Familiar Browser",  PanelType.FamiliarBrowserOverlay);
-        _dqOverlayToggle    = AddOverlayToggle(row1, "Daily quest",       PanelType.DailyQuestOverlay);
-        _profOverlayToggle  = AddOverlayToggle(row1, "Professions",       PanelType.ProfessionOverlay);
-        _shiftOverlayToggle = AddOverlayToggle(row1, "Shift spell",       PanelType.ShiftSpellOverlay);
-        _quickActionsOverlayToggle = AddOverlayToggle(row1, "Quick Actions",   PanelType.QuickActionsOverlay);
+        _xpOverlayToggle    = AddOverlayToggle(toggleGrid, "XP",                PanelType.ExperienceOverlay);
+        _famOverlayToggle   = AddOverlayToggle(toggleGrid, "Familiar",          PanelType.FamiliarOverlay);
+        _famBrowserToggle   = AddOverlayToggle(toggleGrid, "Familiar Browser",  PanelType.FamiliarBrowserOverlay);
+        _dqOverlayToggle    = AddOverlayToggle(toggleGrid, "Daily quest",       PanelType.DailyQuestOverlay);
+        _profOverlayToggle  = AddOverlayToggle(toggleGrid, "Professions",       PanelType.ProfessionOverlay);
+        _shiftOverlayToggle = AddOverlayToggle(toggleGrid, "Shift spell",       PanelType.ShiftSpellOverlay);
+        _quickActionsOverlayToggle = AddOverlayToggle(toggleGrid, "Quick Actions",   PanelType.QuickActionsOverlay);
+        // 0.18.3: Beelz action-bar overlay quick-toggle. Lets you hide the Beelz hotkey bar even on
+        // servers WITHOUT Beelzebub (where the Beelzebub tab — the only other place to toggle it — is
+        // greyed out). Always present; the overlay itself also auto-hides when Beelz isn't detected.
+        _beelzOverlayToggle = AddOverlayToggle(toggleGrid, "Beelz hotkeys",     PanelType.BeelzActionBarOverlay);
+        // 0.19: Beelz summons overlay quick-toggle (one-click stash/restore). Always present; the overlay
+        // itself auto-hides when Beelzebub isn't detected, same as the Beelz hotkeys bar.
+        _beelzSummonsOverlayToggle = AddOverlayToggle(toggleGrid, "Beelz summons",    PanelType.BeelzSummonsOverlay);
+        // 0.20: Beelz transforms overlay quick-toggle (double-click to transform + phase/revert).
+        _beelzTransformOverlayToggle = AddOverlayToggle(toggleGrid, "Beelz transforms",  PanelType.BeelzTransformOverlay);
 
         // Initial visibility — reflects whichever mode was active at last
         // logout (Combined sticks across sessions via Settings).
@@ -8330,6 +9315,32 @@ public partial class MainPanel : ResizeablePanelBase
 
         AddAutoResizeToggle(row2);
         AddLockOverlaysToggle(row2);
+        AddHideChatWithOverlaysToggle(row2);
+    }
+
+    /// <summary>0.18.3: "Hide chat with OV" toggle beside Lock overlays. When on, the upper-right
+    /// "hide all overlays" button (OV) also hides the chat window; default off (chat stays visible).</summary>
+    private void AddHideChatWithOverlaysToggle(GameObject parent)
+    {
+        var t = UIFactory.CreateToggle(parent, "HideChatWithOverlaysToggle");
+        UIFactory.SetLayoutElement(t.GameObject,
+            minWidth: 180, preferredWidth: 200, flexibleWidth: 0,
+            minHeight: 24, preferredHeight: 24, flexibleHeight: 0);
+        // 0.18.3 follow-up: clearer label (tester found "Hide chat too" ambiguous). "OV" = the
+        // upper-right overlay master toggle this rides along with.
+        t.Text.text = "Hide chat with OV";
+        t.Text.fontSize = Theme.ScaledUI(13);
+        t.Text.enableWordWrapping = false;
+        t.Text.overflowMode = TextOverflowModes.Overflow;
+        t.Text.alignment = TextAlignmentOptions.MidlineLeft;
+        UIFactory.SetLayoutElement(t.Text.gameObject,
+            minWidth: 150, preferredWidth: 170, flexibleWidth: 1,
+            minHeight: 24, preferredHeight: 24, flexibleHeight: 0);
+
+        t.Toggle.isOn = Config.Settings.HideChatWithOverlaysToggle;
+        TooltipHover.Attach(t.GameObject,
+            "When ON, the upper-right 'hide all overlays' button (and the overlay hotkey) also hides the chat window. Default OFF — chat stays visible while the other overlays hide. If overlays are currently hidden, re-apply by toggling them off and on.");
+        t.OnValueChanged += value => Config.Settings.SetHideChatWithOverlaysToggle(value);
     }
 
     /// <summary>0.10.14: "Lock overlays" toggle beside Auto-resize.
@@ -8568,6 +9579,10 @@ public partial class MainPanel : ResizeablePanelBase
         foreach (var kv in _tabContent) kv.Value.SetActive(kv.Key == tab);
         ActiveTab = tab;
 
+        // PERF: Beelz tabs ignore their state-change events while hidden; resync the
+        // one being shown so it reflects current BeelzState (no-op for non-Beelz tabs).
+        RefreshBeelzTabOnShow(tab);
+
         // First-open auto-pull for tabs whose body depends on a server reply.
         // Boxes tab: send .fam boxes if we don't have any yet, so the user
         // doesn't have to click Refresh on every cold open. Cheap and idempotent
@@ -8675,8 +9690,15 @@ public partial class MainPanel : ResizeablePanelBase
         {
             Services.EclipseProtocolService.AvailabilityChanged -= OnBloodcraftAvailabilityChanged;
             PlayerStateService.FeatureFlagsChanged -= OnFeatureFlagsChanged;
+            Services.Beelzebub.BeelzProtocolService.AvailabilityChanged -= OnBloodcraftAvailabilityChanged;
+            Services.Beelzebub.BeelzState.PresenceChanged -= OnBloodcraftAvailabilityChanged;   // 0.24.7: matches the subscribe above
+            Services.Uriel.UrielProtocolService.AvailabilityChanged -= OnBloodcraftAvailabilityChanged;   // 0.26: matches the subscribe above
+            Services.Uriel.UrielState.PresenceChanged -= OnBloodcraftAvailabilityChanged;
             _availabilitySubscribed = false;
         }
+        _userToggledGroups.Clear(); // F1: next server re-applies the detection-based default expansion
+        UnsubscribeBeelz(); // 0.18: drop BeelzState handlers so they don't leak across rebuilds
+        UnsubscribeUriel(); // 0.26: same, for UrielState handlers
         if (_deferredAvailabilityRefresh != null)
         {
             BloodCraftHub.Behaviors.CoreUpdateBehavior.Actions.Remove(_deferredAvailabilityRefresh);

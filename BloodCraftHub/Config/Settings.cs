@@ -129,18 +129,25 @@ public class Settings
     public static void SetOverlayTextScale(float v)  => SetFloat(nameof(OverlayTextScale), v);
 
     // 0.9.0: per-overlay background transparency. User semantics (per
-    // friend-testing direction): 0.0 = solid (opaque), 1.0 = invisible. We
-    // floor at 0.95 internally so the panel's chrome / drag handle remain
-    // visible — at 1.0 the user could no longer find the panel to
-    // close/move it. Text and other foreground elements stay fully opaque
-    // regardless; only the Image-backed background tracks this.
-    public const float OVERLAY_TRANSPARENCY_FLOOR = 0.95f;
+    // friend-testing direction): 0.0 = solid (opaque), 1.0 = invisible.
+    // B6 (0.19): floor raised 0.95 → 1.0 so 100% is TRULY invisible (tester
+    // request — the old 5% film read as "not actually transparent"). This is
+    // safe to find/move: the background Image keeps raycastTarget=true (alpha
+    // doesn't gate raycasts), so the panel is still draggable even when the
+    // background is fully clear; foreground content (text/icons) stays opaque;
+    // and the "Lock overlays" toggle + Settings → reset are escape hatches.
+    public const float OVERLAY_TRANSPARENCY_FLOOR = 1.0f;
 
     public static float XPOverlayTransparency        => GetFloat(nameof(XPOverlayTransparency),        UITransparency);
     public static float FamiliarOverlayTransparency  => GetFloat(nameof(FamiliarOverlayTransparency),  UITransparency);
     public static float FamiliarBrowserTransparency  => GetFloat(nameof(FamiliarBrowserTransparency),  UITransparency);
     public static float ShiftSpellOverlayTransparency => GetFloat(nameof(ShiftSpellOverlayTransparency), UITransparency);
     public static float QuickActionsOverlayTransparency => GetFloat(nameof(QuickActionsOverlayTransparency), UITransparency);
+    public static float BeelzActionBarOverlayTransparency => GetFloat(nameof(BeelzActionBarOverlayTransparency), UITransparency);
+    public static float BeelzSummonsOverlayTransparency => GetFloat(nameof(BeelzSummonsOverlayTransparency), UITransparency);
+    public static float BeelzTransformOverlayTransparency => GetFloat(nameof(BeelzTransformOverlayTransparency), UITransparency);
+    public static float UrielSharedOverlayTransparency => GetFloat(nameof(UrielSharedOverlayTransparency), UITransparency);
+    public static float UrielObjectSpawnerOverlayTransparency => GetFloat(nameof(UrielObjectSpawnerOverlayTransparency), UITransparency);
     public static float ChatWindowOverlayTransparency => GetFloat(nameof(ChatWindowOverlayTransparency), UITransparency);
     public static float DailyQuestTransparency       => GetFloat(nameof(DailyQuestTransparency),       UITransparency);
     public static float ProfessionOverlayTransparency => GetFloat(nameof(ProfessionOverlayTransparency), UITransparency);
@@ -149,6 +156,11 @@ public class Settings
     public static void SetFamiliarBrowserTransparency(float v)  => SetFloat(nameof(FamiliarBrowserTransparency), v);
     public static void SetShiftSpellOverlayTransparency(float v) => SetFloat(nameof(ShiftSpellOverlayTransparency), v);
     public static void SetQuickActionsOverlayTransparency(float v) => SetFloat(nameof(QuickActionsOverlayTransparency), v);
+    public static void SetBeelzActionBarOverlayTransparency(float v) => SetFloat(nameof(BeelzActionBarOverlayTransparency), v);
+    public static void SetBeelzSummonsOverlayTransparency(float v) => SetFloat(nameof(BeelzSummonsOverlayTransparency), v);
+    public static void SetBeelzTransformOverlayTransparency(float v) => SetFloat(nameof(BeelzTransformOverlayTransparency), v);
+    public static void SetUrielSharedOverlayTransparency(float v) => SetFloat(nameof(UrielSharedOverlayTransparency), v);
+    public static void SetUrielObjectSpawnerOverlayTransparency(float v) => SetFloat(nameof(UrielObjectSpawnerOverlayTransparency), v);
     public static void SetChatWindowOverlayTransparency(float v) => SetFloat(nameof(ChatWindowOverlayTransparency), v);
     public static void SetDailyQuestTransparency(float v)       => SetFloat(nameof(DailyQuestTransparency), v);
     public static void SetProfessionOverlayTransparency(float v) => SetFloat(nameof(ProfessionOverlayTransparency), v);
@@ -210,6 +222,13 @@ public class Settings
     public static bool ShowOverlayBonusStats =>
         (ConfigEntries[nameof(ShowOverlayBonusStats)] as ConfigEntry<bool>)?.Value ?? false;
     public static void SetShowOverlayBonusStats(bool v) => SetBool(nameof(ShowOverlayBonusStats), v);
+
+    // B5 (0.19): abbreviate the bonus-stat names on the overlays (Eclipse-style — PhysicalPower →
+    // PhysPwr, etc.) so each stat stays on one line and the wrapped sub-row can't overlap the bar
+    // above / the row below at Large / X-Large overlay text. Off by default (full names).
+    public static bool ShowOverlayStatAcronyms =>
+        (ConfigEntries[nameof(ShowOverlayStatAcronyms)] as ConfigEntry<bool>)?.Value ?? false;
+    public static void SetShowOverlayStatAcronyms(bool v) => SetBool(nameof(ShowOverlayStatAcronyms), v);
 
     // 0.10.7: optional numerical XP-progress row under Weapon and Legacy on
     // the XP overlay. Renders "Exp: 123 / 4500 (2.7%)" so the user can see
@@ -316,6 +335,51 @@ public class Settings
         }
     }
 
+    // 0.18.4: button background color — the BCH/OV launcher buttons, "Stash All", the Familiar
+    // Browser buttons, and every other THEMED button BCH builds (anything created without an explicit
+    // color). Buttons with a deliberate color — the red Danger/WIPE buttons etc. — are NOT affected.
+    // Default "#4D4D4D" matches the historical Theme.SliderFill RGB (~0.3) so users who never touch
+    // it see no change. RGB only — the button's alpha keeps coming from Theme.SliderFill.
+    public const string DEFAULT_BUTTON_BG_HEX = "#4D4D4D";
+    public static string ButtonBackgroundColorHex =>
+        (ConfigEntries.TryGetValue(nameof(ButtonBackgroundColorHex), out var entry) && entry is ConfigEntry<string> s)
+            ? s.Value : DEFAULT_BUTTON_BG_HEX;
+    public static void SetButtonBackgroundColorHex(string hex)
+    {
+        if (ConfigEntries.TryGetValue(nameof(ButtonBackgroundColorHex), out var entry) && entry is ConfigEntry<string> s)
+            s.Value = hex;
+    }
+    public static UnityEngine.Color ButtonBackgroundColor
+    {
+        get
+        {
+            if (UnityEngine.ColorUtility.TryParseHtmlString(ButtonBackgroundColorHex, out var c))
+                return new UnityEngine.Color(c.r, c.g, c.b, 1f);
+            if (UnityEngine.ColorUtility.TryParseHtmlString(DEFAULT_BUTTON_BG_HEX, out var fb))
+                return new UnityEngine.Color(fb.r, fb.g, fb.b, 1f);
+            return new UnityEngine.Color(0.3f, 0.3f, 0.3f, 1f);
+        }
+    }
+
+    // 0.18.4: scale for the always-on BCH / OV launcher buttons (top-right corner). Some displays
+    // render the 40px buttons large; this lets users shrink (or grow) them. Applied as the floating
+    // panel's localScale. Clamped 0.5–1.5; default 1.0 (unchanged).
+    public static float FloatingButtonScale =>
+        UnityEngine.Mathf.Clamp((ConfigEntries.TryGetValue(nameof(FloatingButtonScale), out var e) && e is ConfigEntry<float> f) ? f.Value : 1.0f, 0.5f, 1.5f);
+    public static void SetFloatingButtonScale(float v)
+    {
+        if (ConfigEntries.TryGetValue(nameof(FloatingButtonScale), out var entry) && entry is ConfigEntry<float> s)
+            s.Value = UnityEngine.Mathf.Clamp(v, 0.5f, 1.5f);
+    }
+
+    // 0.18.4: toggle for the Beelz action-bar ability-ICON resolution (buttons fall back to text labels
+    // when off). DEFAULT ON. (It was briefly defaulted OFF while investigating a server-switch crash, but
+    // that crash was reproduced WITH icons off — it's the server-switch UI handoff, not this — so icons
+    // are back on. Resolution is bounded: one tile/tick, capped retries, off the panel build frame.)
+    public static bool EnableBeelzAbilityIcons =>
+        (ConfigEntries.TryGetValue(nameof(EnableBeelzAbilityIcons), out var e) && e is ConfigEntry<bool> b) ? b.Value : true;
+    public static void SetEnableBeelzAbilityIcons(bool v) => SetBool(nameof(EnableBeelzAbilityIcons), v);
+
     // 0.10.14: overlay-lock toggle. When on, every overlay panel's
     // IsPinned flag is set true, which short-circuits PanelDragger's
     // per-frame Update — no user drag, no user resize, no resize-hover
@@ -327,6 +391,58 @@ public class Settings
     public static bool LockOverlays =>
         (ConfigEntries[nameof(LockOverlays)] as ConfigEntry<bool>)?.Value ?? false;
     public static void SetLockOverlays(bool v) => SetBool(nameof(LockOverlays), v);
+    // 0.18.3: when ON, the upper-right "hide all overlays" toggle ALSO hides the chat window. Default
+    // OFF — chat stays visible while other overlays hide (the current, preferred behavior).
+    public static bool HideChatWithOverlaysToggle =>
+        (ConfigEntries[nameof(HideChatWithOverlaysToggle)] as ConfigEntry<bool>)?.Value ?? false;
+    public static void SetHideChatWithOverlaysToggle(bool v) => SetBool(nameof(HideChatWithOverlaysToggle), v);
+
+    // 0.28: Overlay Visibility — the master hide (OV button / hide-all hotkey) gains three options.
+    //
+    // OverlayTimedHide — when ON, a hide acts as a TIMED hide: it auto-restores after
+    // OverlayHideDurationSeconds instead of staying hidden until the user toggles back. When OFF
+    // (default), the master hide is a sticky toggle (press to hide, press to show) — the historical
+    // behavior. The countdown is driven per-frame by CoreUpdateBehavior; un-hiding manually (button /
+    // hotkey) cancels any pending restore.
+    public static bool OverlayTimedHide =>
+        (ConfigEntries[nameof(OverlayTimedHide)] as ConfigEntry<bool>)?.Value ?? false;
+    public static void SetOverlayTimedHide(bool v) => SetBool(nameof(OverlayTimedHide), v);
+
+    // Duration of a timed hide, in seconds. Clamped 5..600 (up to 10 minutes — long enough for a
+    // timed video capture); default 25.
+    public const int OVERLAY_HIDE_DURATION_MIN = 5;
+    public const int OVERLAY_HIDE_DURATION_MAX = 600;
+    public static int OverlayHideDurationSeconds =>
+        UnityEngine.Mathf.Clamp(
+            (ConfigEntries[nameof(OverlayHideDurationSeconds)] as ConfigEntry<int>)?.Value ?? 25,
+            OVERLAY_HIDE_DURATION_MIN, OVERLAY_HIDE_DURATION_MAX);
+    public static void SetOverlayHideDurationSeconds(int v) => SetInt(nameof(OverlayHideDurationSeconds),
+        UnityEngine.Mathf.Clamp(v, OVERLAY_HIDE_DURATION_MIN, OVERLAY_HIDE_DURATION_MAX));
+
+    // HideLauncherButtonsWithOverlays — when ON, the master hide ALSO hides the always-on BCH / OV
+    // launcher cluster (top-right). Default OFF so the buttons stay reachable. SAFETY: hiding the
+    // buttons is only honored when there's a guaranteed way back — i.e. timed-hide is on OR a
+    // hide-all hotkey is bound. CanHideLauncherButtons gates the actual effect; the Settings UI warns
+    // when neither escape route exists.
+    public static bool HideLauncherButtonsWithOverlays =>
+        (ConfigEntries[nameof(HideLauncherButtonsWithOverlays)] as ConfigEntry<bool>)?.Value ?? false;
+    public static void SetHideLauncherButtonsWithOverlays(bool v) => SetBool(nameof(HideLauncherButtonsWithOverlays), v);
+
+    /// <summary>0.28: true only when hiding the launcher buttons is SAFE — the user has opted in AND
+    /// there is a non-button way to bring the UI back (timed auto-restore, or a bound hide-all hotkey).
+    /// Drives RefreshFloatingButtonVisibility so a misconfiguration can never strand the user with no
+    /// way to reopen the panel.</summary>
+    public static bool CanHideLauncherButtons =>
+        HideLauncherButtonsWithOverlays && (OverlayTimedHide || !HotkeyToggleAllOverlays.IsEmpty);
+
+    // KeepNativeChatHiddenWhileOverlaysHidden — fixes the "vanilla chat reappears" quirk. When the
+    // master hide drops the BCH chat overlay (only relevant if HideChatWithOverlaysToggle is on), the
+    // game's native chat would normally pop back because BCH only suppresses it while the BCH chat
+    // overlay is the active replacement. With this ON (default), the native chat is kept hidden too for
+    // a clean screen; turn OFF if you'd rather have the game chat available while BCH overlays are hidden.
+    public static bool KeepNativeChatHiddenWhileOverlaysHidden =>
+        (ConfigEntries[nameof(KeepNativeChatHiddenWhileOverlaysHidden)] as ConfigEntry<bool>)?.Value ?? true;
+    public static void SetKeepNativeChatHiddenWhileOverlaysHidden(bool v) => SetBool(nameof(KeepNativeChatHiddenWhileOverlaysHidden), v);
 
     // 0.10.8: per-overlay edge padding. Pre-0.10.8 text in the overlays sat
     // flush with the panel border, which read as cramped — especially
@@ -494,6 +610,16 @@ public class Settings
     public static bool SuppressFamiliarActionChatter =>
         (ConfigEntries[nameof(SuppressFamiliarActionChatter)] as ConfigEntry<bool>)?.Value ?? false;
     public static void SetSuppressFamiliarActionChatter(bool v) => SetBool(nameof(SuppressFamiliarActionChatter), v);
+
+    // 0.18: suppress VampireCommandFramework (VCF) system replies — the "[error]" / "[denied]" /
+    // "parameter conversion errors" lines a command framework prints when a command BCH sends (or a
+    // mis-clicked admin button) isn't usable on this server. BCH is primarily a Bloodcraft client but
+    // can load on Beelzebub-only / Kindred-only / vanilla servers; those VCF replies are never BCH's
+    // own structured data, so they're noise. Default ON so the chat stays clean out of the box; turn
+    // OFF if you want to see why a command you typed yourself failed.
+    public static bool SuppressCommandFrameworkErrors =>
+        (ConfigEntries[nameof(SuppressCommandFrameworkErrors)] as ConfigEntry<bool>)?.Value ?? true;
+    public static void SetSuppressCommandFrameworkErrors(bool v) => SetBool(nameof(SuppressCommandFrameworkErrors), v);
     public static int GlobalQueryIntervalInSeconds { get; } = 2;
     public static int FamStatsQueryIntervalInSeconds
     {
@@ -574,6 +700,11 @@ public class Settings
     public static bool ShowProfessionOverlay   => (ConfigEntries[nameof(ShowProfessionOverlay)]   as ConfigEntry<bool>)?.Value ?? false;
     public static bool ShowShiftSpellOverlay   => (ConfigEntries[nameof(ShowShiftSpellOverlay)]   as ConfigEntry<bool>)?.Value ?? false;
     public static bool ShowQuickActionsOverlay => (ConfigEntries[nameof(ShowQuickActionsOverlay)] as ConfigEntry<bool>)?.Value ?? false;
+    public static bool ShowBeelzActionBarOverlay => (ConfigEntries[nameof(ShowBeelzActionBarOverlay)] as ConfigEntry<bool>)?.Value ?? false;
+    public static bool ShowBeelzSummonsOverlay => (ConfigEntries[nameof(ShowBeelzSummonsOverlay)] as ConfigEntry<bool>)?.Value ?? false;
+    public static bool ShowBeelzTransformOverlay => (ConfigEntries[nameof(ShowBeelzTransformOverlay)] as ConfigEntry<bool>)?.Value ?? false;
+    public static bool ShowUrielSharedOverlay => (ConfigEntries[nameof(ShowUrielSharedOverlay)] as ConfigEntry<bool>)?.Value ?? false;
+    public static bool ShowUrielObjectSpawnerOverlay => (ConfigEntries[nameof(ShowUrielObjectSpawnerOverlay)] as ConfigEntry<bool>)?.Value ?? false;
     public static bool ShowChatWindowOverlay => (ConfigEntries[nameof(ShowChatWindowOverlay)] as ConfigEntry<bool>)?.Value ?? false;
     public static bool ChatShowTimestamps => (ConfigEntries[nameof(ChatShowTimestamps)] as ConfigEntry<bool>)?.Value ?? true;
     public static bool ChatShowChannelTags => (ConfigEntries[nameof(ChatShowChannelTags)] as ConfigEntry<bool>)?.Value ?? true;
@@ -646,6 +777,22 @@ public class Settings
     public static void SetAllTabShowSystem(bool v)  => SetBool(nameof(AllTabShowSystem), v);
     public static bool AllTabShowWhisper => (ConfigEntries[nameof(AllTabShowWhisper)] as ConfigEntry<bool>)?.Value ?? true;
     public static void SetAllTabShowWhisper(bool v) => SetBool(nameof(AllTabShowWhisper), v);
+
+    // 0.24: a SECOND, VIEW-ONLY chat window (SecondaryChatOverlayPanel) that mirrors a chosen subset of
+    // channels — for watching two streams at once. ShowSecondaryChatOverlay = was it open at last logout;
+    // the SecondaryChatShow* flags pick which channels appear in it (default Clan + System).
+    public static bool ShowSecondaryChatOverlay => (ConfigEntries[nameof(ShowSecondaryChatOverlay)] as ConfigEntry<bool>)?.Value ?? false;
+    public static void SetShowSecondaryChatOverlay(bool v) => SetBool(nameof(ShowSecondaryChatOverlay), v);
+    public static bool SecondaryChatShowGlobal  => (ConfigEntries[nameof(SecondaryChatShowGlobal)]  as ConfigEntry<bool>)?.Value ?? false;
+    public static void SetSecondaryChatShowGlobal(bool v)  => SetBool(nameof(SecondaryChatShowGlobal), v);
+    public static bool SecondaryChatShowLocal   => (ConfigEntries[nameof(SecondaryChatShowLocal)]   as ConfigEntry<bool>)?.Value ?? false;
+    public static void SetSecondaryChatShowLocal(bool v)   => SetBool(nameof(SecondaryChatShowLocal), v);
+    public static bool SecondaryChatShowClan    => (ConfigEntries[nameof(SecondaryChatShowClan)]    as ConfigEntry<bool>)?.Value ?? true;
+    public static void SetSecondaryChatShowClan(bool v)    => SetBool(nameof(SecondaryChatShowClan), v);
+    public static bool SecondaryChatShowSystem  => (ConfigEntries[nameof(SecondaryChatShowSystem)]  as ConfigEntry<bool>)?.Value ?? true;
+    public static void SetSecondaryChatShowSystem(bool v)  => SetBool(nameof(SecondaryChatShowSystem), v);
+    public static bool SecondaryChatShowWhisper => (ConfigEntries[nameof(SecondaryChatShowWhisper)] as ConfigEntry<bool>)?.Value ?? false;
+    public static void SetSecondaryChatShowWhisper(bool v) => SetBool(nameof(SecondaryChatShowWhisper), v);
     // 0.17.3: switch chat tabs with <Modifier>+1..6 while the chat window is open and
     // you're NOT typing in it. Modifier is Shift / Ctrl / Alt / None. Tab order:
     // 1=All, 2=Global, 3=Local, 4=Clan, 5=System, 6=Whispers.
@@ -661,15 +808,41 @@ public class Settings
     // 0.17.0: configurable color for the GLOBAL channel (label tag + tab). Global
     // had no distinct color before (rendered plain white); default is a warm coral
     // that stands apart from Local-blue / Clan-green / System-gold / Whisper-pink.
-    public const string DEFAULT_CHAT_GLOBAL_HEX = "#FF8A5B";
-    public static string ChatGlobalColorHex =>
-        (ConfigEntries.TryGetValue(nameof(ChatGlobalColorHex), out var e) && e is ConfigEntry<string> s && !string.IsNullOrWhiteSpace(s.Value))
-            ? s.Value : DEFAULT_CHAT_GLOBAL_HEX;
-    public static void SetChatGlobalColorHex(string hex)
+    // Per-channel chat colors. Each drives BOTH the channel's message-text tag AND its tab (when
+    // "Color tabs by channel" is on) via ChatWindowOverlayPanel.ChannelColorHex. Defaults match the
+    // colors the channels used to be hardcoded to. User picks persist via the registered ConfigEntries.
+    public const string DEFAULT_CHAT_GLOBAL_HEX  = "#FF8A5B";
+    public const string DEFAULT_CHAT_LOCAL_HEX   = "#B0E0FF";
+    public const string DEFAULT_CHAT_CLAN_HEX    = "#90EE90";
+    public const string DEFAULT_CHAT_SYSTEM_HEX  = "#FFD700";
+    public const string DEFAULT_CHAT_WHISPER_HEX = "#FF9CEF";
+    private static string ChatColorHex(string key, string fallback)
+        => (ConfigEntries.TryGetValue(key, out var e) && e is ConfigEntry<string> s && !string.IsNullOrWhiteSpace(s.Value)) ? s.Value : fallback;
+    private static void SetChatColorHex(string key, string hex)
     {
-        if (ConfigEntries.TryGetValue(nameof(ChatGlobalColorHex), out var e) && e is ConfigEntry<string> s)
-            s.Value = hex;
+        if (ConfigEntries.TryGetValue(key, out var e) && e is ConfigEntry<string> s) s.Value = hex;
     }
+    public static string ChatGlobalColorHex  => ChatColorHex(nameof(ChatGlobalColorHex),  DEFAULT_CHAT_GLOBAL_HEX);
+    public static string ChatLocalColorHex   => ChatColorHex(nameof(ChatLocalColorHex),   DEFAULT_CHAT_LOCAL_HEX);
+    public static string ChatClanColorHex    => ChatColorHex(nameof(ChatClanColorHex),    DEFAULT_CHAT_CLAN_HEX);
+    public static string ChatSystemColorHex  => ChatColorHex(nameof(ChatSystemColorHex),  DEFAULT_CHAT_SYSTEM_HEX);
+    public static string ChatWhisperColorHex => ChatColorHex(nameof(ChatWhisperColorHex), DEFAULT_CHAT_WHISPER_HEX);
+    public static void SetChatGlobalColorHex(string hex)  => SetChatColorHex(nameof(ChatGlobalColorHex),  hex);
+    public static void SetChatLocalColorHex(string hex)   => SetChatColorHex(nameof(ChatLocalColorHex),   hex);
+    public static void SetChatClanColorHex(string hex)    => SetChatColorHex(nameof(ChatClanColorHex),    hex);
+    public static void SetChatSystemColorHex(string hex)  => SetChatColorHex(nameof(ChatSystemColorHex),  hex);
+    public static void SetChatWhisperColorHex(string hex) => SetChatColorHex(nameof(ChatWhisperColorHex), hex);
+
+    // 0.21: when ON, a message's BODY text is tinted by its channel color (above) — not just the [tag]/tab.
+    public static bool ChatColorMessageByChannel => (ConfigEntries[nameof(ChatColorMessageByChannel)] as ConfigEntry<bool>)?.Value ?? false;
+    public static void SetChatColorMessageByChannel(bool v) => SetBool(nameof(ChatColorMessageByChannel), v);
+    // 0.21: when ON, YOUR OWN messages' body text uses ChatOwnMessageColorHex on every tab, so you can spot
+    // your own text apart from the channel text. Overrides the channel tint for your messages.
+    public static bool ChatColorOwnMessages => (ConfigEntries[nameof(ChatColorOwnMessages)] as ConfigEntry<bool>)?.Value ?? false;
+    public static void SetChatColorOwnMessages(bool v) => SetBool(nameof(ChatColorOwnMessages), v);
+    public const string DEFAULT_CHAT_OWN_HEX = "#FFE08A";
+    public static string ChatOwnMessageColorHex => ChatColorHex(nameof(ChatOwnMessageColorHex), DEFAULT_CHAT_OWN_HEX);
+    public static void SetChatOwnMessageColorHex(string hex) => SetChatColorHex(nameof(ChatOwnMessageColorHex), hex);
     // 0.17.0: chat window's OWN background theme color, independent of the main
     // panel's PanelBackgroundColorHex (so the chat window can be themed separately).
     // Same preset palette as the main panel picker. Default matches the panel default.
@@ -697,6 +870,22 @@ public class Settings
     public static bool OverlaysBehindGameMenus => (ConfigEntries[nameof(OverlaysBehindGameMenus)] as ConfigEntry<bool>)?.Value ?? true;
     public static bool EnableCustomRecipes     => (ConfigEntries[nameof(EnableCustomRecipes)]     as ConfigEntry<bool>)?.Value ?? false;
     public static bool SuppressGameInputWhileUIOpen => (ConfigEntries[nameof(SuppressGameInputWhileUIOpen)] as ConfigEntry<bool>)?.Value ?? false;
+    // 0.18.2: default-ON kill-switch for the form-field half of the keyboard lock. Chat-window
+    // typing always locks the keyboard (proven since 0.17.0); this gates the newer form-field
+    // coverage so it can be disabled instantly without losing chat suppression.
+    public static bool LockKeyboardInFormFields => (ConfigEntries[nameof(LockKeyboardInFormFields)] as ConfigEntry<bool>)?.Value ?? true;
+    // 0.25.0: CONSOLE keybindings (`keybinding create` — admin-assigned hotkeys) are read raw by
+    // Stunlock.Console OUTSIDE the game's input pipeline, so even the native chat's typing lock
+    // can't stop them. This gates BCH's suppression of those binds while typing / panel-open
+    // (the same per-frame EnableKeybindingUpdates=false contract the game's own
+    // DisableConsoleKeybindingsOnFocus component uses). Default ON.
+    public static bool SuppressConsoleKeybindsWhileTyping => (ConfigEntries[nameof(SuppressConsoleKeybindsWhileTyping)] as ConfigEntry<bool>)?.Value ?? true;
+    // B3 (0.19): when ON, also suppress the primary attack / spell cast while the cursor is over ANY
+    // BCH panel or overlay (not just the chat window, which is always covered). Default OFF — some
+    // players want to keep casting with the cursor parked over an overlay. Feeds ONLY the (proven-safe)
+    // AbilityInputSystem suppression — never movement, never the menu patches.
+    public static bool BlockInputWhenPointerOverUI => (ConfigEntries[nameof(BlockInputWhenPointerOverUI)] as ConfigEntry<bool>)?.Value ?? false;
+    public static void SetBlockInputWhenPointerOverUI(bool v) => SetBool(nameof(BlockInputWhenPointerOverUI), v);
 
     // -------------------------------------------------------------------------
     // 0.17.2: compatibility / crash-bisect kill-switches (Compatibility section).
@@ -726,6 +915,14 @@ public class Settings
     public static bool EnableInputSuppressionPatches =>
         (ConfigEntries[nameof(EnableInputSuppressionPatches)] as ConfigEntry<bool>)?.Value ?? true;
 
+    // 0.25.0: kill-switch for the native typing keyboard lock (TypingInputLock — a BCH
+    // input context registered in the game's own input-consumer stack, the exact
+    // mechanism the native chat uses to lock the keyboard while typing). When OFF, only
+    // the older protections run (menu-request drain + movement/ability skips) and direct
+    // menu/hotkey/admin keybinds may leak while typing into BCH fields.
+    public static bool EnableNativeTypingLock =>
+        (ConfigEntries[nameof(EnableNativeTypingLock)] as ConfigEntry<bool>)?.Value ?? true;
+
     // When OFF, BCH does not patch UICanvasSystem: overlays always render on top of
     // in-game menus (the OverlaysBehindGameMenus feature is unavailable).
     public static bool EnableOverlayLayeringPatch =>
@@ -746,6 +943,11 @@ public class Settings
     public static void SetShowProfessionOverlay(bool v) => SetBool(nameof(ShowProfessionOverlay), v);
     public static void SetShowShiftSpellOverlay(bool v) => SetBool(nameof(ShowShiftSpellOverlay), v);
     public static void SetShowQuickActionsOverlay(bool v) => SetBool(nameof(ShowQuickActionsOverlay), v);
+    public static void SetShowBeelzActionBarOverlay(bool v) => SetBool(nameof(ShowBeelzActionBarOverlay), v);
+    public static void SetShowBeelzSummonsOverlay(bool v) => SetBool(nameof(ShowBeelzSummonsOverlay), v);
+    public static void SetShowBeelzTransformOverlay(bool v) => SetBool(nameof(ShowBeelzTransformOverlay), v);
+    public static void SetShowUrielSharedOverlay(bool v) => SetBool(nameof(ShowUrielSharedOverlay), v);
+    public static void SetShowUrielObjectSpawnerOverlay(bool v) => SetBool(nameof(ShowUrielObjectSpawnerOverlay), v);
     public static void SetShowChatWindowOverlay(bool v) => SetBool(nameof(ShowChatWindowOverlay), v);
     public static void SetChatShowTimestamps(bool v) => SetBool(nameof(ChatShowTimestamps), v);
     public static void SetChatShowChannelTags(bool v) => SetBool(nameof(ChatShowChannelTags), v);
@@ -800,8 +1002,51 @@ public class Settings
 
     public static ModAvailability BloodcraftAvailability => ReadAvailability(nameof(BloodcraftAvailability));
     public static ModAvailability KindredAvailability    => ReadAvailability(nameof(KindredAvailability));
+    // 0.18: Beelzebub is a still-in-development server mod most servers lack.
+    // Auto = present iff the `.beelz api version` handshake ACKs ready=1.
+    public static ModAvailability BeelzebubAvailability  => ReadAvailability(nameof(BeelzebubAvailability));
+    // 0.26: Uriel is a still-in-development sibling server mod most servers lack.
+    // Auto = present iff the `.uriel api version` handshake ACKs ready=1.
+    public static ModAvailability UrielAvailability      => ReadAvailability(nameof(UrielAvailability));
     public static void SetBloodcraftAvailability(ModAvailability v) => SetAvailability(nameof(BloodcraftAvailability), v);
     public static void SetKindredAvailability(ModAvailability v)    => SetAvailability(nameof(KindredAvailability), v);
+    public static void SetBeelzebubAvailability(ModAvailability v)  => SetAvailability(nameof(BeelzebubAvailability), v);
+    public static void SetUrielAvailability(ModAvailability v)      => SetAvailability(nameof(UrielAvailability), v);
+
+    // 0.18: Beelzebub diagnostic detail (default off). When ON: the loadout tables show
+    // each ability's ID (PrefabGUID) + raw prefab name, and BCH writes a verbose wire
+    // trace ([Beelz][diag] >>/<< lines) to the BepInEx log so testers/admins can report
+    // exactly which abilities work or need tuning. Also honored when the global
+    // DiagnosticMode is on (see BeelzDiag). Toggled from the Beelzebub → Settings tab.
+    public static bool BeelzDiagnostics => (ConfigEntries.TryGetValue(nameof(BeelzDiagnostics), out var e) && e is ConfigEntry<bool> b) && b.Value;
+    public static void SetBeelzDiagnostics(bool v) => SetBool(nameof(BeelzDiagnostics), v);
+
+    // 0.26: Uriel diagnostic detail (default off). When ON, BCH writes a verbose [Uriel][diag] wire
+    // trace (commands sent + raw [URIEL:*] replies) to the BepInEx LogOutput.log so testers/admins can
+    // report exactly which Uriel commands fired and what came back. Toggled from the Uriel → Settings
+    // tab; also implied while the global DiagnosticMode is active (see UrielDiag).
+    public static bool UrielDiagnostics => (ConfigEntries.TryGetValue(nameof(UrielDiagnostics), out var eu) && eu is ConfigEntry<bool> bu) && bu.Value;
+    public static void SetUrielDiagnostics(bool v) => SetBool(nameof(UrielDiagnostics), v);
+
+    // 0.19: after a BCH grant/unslot, auto-send `.beelz refresh` so the in-game action bar reflects the
+    // new ability immediately (the server's own refresh doesn't always show it). Default ON.
+    public static bool BeelzAutoRefreshBar =>
+        (ConfigEntries.TryGetValue(nameof(BeelzAutoRefreshBar), out var e2) && e2 is ConfigEntry<bool> b2) ? b2.Value : true;
+    public static void SetBeelzAutoRefreshBar(bool v) => SetBool(nameof(BeelzAutoRefreshBar), v);
+
+    // 0.22: first-run onboarding flag. False until the panel's first-ever open auto-routes the user to the
+    // Quick Start tab (a one-time welcome instead of dropping them straight into a feature tab). Set true
+    // right after. Reset to false in the .cfg to see the welcome again.
+    public static bool HasSeenWelcome =>
+        (ConfigEntries.TryGetValue(nameof(HasSeenWelcome), out var ehw) && ehw is ConfigEntry<bool> bhw) && bhw.Value;
+    public static void SetHasSeenWelcome(bool v) => SetBool(nameof(HasSeenWelcome), v);
+
+    // 0.19: label the Loadout slot buttons with the KEY each slot uses (LM/Q/Sp/Sh/E/R/C/T) vs numbers
+    // (P/1-6/U). 0.24: default flipped to KEYS (the keys read more clearly than the slot numbers); numbers
+    // are now the alternative. Existing installs keep whatever they already saved in the .cfg.
+    public static bool BeelzSlotKeyLabels =>
+        (ConfigEntries.TryGetValue(nameof(BeelzSlotKeyLabels), out var e3) && e3 is ConfigEntry<bool> b3) ? b3.Value : true;
+    public static void SetBeelzSlotKeyLabels(bool v) => SetBool(nameof(BeelzSlotKeyLabels), v);
 
     // 0.15.0: configurable keyboard hotkeys for the two floating-button
     // actions. Opt-in by design — default value is KeyboardShortcut.Empty
@@ -821,6 +1066,17 @@ public class Settings
     public static BCHotkey HotkeyToggleAllOverlays => ReadHotkey(nameof(HotkeyToggleAllOverlays));
     public static void SetHotkeyToggleMainPanel(BCHotkey v)  => WriteHotkey(nameof(HotkeyToggleMainPanel), v);
     public static void SetHotkeyToggleAllOverlays(BCHotkey v) => WriteHotkey(nameof(HotkeyToggleAllOverlays), v);
+
+    // 0.26: Uriel build-mode hotkeys (move / rotate / remove the nearest spawned object). The binds
+    // persist; the build-MODE itself is a session-only in-memory flag (UrielBuildMode.Active) that
+    // resets OFF on every login, so the keys only do anything while the player has deliberately turned
+    // build mode on. Empty by default — bind from Uriel → Object Spawning → Building hotkeys.
+    public static BCHotkey UrielBuildMoveKey   => ReadHotkey(nameof(UrielBuildMoveKey));
+    public static BCHotkey UrielBuildRotateKey => ReadHotkey(nameof(UrielBuildRotateKey));
+    public static BCHotkey UrielBuildRemoveKey => ReadHotkey(nameof(UrielBuildRemoveKey));
+    public static void SetUrielBuildMoveKey(BCHotkey v)   => WriteHotkey(nameof(UrielBuildMoveKey), v);
+    public static void SetUrielBuildRotateKey(BCHotkey v) => WriteHotkey(nameof(UrielBuildRotateKey), v);
+    public static void SetUrielBuildRemoveKey(BCHotkey v) => WriteHotkey(nameof(UrielBuildRemoveKey), v);
     private static BCHotkey ReadHotkey(string key)
     {
         if (ConfigEntries.TryGetValue(key, out var entry) && entry is ConfigEntry<string> s)
@@ -831,6 +1087,57 @@ public class Settings
     {
         if (ConfigEntries.TryGetValue(key, out var entry) && entry is ConfigEntry<string> s)
             s.Value = v.ToString();
+    }
+
+    // 0.18: per-ability keyboard shortcuts for the Beelzebub action bar. Beelzebub "hotkeys"
+    // are dynamic (server-driven, keyed by NAME), so a fixed ConfigEntry per binding won't do —
+    // the whole map is serialized into one string entry as "name=combo;name=combo". Kept in an
+    // in-memory dictionary (the per-frame poller reads it without re-parsing every frame).
+    private static readonly Dictionary<string, BCHotkey> _beelzKeybinds = new(StringComparer.OrdinalIgnoreCase);
+    private static bool _beelzKeybindsLoaded;
+
+    public static IReadOnlyDictionary<string, BCHotkey> BeelzKeybinds { get { EnsureBeelzKeybindsLoaded(); return _beelzKeybinds; } }
+
+    public static BCHotkey GetBeelzKeybind(string name)
+    {
+        EnsureBeelzKeybindsLoaded();
+        return (!string.IsNullOrEmpty(name) && _beelzKeybinds.TryGetValue(name, out var v)) ? v : BCHotkey.Empty;
+    }
+
+    public static void SetBeelzKeybind(string name, BCHotkey v)
+    {
+        if (string.IsNullOrEmpty(name)) return;
+        EnsureBeelzKeybindsLoaded();
+        // The map serializes with ';' / '=' delimiters; keep them out of the key.
+        string key = name.Replace(';', '_').Replace('=', '_');
+        if (v.IsEmpty) _beelzKeybinds.Remove(key);
+        else           _beelzKeybinds[key] = v;
+        WriteBeelzKeybinds();
+    }
+
+    private static void EnsureBeelzKeybindsLoaded()
+    {
+        if (_beelzKeybindsLoaded) return;
+        _beelzKeybindsLoaded = true;
+        if (!ConfigEntries.TryGetValue("BeelzHotkeyBinds", out var entry) || entry is not ConfigEntry<string> s) return;
+        if (string.IsNullOrWhiteSpace(s.Value)) return;
+        foreach (var pair in s.Value.Split(';'))
+        {
+            int eq = pair.IndexOf('=');
+            if (eq <= 0) continue;
+            string nm = pair.Substring(0, eq).Trim();
+            var hk = BCHotkey.Parse(pair.Substring(eq + 1).Trim());
+            if (!string.IsNullOrEmpty(nm) && !hk.IsEmpty) _beelzKeybinds[nm] = hk;
+        }
+    }
+
+    private static void WriteBeelzKeybinds()
+    {
+        if (!ConfigEntries.TryGetValue("BeelzHotkeyBinds", out var entry) || entry is not ConfigEntry<string> s) return;
+        var parts = new List<string>();
+        foreach (var kv in _beelzKeybinds)
+            if (!kv.Value.IsEmpty) parts.Add($"{kv.Key}={kv.Value}");
+        s.Value = string.Join(";", parts);
     }
 
     // 0.15.0 friend-test v3: three-state diagnostic mode. Only Off /
@@ -916,14 +1223,22 @@ public class Settings
 
         InitConfigEntry(GENERAL_SETTINGS_GROUP, nameof(ClearServerMessages),         true,  "Clear server and command messages from chat.");
         InitConfigEntry(GENERAL_SETTINGS_GROUP, nameof(SuppressFamiliarActionChatter), false, "Suppress the chat confirmation lines that Bloodcraft prints when you switch boxes / bind / unbind / move / smartbind familiars. The UI still updates normally (box list, contents, and overlays read from separate pipes). Off by default; toggle in Display settings.");
+        InitConfigEntry(GENERAL_SETTINGS_GROUP, nameof(SuppressCommandFrameworkErrors), true,  "Hide command-framework (VCF) error chatter from chat — the '[error]', '[denied]', and 'parameter conversion error' lines that appear when a command BloodCraftHub sends (or an admin button clicked by a non-admin) isn't usable on this server. These are never BCH's own data, so they're noise — especially on servers that only have Beelzebub / Kindred (no Bloodcraft). On by default; turn it off in Settings → Chat noise if you want to see why a command you typed yourself failed.");
         InitConfigEntry(UI_SETTINGS_GROUP,      nameof(ShowProgressBars),            false, "Show experience progress and prestige progress as horizontal bars alongside the % numbers. Affects the XP overlay (XP%) and the Prestige info box (level/max). Off by default; toggle in Display settings.");
         InitConfigEntry(UI_SETTINGS_GROUP,      nameof(ShowOverlayBonusStats),       false, "Show the chosen bonus-stat names AND their current numeric values for your weapon expertise and blood legacy on the XP overlay. Auto-fetches .wep get + .bl get every 10s while the overlay is visible. Off by default for a minimal overlay; toggle in Display settings.");
+        InitConfigEntry(UI_SETTINGS_GROUP,      nameof(ShowOverlayStatAcronyms),     false, "Abbreviate bonus-stat names on the overlays (Eclipse-style: PhysicalPower -> PhysPwr, SpellCriticalStrikeChance -> SpellCritCh, etc.) so each stat stays on one line and the wrapped sub-row can't overlap the bar/row around it at large text. Off = full names. Toggle in Display settings.");
         InitConfigEntry(UI_SETTINGS_GROUP,      nameof(ShowOverlayXpCounter),        false, "Show a numerical XP-progress row under Weapon and Legacy on the XP overlay (e.g. \"Exp: 123 / 4500 (2.7%)\"). Values come from parsing .wep get / .bl get chat replies. Off by default — the existing 'Lv X (P%)' title row is sufficient for most users.");
         InitConfigEntry(UI_SETTINGS_GROUP,      nameof(ProgressBarHeight),           8,     "Progress bar height in pixels when 'Scale bar with overlay' is OFF. Clamped 4..24. Default 8.");
         InitConfigEntry(UI_SETTINGS_GROUP,      nameof(ProgressBarHeightRelative),   false, "Scale progress bar height with the overlay (pre-0.10.7 behavior). Off by default — bars stay at the fixed pixel height regardless of overlay size.");
         InitConfigEntry(UI_SETTINGS_GROUP,      nameof(OverlayEdgePadding),          6,     "Left/right inner padding (pixels) applied to every overlay's content. Prevents text from sitting flush with the panel border. Clamped 0..32. Default 6. Applied at overlay construction; toggle an overlay off and back on (or change the overlay text scale) to pick up a new value live.");
         InitConfigEntry(UI_SETTINGS_GROUP,      nameof(PanelBackgroundColorHex),     DEFAULT_PANEL_BG_HEX, "Background color for every BCH panel — main panel + Familiar Browser + all five info overlays. Hex string (e.g. #121212 = default near-black, #1A0A0A = warm dark, #0A0F1A = cool dark). Light colors may reduce text legibility — the white labels in BCH assume a dark background. Pick from presets in Settings → Display, or edit manually for any color. Transparency is configured separately by the per-panel transparency sliders.");
         InitConfigEntry(UI_SETTINGS_GROUP,      nameof(InnerPanelBackgroundColorHex), DEFAULT_INNER_BG_HEX, "Interior background color for the main panel and Familiar Browser — specifically the scroll-view wrapper + viewport surfaces where tab content or familiar rows render. Pre-0.12.0 this was bright red by framework default (UIFactory.CreateScrollView painted the wrapper Theme.Level1). Independent of the outer panel color so users can build a two-tone theme.");
+        InitConfigEntry(UI_SETTINGS_GROUP,      nameof(ButtonBackgroundColorHex),    DEFAULT_BUTTON_BG_HEX, "Background color for the buttons BCH builds — the BCH/OV launcher buttons, Stash All, the Familiar Browser buttons, and most others. Hex string (default #4D4D4D = the original neutral grey). Buttons with a deliberate color (the red Danger/WIPE buttons) are not affected. Pick from presets in Settings → Display, or edit manually. Recolors live.");
+        InitConfigEntry(UI_SETTINGS_GROUP,      nameof(FloatingButtonScale),         1.0f,  "Size of the always-on BCH / OV launcher buttons in the top-right corner, as a scale factor. Some displays render them large; lower this to shrink them. Clamped 0.5–1.5 (50%–150%); default 1.0. Adjust in Settings → Display → 'Launcher button size'.");
+        InitConfigEntry(UI_SETTINGS_GROUP,      nameof(EnableBeelzAbilityIcons),     true,  "Show each Beelzebub hotkey ability's ICON on the Beelz action-bar overlay buttons (instead of a text label). Default ON. (Was briefly off while investigating a server-switch crash, but that crash reproduced with icons OFF too, so it's not this — icons are back on.) Turn off if you prefer text labels.");
+        InitConfigEntry(UI_SETTINGS_GROUP,      nameof(BeelzAutoRefreshBar),         true,  "After you grant/unslot a Beelzebub ability from BCH, automatically re-apply your action bar (.beelz refresh) so the new ability shows immediately. Default ON; turn off if the server already refreshes reliably or it causes chat noise.");
+        InitConfigEntry(UI_SETTINGS_GROUP,      nameof(HasSeenWelcome),              false, "Internal first-run flag. The very first time the BloodCraftHub panel opens it routes you to the Quick Start tab as a one-time welcome, then sets this true. Reset to false to see the welcome again on next open.");
+        InitConfigEntry(UI_SETTINGS_GROUP,      nameof(BeelzSlotKeyLabels),          true,  "Label the Loadout slot buttons with the KEY each slot uses (LM / Q / Sp / Sh / E / R / C / T). Default ON. Turn OFF to use slot numbers (P / 1-6 / U) instead. Toggle in Beelzebub → Settings.");
         InitConfigEntry(UI_SETTINGS_GROUP,      nameof(ShowProfessionEnchanting),    true,  "Profession overlay: show Enchanting row.");
         InitConfigEntry(UI_SETTINGS_GROUP,      nameof(ShowProfessionAlchemy),       true,  "Profession overlay: show Alchemy row.");
         InitConfigEntry(UI_SETTINGS_GROUP,      nameof(ShowProfessionHarvesting),    true,  "Profession overlay: show Harvesting row.");
@@ -934,6 +1249,11 @@ public class Settings
         InitConfigEntry(UI_SETTINGS_GROUP,      nameof(ShowProfessionFishing),       true,  "Profession overlay: show Fishing row.");
         InitConfigEntry(UI_SETTINGS_GROUP,      nameof(AutoScanVBloodsOnTabOpen),    false, "Automatically run a V-Blood scan the first time you open the V-Bloods tab in a session. Off by default — the scanner switches your active box ~10-15 times to walk all boxes; the user-controlled 'Scan all' button is the default trigger. Turn on if you want the scan to fire without a click.");
         InitConfigEntry(UI_SETTINGS_GROUP,      nameof(LockOverlays),                false, "Lock the position and size of every overlay so they can't be moved or resized by accident during play. Programmatic resize when settings change (e.g. enabling progress bars on the XP overlay) still works. Toggle via the 'Lock overlays' switch beside Auto-resize on the main panel.");
+        InitConfigEntry(UI_SETTINGS_GROUP,      nameof(HideChatWithOverlaysToggle),  false, "When ON, the upper-right 'hide all overlays' button ALSO hides the BCH chat window. Default OFF — chat stays visible while the other overlays hide (the usual behavior). Toggle via the 'Hide chat too' switch beside 'Lock overlays' on the main panel.");
+        InitConfigEntry(UI_SETTINGS_GROUP,      nameof(OverlayTimedHide),            false, "When ON, the master overlay hide (OV button / hide-all hotkey) is a TIMED hide: overlays auto-reappear after the configured duration instead of staying hidden until you toggle back. Default OFF (sticky toggle). Configure in Settings → Display → Overlay Visibility.");
+        InitConfigEntry(UI_SETTINGS_GROUP,      nameof(OverlayHideDurationSeconds),  25,    "How long a timed overlay hide lasts before everything auto-reappears, in seconds. Only used when 'Timed hide' is on. Clamped 5–600 (up to 10 minutes, for timed video captures); default 25.");
+        InitConfigEntry(UI_SETTINGS_GROUP,      nameof(HideLauncherButtonsWithOverlays), false, "When ON, the master overlay hide ALSO hides the always-on BCH / OV launcher buttons (top-right) for a fully clean screen. Only takes effect when there's a way back — i.e. 'Timed hide' is on OR a hide-all hotkey is bound — otherwise it's ignored so you can't get stranded. Default OFF.");
+        InitConfigEntry(UI_SETTINGS_GROUP,      nameof(KeepNativeChatHiddenWhileOverlaysHidden), true, "When the master hide also hides BCH chat ('Hide chat too' on), keep the GAME's native chat hidden as well for a clean screen instead of letting it pop back. Default ON. Turn OFF if you'd rather still have the game chat available while BCH overlays are hidden.");
         InitConfigEntry(UI_SETTINGS_GROUP,      nameof(ShowPrestigeSubLine),         false, "Show a thin secondary fill inside the main XP/expertise/legacy bars reflecting prestige progress, like Eclipse's overlay. Off by default.");
         InitConfigEntry(UI_SETTINGS_GROUP,      nameof(VBloodPerInstanceView),       false, "V-Bloods tab: render one row per CAPTURED FAMILIAR (level / box / shiny / primal / summon) instead of one row per V-Blood name with capture chips. Requires box contents to have been cached (navigate each box at least once). Off by default — chip view shows the full registry at a glance.");
         InitConfigEntry(UI_SETTINGS_GROUP,      nameof(FamiliarSortOrderSetting),    0,     "Sort order for the Familiar Browser overlay and the V-Bloods tab. 0=Default (server/registry order), 1=Alphabetical by name, 2=By level (descending), 3=By region. Cycle the Sort button in either UI to change.");
@@ -966,6 +1286,11 @@ public class Settings
         InitConfigEntry(OVERLAY_SETTINGS_GROUP, nameof(ShowProfessionOverlay),       false, "Whether the Professions overlay (Bloodcraft profession levels) was visible at last logout.");
         InitConfigEntry(OVERLAY_SETTINGS_GROUP, nameof(ShowShiftSpellOverlay),       false, "Whether the Shift-spell cooldown overlay (Eclipse-style visual readout for the slot-3 ability) was visible at last logout.");
         InitConfigEntry(OVERLAY_SETTINGS_GROUP, nameof(ShowQuickActionsOverlay),     false, "Whether the Quick Actions overlay (one-click Kindred command buttons, e.g. Stash All) was visible at last logout.");
+        InitConfigEntry(OVERLAY_SETTINGS_GROUP, nameof(ShowBeelzActionBarOverlay),   false, "Whether the Beelz Action Bar overlay (on-screen buttons + cooldown rings for Beelzebub hotkey abilities beyond the 6 spell slots) was visible at last logout.");
+        InitConfigEntry(OVERLAY_SETTINGS_GROUP, nameof(ShowBeelzSummonsOverlay),     false, "Whether the Beelz Summons overlay (one-click stash/restore + recall/clear for your Beelzebub summons) was visible at last logout.");
+        InitConfigEntry(OVERLAY_SETTINGS_GROUP, nameof(ShowUrielSharedOverlay),       false, "Whether the Uriel \"Nearby Public Storage\" overlay (client-side list of Uriel-shared containers/cells around you) was visible at last logout.");
+        InitConfigEntry(OVERLAY_SETTINGS_GROUP, nameof(ShowUrielObjectSpawnerOverlay), false, "Whether the Uriel object-spawn palette overlay (quick-build list of your unlocked objects with per-row Spawn buttons) was visible at last logout.");
+        InitConfigEntry(OVERLAY_SETTINGS_GROUP, nameof(ShowBeelzTransformOverlay),   false, "Whether the Beelz Transforms overlay (double-click a form to transform; phase/revert controls) was visible at last logout.");
         InitConfigEntry(OVERLAY_SETTINGS_GROUP, nameof(ShowChatWindowOverlay),       false, "Whether the standalone tabbed chat window (Game UI) was visible at last logout.");
         InitConfigEntry(OVERLAY_SETTINGS_GROUP, nameof(ChatShowTimestamps),          true,  "Show the [HH:mm] timestamp on each line in the tabbed chat window.");
         InitConfigEntry(OVERLAY_SETTINGS_GROUP, nameof(ChatShowChannelTags),         true,  "Show the channel label ([G]/[L]/[Clan]/[Sys]/[W]) on each line in the tabbed chat window.");
@@ -981,13 +1306,26 @@ public class Settings
         InitConfigEntry(OVERLAY_SETTINGS_GROUP, nameof(ChatTabularAutoFitColumns),      true,  "Tabbed chat (tabular layout only): auto-fit the name column to the longest visible name so there's no dead space; the MESSAGE column always absorbs the extra width when you widen the window (it grows first, not every column). Turn off to LOCK the name column at a fixed width instead of fitting to content (the message column still gets the extra width). Default on.");
         InitConfigEntry(OVERLAY_SETTINGS_GROUP, nameof(ChatDoubleClickNameWhisper),    true,  "Tabbed chat: double-click a player's name in the chat log to start a whisper to them (jumps to the All tab with that whisper selected and focuses the input). Default on.");
         InitConfigEntry(OVERLAY_SETTINGS_GROUP, nameof(ShowMissingElementHints),       true,  "Show a short 'you're missing this — free power' hint on the Class / Weapon Expertise / Blood Legacy pages and overlays when you haven't set that element up yet (no class chosen, or no expertise/legacy bonus stats picked). Helpful for new players; turn off if you intentionally skip a system. Only shown for systems your server has enabled.");
-        InitConfigEntry(OVERLAY_SETTINGS_GROUP, nameof(ChatGlobalColorHex),           DEFAULT_CHAT_GLOBAL_HEX, "Tabbed chat: color for the Global channel — used for its [G]/[Global] label tag AND its tab when 'Color tabs by channel' is on. Hex string (e.g. #FF8A5B coral default, #FFFFFF white, #66CCFF blue). The other channels' colors are fixed (Local blue, Clan green, System gold, Whisper pink).");
+        InitConfigEntry(OVERLAY_SETTINGS_GROUP, nameof(ChatGlobalColorHex),           DEFAULT_CHAT_GLOBAL_HEX, "Tabbed chat: color for the Global channel — used for its [G]/[Global] label tag AND its tab when 'Color tabs by channel' is on. Hex string (e.g. #FF8A5B coral default, #FFFFFF white, #66CCFF blue).");
+        InitConfigEntry(OVERLAY_SETTINGS_GROUP, nameof(ChatLocalColorHex),            DEFAULT_CHAT_LOCAL_HEX,   "Tabbed chat: color for the Local channel — its label tag + tab. Hex string (default #B0E0FF blue).");
+        InitConfigEntry(OVERLAY_SETTINGS_GROUP, nameof(ChatClanColorHex),             DEFAULT_CHAT_CLAN_HEX,    "Tabbed chat: color for the Clan channel — its label tag + tab. Hex string (default #90EE90 green).");
+        InitConfigEntry(OVERLAY_SETTINGS_GROUP, nameof(ChatSystemColorHex),           DEFAULT_CHAT_SYSTEM_HEX,  "Tabbed chat: color for System messages — their label tag + tab. Hex string (default #FFD700 gold).");
+        InitConfigEntry(OVERLAY_SETTINGS_GROUP, nameof(ChatWhisperColorHex),          DEFAULT_CHAT_WHISPER_HEX, "Tabbed chat: color for Whispers — their label tag + tab. Hex string (default #FF9CEF pink).");
+        InitConfigEntry(OVERLAY_SETTINGS_GROUP, nameof(ChatColorMessageByChannel),     false,                    "Tabbed chat: tint each message's BODY text by its channel color (not just the [tag]/tab). Default off.");
+        InitConfigEntry(OVERLAY_SETTINGS_GROUP, nameof(ChatColorOwnMessages),          false,                    "Tabbed chat: show YOUR OWN messages' body text in a distinct color (ChatOwnMessageColorHex) on every tab, so you can pick out your own text. Default off.");
+        InitConfigEntry(OVERLAY_SETTINGS_GROUP, nameof(ChatOwnMessageColorHex),        DEFAULT_CHAT_OWN_HEX,     "Tabbed chat: color for your own messages when 'highlight my own messages' is on. Hex string (default #FFE08A gold).");
         InitConfigEntry(OVERLAY_SETTINGS_GROUP, nameof(ChatWindowBackgroundColorHex), DEFAULT_PANEL_BG_HEX, "Tabbed chat window background theme color (independent of the main panel color). Hex string; same presets as Settings → Display panel color. Default #121212 near-black. Transparency is set separately by the chat window transparency control.");
         InitConfigEntry(OVERLAY_SETTINGS_GROUP, nameof(AllTabShowGlobal),             true,  "Tabbed chat: include GLOBAL messages in the consolidated 'All' tab. Uncheck to hide Global from All (its own Global tab is unaffected).");
         InitConfigEntry(OVERLAY_SETTINGS_GROUP, nameof(AllTabShowLocal),              true,  "Tabbed chat: include LOCAL messages in the 'All' tab. Uncheck to hide Local from All (its own Local tab is unaffected).");
         InitConfigEntry(OVERLAY_SETTINGS_GROUP, nameof(AllTabShowClan),               true,  "Tabbed chat: include CLAN messages in the 'All' tab. Uncheck to hide Clan from All (its own Clan tab is unaffected).");
         InitConfigEntry(OVERLAY_SETTINGS_GROUP, nameof(AllTabShowSystem),             true,  "Tabbed chat: include SYSTEM messages in the 'All' tab. Uncheck to hide system/server messages from All (its own System tab is unaffected).");
         InitConfigEntry(OVERLAY_SETTINGS_GROUP, nameof(AllTabShowWhisper),            true,  "Tabbed chat: include WHISPERS in the 'All' tab. Uncheck to hide whispers from All (the Whispers tab is unaffected).");
+        InitConfigEntry(OVERLAY_SETTINGS_GROUP, nameof(ShowSecondaryChatOverlay),     false, "Whether the secondary VIEW-ONLY chat window was open at last logout.");
+        InitConfigEntry(OVERLAY_SETTINGS_GROUP, nameof(SecondaryChatShowGlobal),       false, "Secondary chat window: show GLOBAL messages.");
+        InitConfigEntry(OVERLAY_SETTINGS_GROUP, nameof(SecondaryChatShowLocal),        false, "Secondary chat window: show LOCAL messages.");
+        InitConfigEntry(OVERLAY_SETTINGS_GROUP, nameof(SecondaryChatShowClan),         true,  "Secondary chat window: show CLAN messages. Default ON.");
+        InitConfigEntry(OVERLAY_SETTINGS_GROUP, nameof(SecondaryChatShowSystem),       true,  "Secondary chat window: show SYSTEM / server messages. Default ON.");
+        InitConfigEntry(OVERLAY_SETTINGS_GROUP, nameof(SecondaryChatShowWhisper),      false, "Secondary chat window: show WHISPERS.");
         InitConfigEntry(OVERLAY_SETTINGS_GROUP, nameof(ChatTabHotkeysEnabled),        true,  "Tabbed chat: switch tabs with hotkeys (a modifier + number 1-6) while the chat window is open and you are NOT typing in it. Tab order: 1=All, 2=Global, 3=Local, 4=Clan, 5=System, 6=Whispers.");
         InitConfigEntry(OVERLAY_SETTINGS_GROUP, nameof(ChatTabHotkeyModifier),        "Alt",   "Tabbed chat: modifier held with number keys 1-6 to switch tabs. One of: Shift, Ctrl, Alt, None. Default Alt (so Alt+1..6) — Shift+number is the game's consumable bar and Ctrl pops the action wheel, so Alt is the safest free default. Change it here if Alt also conflicts for you.");
         InitConfigEntry(OVERLAY_SETTINGS_GROUP, nameof(ShiftSpellOverlayShowDiagnostics), false, "Show the small italic 'pf/cg/si/end/srv' debug line under the Shift overlay's SHIFT label. Off by default; flip on if you need to debug why the cooldown isn't updating.");
@@ -995,6 +1333,9 @@ public class Settings
         InitConfigEntry(OVERLAY_SETTINGS_GROUP, nameof(OverlaysBehindGameMenus),          true,  "When an in-game menu (inventory, character sheet, map, etc.) is open, drop BCH's overlays/panels BEHIND it instead of floating over the top. Set false to keep them always on top (the pre-0.16 behavior).");
         InitConfigEntry(GENERAL_SETTINGS_GROUP, nameof(EnableCustomRecipes),               false, "Show Bloodcraft's custom crafting recipes (vampiric dust, copper wires, soul-shard extraction, primal jewel, etc.) in the in-game crafting stations when the server has them enabled. Client-side display only; automatically skipped if the Eclipse mod is installed (it applies them itself). DEFAULT OFF as of 0.16.1: applying these recipes does a burst of ECS structural changes at login that can trigger a rare, non-deterministic Il2CppInterop GC crash on some machines. Turn ON to opt in; when on, application is deferred to a quiet frame a few seconds after login to minimize that risk.");
         InitConfigEntry(GENERAL_SETTINGS_GROUP, nameof(SuppressGameInputWhileUIOpen),       false, "Stop your character moving / attacking / casting (incl. hotkeyed commands) while the BCH main panel is open, so background actions don't fire while you click buttons or type into forms. Default OFF — enable to try it. Blanks your input data AFTER the game reads it (never blocks the input system), so it cannot freeze the UI like the removed 0.1.x attempt did.");
+        InitConfigEntry(GENERAL_SETTINGS_GROUP, nameof(LockKeyboardInFormFields),           true,  "Lock the game keyboard while you're typing in a BCH form field (search/name/admin boxes), exactly like the chat window already does: your character won't move, attack, or cast, menus won't open, and your bound hotkeys (incl. ability keybinds) won't fire — so a keystroke meant for the text box can never trigger a game action. Default ON. Reads each field's real focus every frame (can't get stuck) and Escape always frees the keyboard. Turn OFF to restore the old behavior (only the chat window locks input).");
+        InitConfigEntry(GENERAL_SETTINGS_GROUP, nameof(BlockInputWhenPointerOverUI),         false, "Don't fire your primary attack / spell cast when you LEFT-CLICK while the cursor is over any BCH panel or overlay (the chat window is always covered regardless). Stops a click on a button/overlay from leaking into the world as an attack or a stuck cast. Default OFF — leave off if you want to keep casting with the cursor parked over an overlay. Only suppresses the attack/cast (never movement, never menus), so it can't freeze the game.");
+        InitConfigEntry(GENERAL_SETTINGS_GROUP, nameof(SuppressConsoleKeybindsWhileTyping),  true,  "ADMINS: stop console keybindings (hotkeys assigned with the console's 'keybinding create' command) from firing while you type in a BCH field or have the main panel open (panel case requires SuppressGameInputWhileUIOpen). The game reads these binds outside its normal input pipeline, so even the native chat's typing lock can't block them — BCH disables them the same way the game's own UI text fields do, and the game automatically re-enables them the moment you stop typing. Default ON; harmless for non-admins (the binds only execute on console-enabled sessions).");
         InitConfigEntry(UI_SETTINGS_GROUP,      nameof(IsPanelAutoResizeEnabled),    true,  "Auto-resize the main panel vertically to fit the active tab's content (capped at 90% of screen height).");
         InitConfigEntry(UI_SETTINGS_GROUP,      nameof(UITextScale),                 1.0f,  "Font scale multiplier for the main panel (Small=0.85, Standard=1.0, Large=1.2, X-Large=1.5). Changes apply when the panel is closed and reopened.");
         InitConfigEntry(UI_SETTINGS_GROUP,      nameof(OverlayTextScale),            1.0f,  "Font scale multiplier for the secondary overlays (Small=0.85, Standard=1.0, Large=1.2, X-Large=1.5). Changes apply when each overlay is toggled off and back on.");
@@ -1009,6 +1350,11 @@ public class Settings
         InitConfigEntry(OVERLAY_SETTINGS_GROUP, nameof(ProfessionOverlayTransparency), 0.4f, "Profession overlay background transparency.");
         InitConfigEntry(OVERLAY_SETTINGS_GROUP, nameof(ShiftSpellOverlayTransparency), 0.4f, "Shift-spell cooldown overlay background transparency (0.0=solid, 1.0=invisible).");
         InitConfigEntry(OVERLAY_SETTINGS_GROUP, nameof(QuickActionsOverlayTransparency), 0.4f, "Quick Actions overlay background transparency (0.0=solid, 1.0=invisible).");
+        InitConfigEntry(OVERLAY_SETTINGS_GROUP, nameof(BeelzActionBarOverlayTransparency), 0.4f, "Beelz Action Bar overlay background transparency (0.0=solid, 1.0=invisible).");
+        InitConfigEntry(OVERLAY_SETTINGS_GROUP, nameof(BeelzSummonsOverlayTransparency), 0.4f, "Beelz Summons overlay background transparency (0.0=solid, 1.0=invisible).");
+        InitConfigEntry(OVERLAY_SETTINGS_GROUP, nameof(UrielSharedOverlayTransparency), 0.4f, "Uriel Nearby Public Storage overlay background transparency (0.0=solid, 1.0=invisible).");
+        InitConfigEntry(OVERLAY_SETTINGS_GROUP, nameof(UrielObjectSpawnerOverlayTransparency), 0.4f, "Uriel object-spawn palette overlay background transparency (0.0=solid, 1.0=invisible).");
+        InitConfigEntry(OVERLAY_SETTINGS_GROUP, nameof(BeelzTransformOverlayTransparency), 0.4f, "Beelz Transforms overlay background transparency (0.0=solid, 1.0=invisible).");
         InitConfigEntry(OVERLAY_SETTINGS_GROUP, nameof(ChatWindowOverlayTransparency), 0.3f, "Tabbed chat window background transparency (0.0=solid, 1.0=invisible).");
         // 0.14.0: combined overlay registration.
         InitConfigEntry(OVERLAY_SETTINGS_GROUP, nameof(ShowCombinedOverlay),         false, "Show the combined overlay — one panel with XP / Familiar / Weapon / Blood / Professions / Quests sections. When on, the individual info overlays auto-hide. Toggle in Settings → Display.");
@@ -1031,6 +1377,10 @@ public class Settings
         InitConfigEntry(OVERLAY_SETTINGS_GROUP, nameof(CombinedOverlayTransparency),  0.4f,  "Combined overlay background transparency (0.0=solid, 1.0=invisible).");
         InitConfigEntry(GENERAL_SETTINGS_GROUP, nameof(BloodcraftAvailability),      "Auto", "Whether the server has the Bloodcraft mod. Auto = present iff the server ACK'd our Eclipse handshake. On = always assume present. Off = always disable the BLOODCRAFT tab group.");
         InitConfigEntry(GENERAL_SETTINGS_GROUP, nameof(KindredAvailability),         "Auto", "Whether the server has the Kindred suite (KindredCommands + KindredLogistics). No protocol probe is wired yet, so Auto currently means 'assume present'. Set to Off explicitly if your server doesn't have these mods to grey out the KINDRED tab group.");
+        InitConfigEntry(GENERAL_SETTINGS_GROUP, nameof(BeelzebubAvailability),       "Auto", "Whether the server has the Beelzebub mod (ability capture/transform). Auto = present iff the server answered our `.beelz api version` handshake. On = always assume present. Off = always disable the BEELZEBUB tab group. Most servers don't have Beelzebub, so Auto stays disabled there.");
+        InitConfigEntry(GENERAL_SETTINGS_GROUP, nameof(BeelzDiagnostics),            false,  "Beelzebub diagnostic details (default off). ON: the Loadout tables show each ability's ID (PrefabGUID) + raw prefab name, and BCH writes a verbose [Beelz][diag] wire trace (commands sent + raw [BEELZ:*] replies) to the BepInEx LogOutput.log so testers/admins can report exactly which abilities work or need tuning. Toggle it from the Beelzebub → Settings tab; also implied while the global DiagnosticMode is active.");
+        InitConfigEntry(GENERAL_SETTINGS_GROUP, nameof(UrielAvailability),           "Auto", "Whether the server has the Uriel mod (storage sharing / public prisons / stair swap / object spawning). Auto = present iff the server answered our `.uriel api version` handshake. On = always assume present. Off = always disable the URIEL tab group. Most servers don't have Uriel, so Auto stays disabled there.");
+        InitConfigEntry(GENERAL_SETTINGS_GROUP, nameof(UrielDiagnostics),            false,  "Uriel diagnostic details (default off). ON: BCH writes a verbose [Uriel][diag] wire trace (commands sent + raw [URIEL:*] replies) to the BepInEx LogOutput.log so testers/admins can report exactly which Uriel commands fired and what came back. Toggle it from the Uriel → Settings tab; also implied while the global DiagnosticMode is active.");
 
         // 0.15.0: opt-in keyboard hotkeys for the floating BCH / OV button
         // actions. Both default to KeyboardShortcut.Empty (no binding) so
@@ -1042,6 +1392,14 @@ public class Settings
             "Hotkey to open / close the main BloodCraftHub panel. Empty by default — bind via Settings → Display → Hotkeys, or set here directly. Format: a single key name (e.g. 'Insert', 'F3') OR a modifier-prefixed combo joined with '+' (e.g. 'LeftControl+H', 'Ctrl+H', 'Shift+F5'). Aliases accepted for modifiers: ctrl, alt, shift, win.");
         InitConfigEntry(GENERAL_SETTINGS_GROUP, nameof(HotkeyToggleAllOverlays), string.Empty,
             "Hotkey to show / hide all overlays at once (master overlay toggle). Empty by default — same format and bind-via-Settings UI as the main panel hotkey.");
+        InitConfigEntry(GENERAL_SETTINGS_GROUP, nameof(UrielBuildMoveKey),   string.Empty,
+            "Uriel BUILD-MODE hotkey: move the nearest spawned object to your cursor (.uriel move). Only fires while Build Mode is ON (Uriel → Object Spawning → Building hotkeys); Build Mode resets OFF every login. Empty by default. Same key format as the other hotkeys.");
+        InitConfigEntry(GENERAL_SETTINGS_GROUP, nameof(UrielBuildRotateKey), string.Empty,
+            "Uriel BUILD-MODE hotkey: rotate the nearest spawned object (.uriel rotate). Only fires while Build Mode is ON. Empty by default.");
+        InitConfigEntry(GENERAL_SETTINGS_GROUP, nameof(UrielBuildRemoveKey), string.Empty,
+            "Uriel BUILD-MODE hotkey: remove (despawn) the nearest spawned object (.uriel despawn). Only fires while Build Mode is ON. Empty by default.");
+        InitConfigEntry(GENERAL_SETTINGS_GROUP, "BeelzHotkeyBinds", string.Empty,
+            "Optional keyboard shortcuts for Beelzebub action-bar abilities (press the key → casts the ability via .beelz cast). Managed from the Beelzebub → Hotkeys tab. Format: semicolon-separated 'name=combo' pairs, e.g. 'Bolt=F1;Heal=LeftControl+F2'.");
         InitConfigEntry(GENERAL_SETTINGS_GROUP, nameof(DiagnosticMode),         "Off",
             "Diagnostic mode: emit detailed [DIAG]-prefixed trace logs to BepInEx for UI clicks, overlay toggles, protocol state changes, and hotkey fires. Valid persistent values: 'Off' or 'Always'. Use Settings → Display → Hotkeys & diagnostics to also pick 'Session' (this run only — resets to Off on game restart). Cheap when off (one bool check + early return per call site).");
 
@@ -1051,6 +1409,8 @@ public class Settings
             "ON (default): BCH patches the chat systems for inbound command-reply parsing AND the tabbed chat window. OFF: those chat patches are NOT applied — the tabbed chat window and command-reply parsing stop working. Turn OFF only to test whether BCH's chat patches contribute to the intermittent 0.16.x load crash.");
         InitConfigEntry(COMPAT_SETTINGS_GROUP, nameof(EnableInputSuppressionPatches), true,
             "ON (default): BCH patches the input/menu systems so typing in a BCH form or chat window suppresses character movement, abilities, and menu hotkeys. OFF: those input patches are NOT applied — your character may act on keystrokes while you type. Turn OFF only to test whether these patches contribute to the intermittent 0.16.x load crash.");
+        InitConfigEntry(COMPAT_SETTINGS_GROUP, nameof(EnableNativeTypingLock),        true,
+            "ON (default): while you type in a BCH text field, BCH registers an input consumer in V Rising's own input stack (the same mechanism the native chat uses) so game keybinds — menus, abilities, action bar, emotes, admin — are consumed at the source and can never fire mid-typing. OFF: fall back to the older, partial protections only. Turn OFF only if you suspect this new lock of causing a problem.");
         InitConfigEntry(COMPAT_SETTINGS_GROUP, nameof(EnableOverlayLayeringPatch),    true,
             "ON (default): BCH patches UICanvasSystem so overlays can render BEHIND in-game menus (the 'Overlays behind game menus' feature). OFF: that patch is NOT applied — overlays always render on top. Turn OFF only to test whether this patch contributes to the intermittent 0.16.x load crash.");
         InitConfigEntry(COMPAT_SETTINGS_GROUP, nameof(UiBuildDelaySeconds),           3,

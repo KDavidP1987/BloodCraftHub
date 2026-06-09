@@ -35,7 +35,13 @@ public class BCHubUIManager : UIManagerBase
     private ProfessionOverlayPanel _professionOverlay;
     private ShiftSpellOverlayPanel _shiftSpellOverlay;
     private QuickActionsOverlayPanel _quickActionsOverlay; // 0.16: one-click Kindred action buttons (Stash All)
+    private BeelzActionBarOverlayPanel _beelzActionBarOverlay; // 0.18: Beelzebub extra-ability buttons + cooldown rings
+    private BeelzSummonsOverlayPanel _beelzSummonsOverlay; // 0.19: one-click stash/restore for Beelzebub summons
+    private BeelzTransformOverlayPanel _beelzTransformOverlay; // 0.20: browser-style transform/phase/revert overlay
+    private UrielSharedOverlayPanel _urielSharedOverlay; // 0.26: nearby public-storage badges (client-side detection)
+    private UrielObjectSpawnerOverlayPanel _urielObjectSpawnerOverlay; // 0.29: quick-build object-spawn palette
     private ChatWindowOverlayPanel _chatWindowOverlay; // 0.17: standalone tabbed chat window
+    private SecondaryChatOverlayPanel _secondaryChatOverlay; // 0.24: view-only second chat window (channel subset)
     private ProjectM.UI.HUDChatWindow _nativeChat; // 0.17: cached native chat window (for the takeover)
     // 0.14.0: single combined info overlay. Mutually exclusive with the 4
     // standalone info overlays (XP / Familiar / Daily Quest / Profession);
@@ -53,9 +59,26 @@ public class BCHubUIManager : UIManagerBase
     // copy here for the per-frame visibility application.
     private bool _overlaysSuppressed;
 
+    // 0.28: seconds left on a TIMED master-hide before overlays auto-reappear. 0 = no timed hide
+    // pending (sticky-toggle mode, or overlays aren't currently hidden). Ticked down each frame by
+    // TickOverlayHideTimer; armed in ToggleAllOverlaysSuppressed when Timed mode is on.
+    private float _hideTimerRemaining;
+
     // 0.16.x: tracks whether the whole BCH UIBase is active (false while the
     // escape menu is up). Drives RefreshFloatingButtonVisibility.
     private bool _uiActive = true;
+
+    // 0.18.1 logout/relog visibility. The UIManager + its canvas are DontDestroyOnLoad, so
+    // they SURVIVE leaving the game — which is exactly why every overlay used to linger over
+    // the main menu after "Leave Game". We can't hide them inside the ClientBootstrapSystem.OnDestroy
+    // teardown hook (any GameObject work there native-crashes the disposing world). Instead:
+    //   - logout sets _hideForLogoutPending (pure flag) + _loggedOut,
+    //   - the next CoreUpdateBehavior tick (TickPendingHide, runs in the main menu AFTER teardown)
+    //     does the actual SetActive(false),
+    //   - relog (CharacterHUDEntry.Awake -> UIOnInitialize) re-shows via RestoreAfterRelogIfNeeded.
+    // _loggedOut gates the relog restore so a HUD Awake that ISN'T a relog can't thrash the overlays.
+    private bool _hideForLogoutPending;
+    private bool _loggedOut;
 
     public bool IsMainPanelOpen => _mainPanel != null && _mainPanel.Enabled;
 
@@ -88,7 +111,13 @@ public class BCHubUIManager : UIManagerBase
         ApplyPinnedTo(_professionOverlay, pinned);
         ApplyPinnedTo(_shiftSpellOverlay, pinned);
         ApplyPinnedTo(_quickActionsOverlay, pinned);
+        ApplyPinnedTo(_beelzActionBarOverlay, pinned);
+        ApplyPinnedTo(_beelzSummonsOverlay, pinned);
+        ApplyPinnedTo(_beelzTransformOverlay, pinned);
+        ApplyPinnedTo(_urielSharedOverlay, pinned);
+        ApplyPinnedTo(_urielObjectSpawnerOverlay, pinned);
         ApplyPinnedTo(_chatWindowOverlay, pinned);
+        ApplyPinnedTo(_secondaryChatOverlay, pinned);
         ApplyPinnedTo(_combinedOverlay, pinned);
     }
 
@@ -119,6 +148,11 @@ public class BCHubUIManager : UIManagerBase
         _combinedOverlay = null;
         _shiftSpellOverlay = null;
         _quickActionsOverlay = null;
+        _beelzActionBarOverlay = null;
+        _beelzSummonsOverlay = null;
+        _beelzTransformOverlay = null;
+        _urielSharedOverlay = null;
+        _urielObjectSpawnerOverlay = null;
     }
 
     protected override void AddMainContentPanel()
@@ -142,8 +176,83 @@ public class BCHubUIManager : UIManagerBase
         _professionOverlay?.SetActive(active && (_professionOverlay?.Enabled ?? false));
         _shiftSpellOverlay?.SetActive(active && (_shiftSpellOverlay?.Enabled ?? false));
         _quickActionsOverlay?.SetActive(active && (_quickActionsOverlay?.Enabled ?? false));
+        // 0.18.1: these three were added after SetActive was first written and were never
+        // included here — so hiding the UI (escape menu, and the new logout teardown) left them
+        // visible. The Combined overlay / Chat window / Beelz action bar are the overlays that
+        // "lingered over the main menu" after logout; include them so a hide covers everything.
+        _combinedOverlay?.SetActive(active && (_combinedOverlay?.Enabled ?? false));
+        _chatWindowOverlay?.SetActive(active && (_chatWindowOverlay?.Enabled ?? false));
+        _secondaryChatOverlay?.SetActive(active && (_secondaryChatOverlay?.Enabled ?? false));
+        _beelzActionBarOverlay?.SetActive(active && (_beelzActionBarOverlay?.Enabled ?? false));
+        _beelzSummonsOverlay?.SetActive(active && (_beelzSummonsOverlay?.Enabled ?? false));
+        _beelzTransformOverlay?.SetActive(active && (_beelzTransformOverlay?.Enabled ?? false));
+        _urielSharedOverlay?.SetActive(active && (_urielSharedOverlay?.Enabled ?? false));
+        _urielObjectSpawnerOverlay?.SetActive(active && (_urielObjectSpawnerOverlay?.Enabled ?? false));
         // 0.16.x: floating launcher follows a single visibility rule (below).
         RefreshFloatingButtonVisibility();
+    }
+
+    /// <summary>0.18.1: queue a full BCH-UI hide because the player left the game. SAFE to call
+    /// from the ClientBootstrapSystem.OnDestroy teardown hook — pure flag assignment, no UI/ECS
+    /// work (the actual hide happens on the next CoreUpdateBehavior tick, see TickPendingHide).
+    /// Without this, every overlay + the floating launcher lingered over the main menu after
+    /// "Leave Game" because the canvas is DontDestroyOnLoad.</summary>
+    public void RequestHideForLogout()
+    {
+        _hideForLogoutPending = true;
+        _loggedOut = true;
+    }
+
+    /// <summary>0.18.1: per-frame (CoreUpdateBehavior, registered in Plugin.Load). When a logout
+    /// hide is queued, hide everything. Runs in the MAIN MENU after world teardown has completed,
+    /// so the GameObject toggles in SetActive(false) are safe (unlike doing them in OnDestroy).
+    /// No-op (one bool check) the rest of the time.</summary>
+    public void TickPendingHide()
+    {
+        if (!_hideForLogoutPending) return;
+        _hideForLogoutPending = false;
+        try { SetActive(false); }   // hides main panel + every overlay + floating launcher
+        catch (System.Exception ex) { BloodCraftHub.Utils.LogUtils.LogDebug($"Logout UI hide failed: {ex.Message}"); }
+    }
+
+    /// <summary>0.18.1: re-show BCH UI after the player re-enters a world (relog). The UIManager +
+    /// canvas persist across logout and IsInitialized stays true, so UIOnInitialize routes here
+    /// instead of rebuilding. Gated on _loggedOut so a HUD Awake that isn't a relog (IsInitialized
+    /// already true but we never left the game) is a no-op and can't thrash the overlays. Restores
+    /// the floating launcher and re-runs the saved-overlay restore (config-driven via
+    /// Settings.Show*), so the user gets back exactly the overlays they had.</summary>
+    public void RestoreAfterRelogIfNeeded()
+    {
+        if (!_loggedOut) return;
+        _loggedOut = false;
+        _hideForLogoutPending = false;   // a relog cancels any still-queued hide
+        _uiActive = true;
+
+        // 0.28: SAFETY — a relog always returns to configured visibility. Clear the session-only
+        // master-hide (and any pending timed-hide countdown) BEFORE refreshing the launcher, so the
+        // user can never re-enter a world still suppressed. Without this, a hide with "Hide buttons
+        // too" + a hotkey-only escape would leave the BCH/OV launcher hidden after a relog — a clean
+        // screen with no visible way back. Mirrors the "reset on game restart" intent of the flag.
+        _overlaysSuppressed = false;
+        _hideTimerRemaining = 0f;
+        BloodCraftHub.Config.Settings.OverlaysSuppressedByUser = false;
+
+        RefreshFloatingButtonVisibility();
+
+        // 0.18.3: reset to the "unavailable until confirmed" baseline for the NEW server. The
+        // protocol services were Reset on logout (UserRegistered=false / IsPresent=false), so:
+        //   - grey the Bloodcraft + Beelzebub tab groups back out (they re-light on this server's
+        //     handshake ACK, via AvailabilityChanged), and
+        //   - hide any BC/Beelz overlay that lingered, so the new server re-detects from scratch
+        //     instead of inheriting the previous server's tab/overlay state.
+        try { _mainPanel?.RefreshTabGroupAvailabilityNow(); } catch { }
+        try { ApplyAvailabilityToOverlays(); } catch { }
+        // 0.18.3: wipe the chat window (scrollback was cleared in the teardown hook via
+        // ChatRelayService.Clear(); this clears any half-typed message + repaints empty) so a
+        // server-switch doesn't carry the previous server's chat into the new one.
+        try { _chatWindowOverlay?.ResetForServerSwitch(); } catch { }
+
+        ScheduleOverlayRestore();        // same deferred, config-driven path as first login
     }
 
     /// <summary>Show or hide the main tabbed panel.</summary>
@@ -176,7 +285,11 @@ public class BCHubUIManager : UIManagerBase
     internal void RefreshFloatingButtonVisibility()
     {
         bool hideForFullscreen = (_mainPanel?.Enabled ?? false) && (_mainPanel?.IsFullscreen ?? false);
-        _floatingButton?.SetActive(_uiActive && !hideForFullscreen);
+        // 0.28: optionally hide the launcher cluster along with the master overlay hide.
+        // CanHideLauncherButtons gates this on a guaranteed way back (timed auto-restore, or a bound
+        // hide-all hotkey), so a misconfiguration can never strand the user with the panel unreachable.
+        bool hideForOverlaySuppress = _overlaysSuppressed && BloodCraftHub.Config.Settings.CanHideLauncherButtons;
+        _floatingButton?.SetActive(_uiActive && !hideForFullscreen && !hideForOverlaySuppress);
     }
 
     /// <summary>Show or hide a specific tab inside the main panel (and bring the panel up if needed).</summary>
@@ -229,11 +342,41 @@ public class BCHubUIManager : UIManagerBase
                 _quickActionsOverlay.SetActive(!_quickActionsOverlay.Enabled);
                 BloodCraftHub.Config.Settings.SetShowQuickActionsOverlay(_quickActionsOverlay.Enabled);
                 break;
+            case PanelType.BeelzActionBarOverlay:
+                EnsureBeelzActionBarOverlay();
+                _beelzActionBarOverlay.SetActive(!_beelzActionBarOverlay.Enabled);
+                BloodCraftHub.Config.Settings.SetShowBeelzActionBarOverlay(_beelzActionBarOverlay.Enabled);
+                break;
+            case PanelType.BeelzSummonsOverlay:
+                EnsureBeelzSummonsOverlay();
+                _beelzSummonsOverlay.SetActive(!_beelzSummonsOverlay.Enabled);
+                BloodCraftHub.Config.Settings.SetShowBeelzSummonsOverlay(_beelzSummonsOverlay.Enabled);
+                break;
+            case PanelType.BeelzTransformOverlay:
+                EnsureBeelzTransformOverlay();
+                _beelzTransformOverlay.SetActive(!_beelzTransformOverlay.Enabled);
+                BloodCraftHub.Config.Settings.SetShowBeelzTransformOverlay(_beelzTransformOverlay.Enabled);
+                break;
+            case PanelType.UrielSharedOverlay:
+                EnsureUrielSharedOverlay();
+                _urielSharedOverlay.SetActive(!_urielSharedOverlay.Enabled);
+                BloodCraftHub.Config.Settings.SetShowUrielSharedOverlay(_urielSharedOverlay.Enabled);
+                break;
+            case PanelType.UrielObjectSpawnerOverlay:
+                EnsureUrielObjectSpawnerOverlay();
+                _urielObjectSpawnerOverlay.SetActive(!_urielObjectSpawnerOverlay.Enabled);
+                BloodCraftHub.Config.Settings.SetShowUrielObjectSpawnerOverlay(_urielObjectSpawnerOverlay.Enabled);
+                break;
             case PanelType.ChatWindowOverlay:
                 EnsureChatWindowOverlay();
                 _chatWindowOverlay.SetActive(!_chatWindowOverlay.Enabled);
                 BloodCraftHub.Config.Settings.SetShowChatWindowOverlay(_chatWindowOverlay.Enabled);
                 ApplyNativeChatVisibility();
+                break;
+            case PanelType.SecondaryChatOverlay:
+                EnsureSecondaryChatOverlay();
+                _secondaryChatOverlay.SetActive(!_secondaryChatOverlay.Enabled);
+                BloodCraftHub.Config.Settings.SetShowSecondaryChatOverlay(_secondaryChatOverlay.Enabled);
                 break;
             case PanelType.CombinedOverlay:
                 // 0.14.0: toggling combined-mode swaps which set of overlays
@@ -307,13 +450,53 @@ public class BCHubUIManager : UIManagerBase
     {
         _overlaysSuppressed = !_overlaysSuppressed;
         BloodCraftHub.Config.Settings.OverlaysSuppressedByUser = _overlaysSuppressed;
+
+        // 0.28: timed-hide bookkeeping. Starting a hide while Timed mode is on arms the auto-restore
+        // countdown; any un-hide (manual toggle, hotkey, or the timer firing) clears it so a stale timer
+        // can't re-hide later. Read the duration once, here, so a mid-hide settings change can't strand it.
+        if (_overlaysSuppressed && BloodCraftHub.Config.Settings.OverlayTimedHide)
+            _hideTimerRemaining = BloodCraftHub.Config.Settings.OverlayHideDurationSeconds;
+        else
+            _hideTimerRemaining = 0f;
+
         ApplyOverlaySuppression();
+        RefreshFloatingButtonVisibility(); // 0.28: the launcher cluster may hide/show with the overlays
     }
 
     public bool AreOverlaysSuppressed => _overlaysSuppressed;
 
+    /// <summary>0.28: seconds remaining on a pending timed master-hide (0 when none). Exposed for the
+    /// Settings UI / potential on-screen countdown.</summary>
+    public float OverlayHideSecondsRemaining => _hideTimerRemaining;
+
+    /// <summary>0.28: per-frame countdown for a TIMED master-hide. When the user hides overlays while
+    /// Timed mode is on, this ticks the remaining duration down and auto-restores (un-suppresses) on
+    /// expiry. No-op (one float compare) when no timed hide is pending. Registered on
+    /// CoreUpdateBehavior.Actions; never throws into the per-frame pump.</summary>
+    public void TickOverlayHideTimer()
+    {
+        if (_hideTimerRemaining <= 0f) return;
+        // Defensive: if something else un-suppressed us, drop the timer.
+        if (!_overlaysSuppressed) { _hideTimerRemaining = 0f; return; }
+
+        _hideTimerRemaining -= UnityEngine.Time.deltaTime;
+        if (_hideTimerRemaining > 0f) return;
+
+        _hideTimerRemaining = 0f;
+        try { ToggleAllOverlaysSuppressed(); } // flip back to visible via the same path a manual un-hide takes
+        catch (System.Exception ex) { BloodCraftHub.Utils.LogUtils.LogDebug($"TickOverlayHideTimer restore failed: {ex.Message}"); }
+    }
+
     private void ApplyOverlaySuppression()
     {
+        // 0.18.3: availability gates mirror ApplyAvailabilityToOverlays (confirmed-present only)
+        // so un-suppressing on a server that lacks Bloodcraft/Beelzebub doesn't resurrect empty
+        // overlays, and the un-suppress can't out-race detection on a fresh relog.
+        bool bcAvailable = !Services.EclipseProtocolService.StandDownForEclipse()
+                           && Services.EclipseProtocolService.UserRegistered;
+        bool beelzAvailable = Services.Beelzebub.BeelzProtocolService.IsPresent;
+        bool urielAvailable = Services.Uriel.UrielProtocolService.IsPresent;
+
         if (_overlaysSuppressed)
         {
             // Hide whatever is open. We do NOT touch each overlay's
@@ -327,20 +510,29 @@ public class BCHubUIManager : UIManagerBase
             _shiftSpellOverlay?.SetActive(false);
             _quickActionsOverlay?.SetActive(false);
             _combinedOverlay?.SetActive(false);
+            _beelzActionBarOverlay?.SetActive(false); // 0.18.3: the Beelz bar hides with the master toggle too
+            _beelzSummonsOverlay?.SetActive(false);   // 0.19: the Beelz summons overlay hides with it too
+            _beelzTransformOverlay?.SetActive(false); // 0.20: the Beelz transforms overlay hides with it too
+            _urielSharedOverlay?.SetActive(false);    // 0.26: the Uriel public-storage overlay hides with it too
+            _urielObjectSpawnerOverlay?.SetActive(false); // 0.29: the Uriel object-spawn palette hides with it too
+            // 0.18.3: optionally include the chat window in the master "hide overlays" toggle. Default
+            // OFF — chat normally stays visible (the requested default). When ON, the upper-right toggle
+            // also hides chat; ApplyNativeChatVisibility keeps V Rising's native chat in sync.
+            if (BloodCraftHub.Config.Settings.HideChatWithOverlaysToggle)
+            {
+                _chatWindowOverlay?.SetActive(false);
+                ApplyNativeChatVisibility();
+            }
             return;
         }
-        // Un-suppress: re-show only overlays whose per-overlay Settings flag
-        // is true. Anything the user disabled stays disabled.
-        // 0.17.1: under Eclipse stand-down, keep the stream-driven stat overlays
-        // OFF here too (Eclipse shows that data; BCH has no stream) — same rule as
-        // RestoreOverlaysFromSettings. Familiar Browser / Quick Actions / Chat stay.
-        bool standDown = Services.EclipseProtocolService.StandDownForEclipse();
-        if (!standDown && BloodCraftHub.Config.Settings.ShowExperienceOverlay)
+        // Un-suppress: re-show only overlays whose per-overlay Settings flag is true AND whose backing
+        // mod is available. Anything the user disabled (or whose mod is absent) stays hidden.
+        if (bcAvailable && BloodCraftHub.Config.Settings.ShowExperienceOverlay)
         {
             EnsureExperienceOverlay();
             _experienceOverlay.SetActive(true);
         }
-        if (!standDown && BloodCraftHub.Config.Settings.ShowFamiliarOverlay)
+        if (bcAvailable && BloodCraftHub.Config.Settings.ShowFamiliarOverlay)
         {
             EnsureFamiliarOverlay();
             _familiarOverlay.SetActive(true);
@@ -350,17 +542,21 @@ public class BCHubUIManager : UIManagerBase
             EnsureFamiliarBrowserOverlay();
             _familiarBrowserOverlay.SetActive(true);
         }
-        if (!standDown && BloodCraftHub.Config.Settings.ShowDailyQuestOverlay)
+        if (bcAvailable && BloodCraftHub.Config.Settings.ShowDailyQuestOverlay)
         {
             EnsureDailyQuestOverlay();
             _dailyQuestOverlay.SetActive(true);
         }
-        if (!standDown && BloodCraftHub.Config.Settings.ShowProfessionOverlay)
+        if (bcAvailable && BloodCraftHub.Config.Settings.ShowProfessionOverlay)
         {
             EnsureProfessionOverlay();
             _professionOverlay.SetActive(true);
         }
-        if (!standDown && BloodCraftHub.Config.Settings.ShowShiftSpellOverlay)
+        // B7 (0.19): the Shift-spell overlay reads ShiftCooldownService (resolved straight from the
+        // game), NOT the Bloodcraft stream — and Shift is used by BOTH Bloodcraft and Beelzebub. So it
+        // is independent of bcAvailable: show it whenever the user enabled it (master-suppression still
+        // applies via the early return above).
+        if (BloodCraftHub.Config.Settings.ShowShiftSpellOverlay)
         {
             EnsureShiftSpellOverlay();
             _shiftSpellOverlay.SetActive(true);
@@ -370,11 +566,42 @@ public class BCHubUIManager : UIManagerBase
             EnsureQuickActionsOverlay();
             _quickActionsOverlay.SetActive(true);
         }
+        if (beelzAvailable && BloodCraftHub.Config.Settings.ShowBeelzActionBarOverlay)
+        {
+            EnsureBeelzActionBarOverlay();
+            _beelzActionBarOverlay.SetActive(true);
+        }
+        if (beelzAvailable && BloodCraftHub.Config.Settings.ShowBeelzSummonsOverlay)
+        {
+            EnsureBeelzSummonsOverlay();
+            _beelzSummonsOverlay.SetActive(true);
+        }
+        if (beelzAvailable && BloodCraftHub.Config.Settings.ShowBeelzTransformOverlay)
+        {
+            EnsureBeelzTransformOverlay();
+            _beelzTransformOverlay.SetActive(true);
+        }
+        if (urielAvailable && BloodCraftHub.Config.Settings.ShowUrielSharedOverlay)
+        {
+            EnsureUrielSharedOverlay();
+            _urielSharedOverlay.SetActive(true);
+        }
+        if (urielAvailable && BloodCraftHub.Config.Settings.ShowUrielObjectSpawnerOverlay)
+        {
+            EnsureUrielObjectSpawnerOverlay();
+            _urielObjectSpawnerOverlay.SetActive(true);
+        }
         if (BloodCraftHub.Config.Settings.ShowChatWindowOverlay)
         {
             EnsureChatWindowOverlay();
             _chatWindowOverlay.SetActive(true);
         }
+        if (BloodCraftHub.Config.Settings.ShowSecondaryChatOverlay)
+        {
+            EnsureSecondaryChatOverlay();
+            _secondaryChatOverlay.SetActive(true);
+        }
+        ApplyNativeChatVisibility(); // 0.18.3: keep native chat in sync after (re)showing the chat window
     }
 
     /// <summary>
@@ -441,7 +668,14 @@ public class BCHubUIManager : UIManagerBase
         // Eclipse restores them. The Familiar Browser, Quick Actions (Kindred), and
         // Chat Window overlays don't use the stream and stay available.
         bool standDown = Services.EclipseProtocolService.StandDownForEclipse();
-        if (!standDown)
+        // 0.18.3: "hidden until confirmed" — only restore the Bloodcraft stream overlays / Beelz
+        // bar if THIS server has confirmed the backing mod. On a fresh relog these are false until
+        // the handshake ACKs; AvailabilityChanged → ApplyAvailabilityToOverlays then brings them up.
+        // This stops the previous server's overlays from flashing back on a server-switch.
+        bool bcAvailable = !standDown && Services.EclipseProtocolService.UserRegistered;
+        bool beelzAvailable = Services.Beelzebub.BeelzProtocolService.IsPresent;
+        bool urielAvailable = Services.Uriel.UrielProtocolService.IsPresent;
+        if (bcAvailable)
         {
             if (BloodCraftHub.Config.Settings.ShowCombinedOverlay)
             {
@@ -470,13 +704,15 @@ public class BCHubUIManager : UIManagerBase
                     _professionOverlay.SetActive(true);
                 }
             }
-            if (BloodCraftHub.Config.Settings.ShowShiftSpellOverlay)
-            {
-                EnsureShiftSpellOverlay();
-                _shiftSpellOverlay.SetActive(true);
-            }
         }
         // Always-available overlays (no Bloodcraft stream → safe alongside Eclipse).
+        // B7 (0.19): Shift-spell overlay moved here — it reads ShiftCooldownService (resolved from the
+        // game), used by BOTH Bloodcraft and Beelzebub, so it restores regardless of bcAvailable.
+        if (BloodCraftHub.Config.Settings.ShowShiftSpellOverlay)
+        {
+            EnsureShiftSpellOverlay();
+            _shiftSpellOverlay.SetActive(true);
+        }
         if (BloodCraftHub.Config.Settings.ShowFamiliarBrowser)
         {
             EnsureFamiliarBrowserOverlay();
@@ -487,10 +723,42 @@ public class BCHubUIManager : UIManagerBase
             EnsureQuickActionsOverlay();
             _quickActionsOverlay.SetActive(true);
         }
+        // 0.18.3: Beelz bar only restores once Beelzebub is confirmed on THIS server.
+        if (beelzAvailable && BloodCraftHub.Config.Settings.ShowBeelzActionBarOverlay)
+        {
+            EnsureBeelzActionBarOverlay();
+            _beelzActionBarOverlay.SetActive(true);
+        }
+        // 0.19: Beelz summons overlay, same Beelz-confirmed gating as the action bar.
+        if (beelzAvailable && BloodCraftHub.Config.Settings.ShowBeelzSummonsOverlay)
+        {
+            EnsureBeelzSummonsOverlay();
+            _beelzSummonsOverlay.SetActive(true);
+        }
+        if (beelzAvailable && BloodCraftHub.Config.Settings.ShowBeelzTransformOverlay)
+        {
+            EnsureBeelzTransformOverlay();
+            _beelzTransformOverlay.SetActive(true);
+        }
+        if (urielAvailable && BloodCraftHub.Config.Settings.ShowUrielSharedOverlay)
+        {
+            EnsureUrielSharedOverlay();
+            _urielSharedOverlay.SetActive(true);
+        }
+        if (urielAvailable && BloodCraftHub.Config.Settings.ShowUrielObjectSpawnerOverlay)
+        {
+            EnsureUrielObjectSpawnerOverlay();
+            _urielObjectSpawnerOverlay.SetActive(true);
+        }
         if (BloodCraftHub.Config.Settings.ShowChatWindowOverlay)
         {
             EnsureChatWindowOverlay();
             _chatWindowOverlay.SetActive(true);
+        }
+        if (BloodCraftHub.Config.Settings.ShowSecondaryChatOverlay)
+        {
+            EnsureSecondaryChatOverlay();
+            _secondaryChatOverlay.SetActive(true);
         }
         ApplyNativeChatVisibility();
         // 0.14.0: re-show combined overlay last, after the un-suppress walk
@@ -498,8 +766,155 @@ public class BCHubUIManager : UIManagerBase
         // will hide whichever individuals it conflicts with.
         // 0.17.1: but not under Eclipse stand-down (the combined overlay is a
         // stream-driven stat overlay — Eclipse shows that data).
-        if (BloodCraftHub.Config.Settings.ShowCombinedOverlay && !standDown)
+        // 0.18.3: and only once Bloodcraft is confirmed on this server.
+        if (BloodCraftHub.Config.Settings.ShowCombinedOverlay && bcAvailable)
             ApplyCombinedOverlayMutualExclusion();
+    }
+
+    /// <summary>0.18.3: hide overlays whose backing server mod isn't present, and re-show them per the
+    /// user's saved Show* prefs when it is. Driven by the AvailabilityChanged events (Eclipse/Beelz)
+    /// via MainPanel.OnBloodcraftAvailabilityChanged. Fixes: Bloodcraft stream overlays sitting empty
+    /// on a non-BC server, and the Beelz action-bar overlay being stuck visible on a non-Beelz server
+    /// (Moonie couldn't hide it on TSR since the Beelzebub tab is greyed out there). Never mutates the
+    /// Show* prefs — a later session with the mod present restores them. Respects the master overlay
+    /// suppression + combined-mode mutual exclusion.</summary>
+    // 0.18.4: MainPanel-INDEPENDENT driver for overlay availability. Background: under the new
+    // "hidden until confirmed" model, ApplyAvailabilityToOverlays must run when the server's handshake
+    // resolves — but it was only ever called from MainPanel.OnBloodcraftAvailabilityChanged, and the
+    // MainPanel is built LAZILY (first time you open it). So a player who has the XP/Familiar/etc.
+    // overlays enabled but never opens the main panel would never see them re-appear after the ACK
+    // (the deferred login restore can fire BEFORE the ACK — UiBuildDelaySeconds defaults to 3s, a race).
+    // This per-frame ticker (registered on CoreUpdateBehavior in Plugin.Load) watches the two
+    // availability bits and re-applies on any transition, regardless of whether the MainPanel exists.
+    // Cheap: two bool reads + a compare; only does UI work on the (rare) transition frame. Skipped while
+    // the whole UI is hidden (escape menu) so it can't resurrect an overlay over the pause menu — the
+    // transition is re-detected and applied once the menu closes.
+    private bool _lastBcAvailable;
+    private bool _lastBeelzAvailable;
+    private bool _availabilityTrackInit;
+
+    internal void TickOverlayAvailability()
+    {
+        if (!_uiActive) return;
+        try
+        {
+            bool bc = !Services.EclipseProtocolService.StandDownForEclipse()
+                      && Services.EclipseProtocolService.UserRegistered;
+            bool bz = Services.Beelzebub.BeelzProtocolService.IsPresent;
+            if (_availabilityTrackInit && bc == _lastBcAvailable && bz == _lastBeelzAvailable) return;
+            _availabilityTrackInit = true;
+            _lastBcAvailable = bc;
+            _lastBeelzAvailable = bz;
+            ApplyAvailabilityToOverlays();
+        }
+        catch (System.Exception ex) { BloodCraftHub.Utils.LogUtils.LogDebug($"TickOverlayAvailability: {ex.Message}"); }
+    }
+
+    public void ApplyAvailabilityToOverlays()
+    {
+        try
+        {
+            // 0.18.3: "available" = CONFIRMED present (mirrors the tab-group gate). Was
+            // "present OR still probing" — but that left the BC stream overlays / Beelz bar
+            // visible (showing the previous server's stale data) through the whole probe window
+            // on a server-switch. Now overlays hide the instant we relog and only return when
+            // THIS server confirms the mod. Under Eclipse stand-down the BC stream overlays are
+            // empty (Eclipse owns that HUD) → treat as off.
+            bool bcAvailable = !Services.EclipseProtocolService.StandDownForEclipse()
+                               && Services.EclipseProtocolService.UserRegistered;
+            bool beelzAvailable = Services.Beelzebub.BeelzProtocolService.IsPresent;
+            bool urielAvailable = Services.Uriel.UrielProtocolService.IsPresent;
+
+            // ---- Bloodcraft stream-driven overlays ----
+            if (!bcAvailable)
+            {
+                _combinedOverlay?.SetActive(false);
+                _experienceOverlay?.SetActive(false);
+                _familiarOverlay?.SetActive(false);
+                _dailyQuestOverlay?.SetActive(false);
+                _professionOverlay?.SetActive(false);
+            }
+            else if (!_overlaysSuppressed) // available AND not master-suppressed → restore per pref
+            {
+                if (BloodCraftHub.Config.Settings.ShowCombinedOverlay)
+                {
+                    EnsureCombinedOverlay();
+                    ApplyCombinedOverlayMutualExclusion();
+                }
+                else
+                {
+                    if (BloodCraftHub.Config.Settings.ShowExperienceOverlay) { EnsureExperienceOverlay(); _experienceOverlay.SetActive(true); }
+                    if (BloodCraftHub.Config.Settings.ShowFamiliarOverlay)   { EnsureFamiliarOverlay();   _familiarOverlay.SetActive(true); }
+                    if (BloodCraftHub.Config.Settings.ShowDailyQuestOverlay) { EnsureDailyQuestOverlay(); _dailyQuestOverlay.SetActive(true); }
+                    if (BloodCraftHub.Config.Settings.ShowProfessionOverlay) { EnsureProfessionOverlay(); _professionOverlay.SetActive(true); }
+                }
+            }
+
+            // ---- Shift-spell overlay (B7, 0.19): mod-INDEPENDENT ----
+            // Reads ShiftCooldownService (resolved straight from the game), used by BOTH Bloodcraft and
+            // Beelzebub, so it is NOT gated by bcAvailable. Only the master suppression + user pref apply.
+            // CRITICAL (0.19 crash fix): do NOT CONSTRUCT the overlay here. ApplyAvailabilityToOverlays
+            // runs from TickOverlayAvailability, whose first tick fires at the MAIN MENU (before
+            // SetupAndShowUI builds UiBase) because _uiActive defaults true — and EnsureShiftSpellOverlay
+            // would then `new` a panel with a null Owner, NRE-ing in PanelBase.ConstructUI. The mod-gated
+            // branches above are safe there (overlays null → null-safe SetActive); this one wasn't.
+            // Construction happens only in UI-ready paths: RestoreOverlaysFromSettings (deferred login
+            // restore, which builds it on EVERY server now), ToggleOverlay, and ApplyOverlaySuppression.
+            // Here we only RE-ASSERT visibility on an already-built overlay.
+            if (_shiftSpellOverlay != null && !_overlaysSuppressed && BloodCraftHub.Config.Settings.ShowShiftSpellOverlay)
+                _shiftSpellOverlay.SetActive(true);
+
+            // ---- Beelzebub action-bar overlay ----
+            if (!beelzAvailable)
+                _beelzActionBarOverlay?.SetActive(false);
+            else if (!_overlaysSuppressed && BloodCraftHub.Config.Settings.ShowBeelzActionBarOverlay)
+            {
+                EnsureBeelzActionBarOverlay();
+                _beelzActionBarOverlay.SetActive(true);
+            }
+
+            // ---- Beelzebub summons overlay ---- (0.19; same Beelz-gating as the action bar)
+            if (!beelzAvailable)
+                _beelzSummonsOverlay?.SetActive(false);
+            else if (!_overlaysSuppressed && BloodCraftHub.Config.Settings.ShowBeelzSummonsOverlay)
+            {
+                EnsureBeelzSummonsOverlay();
+                _beelzSummonsOverlay.SetActive(true);
+            }
+
+            // ---- Beelzebub transforms overlay ---- (0.20; same Beelz-gating)
+            if (!beelzAvailable)
+                _beelzTransformOverlay?.SetActive(false);
+            else if (!_overlaysSuppressed && BloodCraftHub.Config.Settings.ShowBeelzTransformOverlay)
+            {
+                EnsureBeelzTransformOverlay();
+                _beelzTransformOverlay.SetActive(true);
+            }
+
+            // ---- Uriel public-storage overlay ---- (0.26; gated on Uriel confirmed-present)
+            if (!urielAvailable)
+                _urielSharedOverlay?.SetActive(false);
+            else if (!_overlaysSuppressed && BloodCraftHub.Config.Settings.ShowUrielSharedOverlay)
+            {
+                EnsureUrielSharedOverlay();
+                _urielSharedOverlay.SetActive(true);
+            }
+
+            // ---- Uriel object-spawn palette overlay ---- (0.29; same Uriel-gating)
+            if (!urielAvailable)
+                _urielObjectSpawnerOverlay?.SetActive(false);
+            else if (!_overlaysSuppressed && BloodCraftHub.Config.Settings.ShowUrielObjectSpawnerOverlay)
+            {
+                EnsureUrielObjectSpawnerOverlay();
+                _urielObjectSpawnerOverlay.SetActive(true);
+            }
+
+            _mainPanel?.RefreshAllOverlayToggleStates();
+        }
+        catch (System.Exception ex)
+        {
+            BloodCraftHub.Utils.LogUtils.LogError($"ApplyAvailabilityToOverlays failed: {ex}");
+        }
     }
 
     public bool IsOverlayOpen(PanelType overlay) => overlay switch
@@ -511,7 +926,13 @@ public class BCHubUIManager : UIManagerBase
         PanelType.ProfessionOverlay      => _professionOverlay?.Enabled ?? false,
         PanelType.ShiftSpellOverlay      => _shiftSpellOverlay?.Enabled ?? false,
         PanelType.QuickActionsOverlay    => _quickActionsOverlay?.Enabled ?? false,
+        PanelType.BeelzActionBarOverlay  => _beelzActionBarOverlay?.Enabled ?? false,
+        PanelType.BeelzSummonsOverlay    => _beelzSummonsOverlay?.Enabled ?? false,
+        PanelType.BeelzTransformOverlay  => _beelzTransformOverlay?.Enabled ?? false,
+        PanelType.UrielSharedOverlay     => _urielSharedOverlay?.Enabled ?? false,
+        PanelType.UrielObjectSpawnerOverlay => _urielObjectSpawnerOverlay?.Enabled ?? false,
         PanelType.ChatWindowOverlay      => _chatWindowOverlay?.Enabled ?? false,
+        PanelType.SecondaryChatOverlay   => _secondaryChatOverlay?.Enabled ?? false,
         PanelType.CombinedOverlay        => _combinedOverlay?.Enabled ?? false,
         _ => false,
     };
@@ -580,6 +1001,46 @@ public class BCHubUIManager : UIManagerBase
         _quickActionsOverlay.SetActive(false);
     }
 
+    private void EnsureBeelzActionBarOverlay()
+    {
+        if (_beelzActionBarOverlay != null) return;
+        _beelzActionBarOverlay = new BeelzActionBarOverlayPanel(UiBase);
+        _panels.Add(_beelzActionBarOverlay);
+        _beelzActionBarOverlay.SetActive(false);
+    }
+
+    private void EnsureBeelzSummonsOverlay()
+    {
+        if (_beelzSummonsOverlay != null) return;
+        _beelzSummonsOverlay = new BeelzSummonsOverlayPanel(UiBase);
+        _panels.Add(_beelzSummonsOverlay);
+        _beelzSummonsOverlay.SetActive(false);
+    }
+
+    private void EnsureUrielSharedOverlay()
+    {
+        if (_urielSharedOverlay != null) return;
+        _urielSharedOverlay = new UrielSharedOverlayPanel(UiBase);
+        _panels.Add(_urielSharedOverlay);
+        _urielSharedOverlay.SetActive(false);
+    }
+
+    private void EnsureUrielObjectSpawnerOverlay()
+    {
+        if (_urielObjectSpawnerOverlay != null) return;
+        _urielObjectSpawnerOverlay = new UrielObjectSpawnerOverlayPanel(UiBase);
+        _panels.Add(_urielObjectSpawnerOverlay);
+        _urielObjectSpawnerOverlay.SetActive(false);
+    }
+
+    private void EnsureBeelzTransformOverlay()
+    {
+        if (_beelzTransformOverlay != null) return;
+        _beelzTransformOverlay = new BeelzTransformOverlayPanel(UiBase);
+        _panels.Add(_beelzTransformOverlay);
+        _beelzTransformOverlay.SetActive(false);
+    }
+
     private void EnsureChatWindowOverlay()
     {
         if (_chatWindowOverlay != null) return;
@@ -590,6 +1051,17 @@ public class BCHubUIManager : UIManagerBase
 
     // 0.17: let the Game UI customization toggles re-render the live chat window.
     public void RefreshChatWindowOverlay() => _chatWindowOverlay?.Refresh();
+
+    private void EnsureSecondaryChatOverlay()
+    {
+        if (_secondaryChatOverlay != null) return;
+        _secondaryChatOverlay = new SecondaryChatOverlayPanel(UiBase);
+        _panels.Add(_secondaryChatOverlay);
+        _secondaryChatOverlay.SetActive(false);
+    }
+
+    // 0.24: re-render the secondary chat window when its channel selection / text scale changes.
+    public void RefreshSecondaryChatOverlay() => _secondaryChatOverlay?.Refresh();
 
     // 0.17 (2c): replace the game's chat with the tabbed window. When the tabbed
     // chat window is open AND Settings.HideNativeChat is on, hide the native chat
@@ -602,7 +1074,20 @@ public class BCHubUIManager : UIManagerBase
 
     // True while the tabbed chat window is taking over (open + HideNativeChat on).
     public bool IsNativeChatHideActive()
-        => (_chatWindowOverlay?.Enabled ?? false) && BloodCraftHub.Config.Settings.HideNativeChat;
+    {
+        // Normal "replacement" model: the BCH chat window is open AND the user chose to hide the
+        // native one behind it.
+        if ((_chatWindowOverlay?.Enabled ?? false) && BloodCraftHub.Config.Settings.HideNativeChat) return true;
+        // 0.28: during a master overlay-hide that also drops BCH chat (HideChatWithOverlaysToggle on),
+        // keep the GAME's native chat hidden too for a clean screen instead of letting it pop back —
+        // unless the user opted out. Decoupled from the BCH chat overlay's Enabled state, which the
+        // master toggle has already flipped off by this point.
+        if (_overlaysSuppressed
+            && BloodCraftHub.Config.Settings.HideChatWithOverlaysToggle
+            && BloodCraftHub.Config.Settings.KeepNativeChatHiddenWhileOverlaysHidden)
+            return true;
+        return false;
+    }
 
     // Focus the tabbed chat window's input — the divert target for the chat-open key.
     public void FocusChatInput() => _chatWindowOverlay?.FocusInput();
@@ -629,6 +1114,44 @@ public class BCHubUIManager : UIManagerBase
     public bool IsPointerOverChatWindow()
     {
         try { return _chatWindowOverlay?.IsPointerOverWindow() ?? false; }
+        catch { return false; }
+    }
+
+    // 0.19: is the cursor over the OPEN main panel? Drives always-on attack/cast suppression so a
+    // left-click on the main UI (buttons, forms, tabs) can't leak into the world as a primary attack
+    // or spell. The main panel is the strongest case for this (you're definitely interacting with UI),
+    // so — like the chat window — it's ALWAYS suppressed, independent of the default-off
+    // BlockInputWhenPointerOverUI setting (which covers the smaller scattered overlays).
+    public bool IsPointerOverMainPanel()
+    {
+        try
+        {
+            var p = _mainPanel;
+            if (p == null || !p.Enabled || p.Rect == null) return false;
+            return UnityEngine.RectTransformUtility.RectangleContainsScreenPoint(p.Rect, UnityEngine.Input.mousePosition, null);
+        }
+        catch { return false; }
+    }
+
+    // B3 (0.19): is the cursor over ANY visible BCH panel/overlay? Generalizes
+    // IsPointerOverChatWindow across every registered panel so the (proven-safe) primary-attack /
+    // ability suppression can optionally cover all BCH surfaces — gated by
+    // Settings.BlockInputWhenPointerOverUI (default OFF). Pure rect-contains math on the
+    // ScreenSpaceOverlay canvases (null camera). Only feeds ability suppression — NOT movement and
+    // NOT the menu patches — so it can't cause the movement action-loop or the menu-patch crash class.
+    public bool IsPointerOverAnyUI()
+    {
+        try
+        {
+            var mp = UnityEngine.Input.mousePosition;
+            foreach (var p in _panels)
+            {
+                if (p == null || !p.Enabled || p.Rect == null) continue;
+                if (UnityEngine.RectTransformUtility.RectangleContainsScreenPoint(p.Rect, mp, null))
+                    return true;
+            }
+            return false;
+        }
         catch { return false; }
     }
 
@@ -750,7 +1273,12 @@ public class BCHubUIManager : UIManagerBase
         _professionOverlay?.RefreshOpacity();
         _shiftSpellOverlay?.RefreshOpacity();
         _quickActionsOverlay?.RefreshOpacity();
+        _beelzActionBarOverlay?.RefreshOpacity();
+        _beelzSummonsOverlay?.RefreshOpacity();
+        _beelzTransformOverlay?.RefreshOpacity();
+        _urielSharedOverlay?.RefreshOpacity();
         _chatWindowOverlay?.RefreshOpacity();   // 0.17.0: chat window honors its transparency live
+        _secondaryChatOverlay?.RefreshOpacity();
         _combinedOverlay?.RefreshOpacity();
         _mainPanel?.RefreshOpacity();
         _floatingButton?.RefreshOpacity();
@@ -775,11 +1303,27 @@ public class BCHubUIManager : UIManagerBase
         _professionOverlay?.RefreshBackgroundColor();
         _shiftSpellOverlay?.RefreshBackgroundColor();
         _quickActionsOverlay?.RefreshBackgroundColor();
+        _beelzActionBarOverlay?.RefreshBackgroundColor();
+        _beelzSummonsOverlay?.RefreshBackgroundColor();
+        _beelzTransformOverlay?.RefreshBackgroundColor();
+        _urielSharedOverlay?.RefreshBackgroundColor();
         _chatWindowOverlay?.RefreshBackgroundColor();
+        _secondaryChatOverlay?.RefreshBackgroundColor();
         _combinedOverlay?.RefreshBackgroundColor();
         // Floating button intentionally excluded — it's a single-button
         // strip without a chrome backdrop the user would want themed.
     }
+
+    /// <summary>0.18.4: recolor every themed button to the user's Settings.ButtonBackgroundColor.
+    /// Live (no rebuild) — UIFactory keeps a registry of themed buttons and recolors them in place.
+    /// Buttons with a deliberate color (Danger red etc.) are untouched. Pushed by the Settings →
+    /// Display button-color picker.</summary>
+    public void RefreshAllButtonColors()
+        => BloodCraftHub.UI.Framework.UniverseLib.UI.UIFactory.ApplyThemedButtonColor();
+
+    /// <summary>0.18.4: re-apply the launcher (BCH/OV) button size after the user changes
+    /// Settings.FloatingButtonScale in Settings → Display.</summary>
+    public void RefreshFloatingButtonScale() => _floatingButton?.RefreshScale();
 
     /// <summary>0.12.0: push Settings.InnerPanelBackgroundColor onto the
     /// panels that own scroll-view interiors — the main panel (each tab's
@@ -880,7 +1424,12 @@ public class BCHubUIManager : UIManagerBase
         RebuildOverlay(ref _professionOverlay,      !combined && BloodCraftHub.Config.Settings.ShowProfessionOverlay, b => new ProfessionOverlayPanel(b));
         RebuildOverlay(ref _shiftSpellOverlay,      BloodCraftHub.Config.Settings.ShowShiftSpellOverlay,              b => new ShiftSpellOverlayPanel(b));
         RebuildOverlay(ref _quickActionsOverlay,    BloodCraftHub.Config.Settings.ShowQuickActionsOverlay,            b => new QuickActionsOverlayPanel(b));
+        RebuildOverlay(ref _beelzActionBarOverlay,  BloodCraftHub.Config.Settings.ShowBeelzActionBarOverlay,          b => new BeelzActionBarOverlayPanel(b));
+        RebuildOverlay(ref _beelzSummonsOverlay,    BloodCraftHub.Config.Settings.ShowBeelzSummonsOverlay,            b => new BeelzSummonsOverlayPanel(b));
+        RebuildOverlay(ref _beelzTransformOverlay,  BloodCraftHub.Config.Settings.ShowBeelzTransformOverlay,          b => new BeelzTransformOverlayPanel(b));
+        RebuildOverlay(ref _urielSharedOverlay,     BloodCraftHub.Config.Settings.ShowUrielSharedOverlay,             b => new UrielSharedOverlayPanel(b));
         RebuildOverlay(ref _chatWindowOverlay,      BloodCraftHub.Config.Settings.ShowChatWindowOverlay,              b => new ChatWindowOverlayPanel(b));
+        RebuildOverlay(ref _secondaryChatOverlay,   BloodCraftHub.Config.Settings.ShowSecondaryChatOverlay,           b => new SecondaryChatOverlayPanel(b));
         // 0.14.0: combined overlay is now part of the rebuild so its text
         // scale changes when the user toggles overlay text size. Pre-fix
         // the panel's labels stayed at construct-time font size because

@@ -22,6 +22,14 @@ public class UIBase
 
     internal static readonly int TOP_SORTORDER = 30000;
 
+    // B12 (0.19): the baseline sort order SetOnTop reorders around. Normally TOP_SORTORDER so BCH
+    // floats over the game HUD. While a game menu is open AND OverlaysBehindGameMenus is on,
+    // UICanvasSystemPatch lowers this to its MENU_BEHIND_BASE so that even a focus-click inside a BCH
+    // panel (which fires SetOnTop every frame via PanelManager.UpdateFocus) keeps BCH BEHIND the menu
+    // instead of "phasing" to the top of it for a frame and stealing the click. Restored to
+    // TOP_SORTORDER the moment the menu closes. A plain int — set/read on the main thread only.
+    internal static int CurrentSortBaseline = TOP_SORTORDER;
+
     /// <summary>
     /// Whether this UI is currently being displayed or not. Disabled UIs will not receive Update calls.
     /// </summary>
@@ -89,10 +97,12 @@ public class UIBase
     {
         RootObject.transform.SetAsLastSibling();
 
+        // B12: reorder around CurrentSortBaseline (not the hardcoded TOP_SORTORDER) so that while a
+        // menu is open the behind-baseline is preserved through focus clicks — no pop over the menu.
         foreach (UIBase ui in UniversalUI.uiBases)
         {
             int offset = UniversalUI.CanvasRoot.transform.childCount - ui.RootRect.GetSiblingIndex();
-            ui.Canvas.sortingOrder = TOP_SORTORDER - offset;
+            ui.Canvas.sortingOrder = CurrentSortBaseline - offset;
         }
 
         // Sort UniversalUI dictionary so update order is correct

@@ -173,6 +173,159 @@ crash-investigation memory).
 (they rebuild) and update the BepInEx (V Rising) pack — newer interop dropped the
 buggy finalizer hook.
 
+### Logout → exit-to-desktop crash: reset session state on `ClientBootstrapSystem.OnDestroy`, never touch UI in a teardown hook (0.18.1)
+
+**Symptom:** with BCH installed, choosing **Leave Game** crashed the client straight
+to desktop instead of returning to the main menu. BCH-only, deterministic on logout.
+Cost ~5 failed fix attempts — write the conclusions on the wall.
+
+**Root cause (the non-obvious part):** when the player leaves the game, ProjectM
+disposes the client `World`, but BCH's per-frame ECS code keeps ticking for a frame
+or two against the **disposing world**. Reading it (`ToEntityArray`, `EntityManager`
+access, etc.) is a **NATIVE crash that no managed `try/catch` can catch** — the same
+interop-fault class as the 0.16.x crash, and there is **no managed trace in the log**
+(confirm via `Player.log` at `%LOCALAPPDATA%Low\Stunlock Studios\VRising\Player.log`,
+not BepInEx's `LogOutput.log`; the BepInEx log just stops). An earlier build happened
+not to crash only because an unrelated init *deadlock* left `MessageService`
+uninitialized, so all that per-frame code was dormant — masking the bug while ALSO
+blanking all overlay data.
+
+**What did NOT work (don't retry these):**
+- Patching `EscapeMenuView.OnDestroy` to tear down / `UIManager.Reset()` — doing
+  **GameObject/UI work during teardown** is itself a native crash. `EscapeMenuPatch`
+  is now a permanent empty stub; do **not** re-hook that method.
+- Wrapping the per-frame postfixes in `try/catch` — necessary but insufficient (the
+  crash is native, uncatchable).
+- Adding `World.IsCreated`/`.Exists()` guards to only the two chat/data patches —
+  insufficient, because **all** the `CoreUpdateBehavior` services were still live.
+
+**The fix:** patch **`ClientBootstrapSystem.OnDestroy`** (prefix) — the SAFE
+leave-game teardown signal Eclipse itself patches, and which `Player.log` shows
+firing as a clean step. In it, reset BCH session state with **pure field assignments
+only** (no UI, no ECS, no GameObject work, so the prefix can't crash):
+`MessageService.Destroy()` (sets `IsInitialized=false` → every per-frame service
+gates out), `EclipseProtocolService.Reset()`, `Core.Reset()`, `Plugin.ResetGameData()`
+(nulls `Plugin._client` so `IsClientNull()` is true → any straggler ECS access throws
+a *managed* NRE that `CoreUpdateBehavior` catches, instead of native-crashing; and lets
+`GameDataOnInitialize` re-bind the next world on relog). This makes the whole mod
+dormant the instant the world tears down — cleanly, not via a deadlock — then re-inits
+on the next login.
+
+**Corollary — overlays lingering over the main menu (Issue 1).** The UIManager + its
+canvas are `DontDestroyOnLoad`, so they survive leaving the game; nothing was hiding
+them, so every overlay + the floating launcher stayed drawn over the main menu. You
+**can't** hide them in the `OnDestroy` hook (GameObject work = crash). Pattern that
+works: the hook sets a **pure flag** (`UIManager.RequestHideForLogout()`); a
+`CoreUpdateBehavior` tick (`TickPendingHide`, which keeps ticking in the main menu)
+does the actual `SetActive(false)` on the **next frame, after teardown completes**,
+where GameObject toggles are safe. Re-show on relog routes through
+`CharacterHUDEntry.Awake → UIOnInitialize → RestoreAfterRelogIfNeeded` (the
+`Awake` postfix no longer early-outs on `IsInitialized`); restore is **config-driven**
+(`RestoreOverlaysFromSettings` reads the persistent `Settings.Show*` flags, since
+`SetActive(false)` clears each panel's live `Enabled`), and is gated on a `_loggedOut`
+flag so a HUD `Awake` that isn't a relog can't thrash the overlays.
+
+**Corollary — per-session static state leaks across a server-switch (0.18.1).** Once
+logout works, a player can hop server→server **without restarting the game**, so the
+process (and every `static` field) lives on. Any per-session detection/handshake state
+must be reset in this same teardown hook or it leaks. We hit this with Beelzebub: the
+static `BeelzProtocolService.DetectionGaveUp` flag (set after ~4 unanswered
+`.beelz api version` probes on a non-Beelzebub server) stuck, so `Tick` hit
+`if (DetectionGaveUp) return;` and never re-probed — a Beelzebub server reached via
+server-switch showed the tab group permanently "Unavailable"
+(`IsTabGroupAvailable` = `IsPresent || !DetectionGaveUp`). Fix: a `BeelzProtocolService.Reset()`
+(+ `BeelzState.Reset()`) called from the `OnDestroy` hook, mirroring the existing
+`EclipseProtocolService.Reset()` (which already clears `RegistrationGaveUp` + feature
+flags for the same reason). **When you add any client-side server probe / handshake,
+add its reset to the `ClientBootstrapSystem.OnDestroy` teardown list** — pure field
+resets, no event fires (the UI re-gates on relog when detection re-runs).
+
+**General rule:** in any V Rising client-world teardown hook, do **pure field resets
+only**; defer all UI/GameObject/ECS work to a normal frame (a `CoreUpdateBehavior`
+tick), which runs after the disposing world is gone.
+
+### The game's input pipeline is an IInputContext stack — join it, don't fight it (0.25.0)
+
+Three attempts (0.16–0.18) tried to stop game keybinds firing while typing into BCH
+fields, and each failed for a structural reason that only became clear after
+reflecting over the interop assemblies:
+
+- **Skipping/detouring the input + menu ECS systems** — partially worked, but the
+  three menu-system detours were the 0.16.x load-crash trigger and were removed.
+- **Draining `OpenMenuEvent`/`GoToHUDMenu` request entities** — only catches menus
+  that go through request entities. B/M/K/J, the wheels, action-bar/shapeshift/
+  emote/admin hotkeys are **direct `ButtonInputAction` reads** — the drain never
+  saw them. This is why menus kept opening mid-typing in the field reports.
+- **Writing a `BlockInputState` component on an entity (0.18.2)** — structurally
+  wrong. `BlockInputState` is **not ECS data**; `HasComponent<BlockInputState>`
+  threw "Unknown Type" forever because no entity carries it.
+
+**How input actually flows:** `InputActionSystem` dispatches every frame to an
+ORDERED STACK of `ProjectM.IInputContext` consumers (`InputContextOrder`:
+ChatInput=99 … HUDMenu=502, MenuInput=600, ActionWheel=700, ActionBar=900,
+Camera=1000, Gameplay=1001). Each context receives `HandleInput(InputState)` and
+reports `GetConsumedInputs(ref BlockInputState)`; actions consumed by a higher
+(lower-numbered) context are filtered from everything below. **The native chat's
+typing lock is just a nested `ChatFocusedInputContext` registered at order 99.**
+
+**The fix that works (`Patches/TypingInputLock.cs`):** inject a managed class
+implementing `IInputContext` (Il2CppInterop `RegisterTypeOptions.Interfaces`;
+byref struct params ARE supported — `IsTypeSupported` unwraps `IsByRef`), register
+it once per world via the public `InputActionSystem.AddInputContext(ctx, world,
+100)` API, and have `GetConsumedInputs` consume every `ButtonInputAction` except
+the `Menu_*` UI-navigation range while `ShouldBlockMenus()` is true. No Harmony
+detour anywhere near the hot menu systems; the dying world unregisters it
+automatically (drop the refs in the `ClientBootstrapSystem.OnDestroy` hook).
+
+**Reusable knowledge:** anything that needs to eat/observe game input (typing
+locks, click-through guards, scroll-zoom-over-UI suppression) should be an
+`IInputContext` in this stack — `ChatHoveredInputContext` (what stops chat-window
+scroll from zooming the camera) shows Stunlock uses the same tool for hover.
+
+**0.25.0 (dev cycle, attempt 3) — NEVER hand the game a vtable that calls back into managed code with
+struct parameters.** The cycle's second attempt — an injected `IInputContext` implementation (ClassInjector
+with `RegisterTypeOptions.Interfaces`) registered fine — and then the game
+NATIVE-CRASHED (instant close, nothing in the BepInEx log) the moment
+`InputActionSystem` first dispatched into it, on the menu/connect screen. The
+interface's callbacks take a by-value `InputState` struct and a by-ref
+`BlockInputState` struct; Il2CppInterop's `IsTypeSupported` ACCEPTS that shape, but
+the generated native→managed trampoline does not survive the actual call —
+**signature acceptance is not marshaling correctness**, and no amount of try/catch
+in the managed bodies helps because the crash happens at/around the call boundary.
+The fix that works: register an instance of a GAME-IMPLEMENTED context instead —
+`ClientChatSystem.ChatFocusedInputContext` (public parameterless ctor, stateless,
+consumes the native-chat blocking set unconditionally) — and gate by
+ADDING/REMOVING it from the stack on blocking edges, exactly how the native chat
+itself gates it. Native code end-to-end; the dispatcher never calls BCH code.
+
+**0.25.0 dev-cycle corrections — what the first in-game test caught:**
+
+- **`GetExistingSystemManaged<InputActionSystem>()` on the BCH-bound client world
+  returns NULL** — the system lives in a different world — and because `ias == null`
+  was the one retry branch with no log line, 0.25.0's registration silently looped
+  forever and the context never entered the stack. The tester's whole session ran
+  on the legacy protections; the BepInEx log's tell was *zero* `[TypingLock]` lines
+  of any kind. Two lessons: (a) get game systems from an **injected reference on a
+  system you already touch** (every input consumer carries an `_InputActionSystem`
+  property; we capture it from `GameplayInputSystem.__instance` in a prefix we
+  already own — right instance, right world, no lookup), and (b) **never leave a
+  retry path silent** — every early-return that can persist needs at least a
+  Diagnostic line, or a failed feature looks identical to a working one.
+- **BCH-chat typing was being protected by the NATIVE chat gate, not by BCH.** The
+  Enter-takeover leaves the native chat open (hidden) while typing, so the native
+  `ChatFocusedInputContext` (order 99) did the blocking — which masked the dead
+  context during chat tests. A *mouse-click* focus of the BCH chat never opens the
+  native chat, so that path had no real protection until the context actually
+  registers.
+- **Console keybindings (`keybinding create` — the "admin hotkeys") bypass the
+  IInputContext stack entirely.** `ConsoleKeybinding_Unity.CheckIfPressed` reads
+  `ButtonControl`s raw, which is why those binds fire even while the NATIVE chat
+  has focus. The sanctioned gate is `StunConsole.UI.EnableKeybindingUpdates`:
+  the game's own `DisableConsoleKeybindingsOnFocus` component writes it `false`
+  every frame its field is focused, and `ResetConsoleKeybindingsSystem` re-arms it
+  `true` every frame — so the correct (self-healing) usage is "keep writing false
+  while blocking, never write true."
+
 ## Process gotchas
 
 ### Audit-via-agent is unreliable — verify with grep
@@ -283,3 +436,65 @@ get`, `.bl get [Type]`):
 
 This pattern is in active use for `PrestigeInfo` (0.3.0) and `BloodInfo`
 (0.6.0). Mirror them for any future "make X visible in UI instead of chat".
+
+### NEVER destroy a NETWORKED entity client-side — it crashes the client via ReceivePacketSystem (0.18.4)
+
+A tester crashed to desktop when renaming a chest/storage box while the BCH chat window was enabled.
+Player.log was decisive:
+
+```
+CreateEntitiesJob: NetworkedIdToEntityMap contained a destroyed entity. This shouldn't happen!
+  Entity: 144466:6 NetworkId: '(Normal 284986:78)' PrefabGuid: 0.
+  ProjectM.Network.ReceivePacketSystem:DestroyEntities  ... :OnUpdate
+Networked Entity was missing NetworkSnapshot component...
+System.ArgumentException: The entity does not exist. ... EntityComponentStore::AppendDestroyedEntityRecordError
+  This Exception was thrown from a job compiled with Burst ... burst will now abort the Application.
+```
+
+**Cause chain (BCH-only, chat-window-on only):** BCH's chat takeover (`ClientChatPatch.OnUpdate_Prefix`)
+intercepts the Enter key to focus the BCH chat input. Pressing Enter to confirm the storage RENAME was
+grabbed by that takeover → focused BCH chat → set `InputSuppression.ChatInputActive=true` → that armed
+`InputSuppression.DrainMenuOpenRequests`, which did a blanket `em.DestroyEntity(query)` over
+`OpenMenuEvent`/`GoToHUDMenu`. The storage UI's transition entity was **networked** (carried a
+`ProjectM.Network.NetworkId`); destroying it client-side left `ReceivePacketSystem`'s
+`NetworkedIdToEntityMap` pointing at a dead entity → the Burst job ABORTS THE PROCESS (uncatchable).
+
+**Rules learned:**
+1. **A client mod must NEVER `DestroyEntity` an entity that has a `NetworkId`/`NetworkSnapshot`.** The
+   network system owns its lifetime; killing it corrupts the map and Burst-aborts. Any blanket
+   `DestroyEntity(query)` MUST filter out networked entities (`em.HasComponent<NetworkId>(e)` → skip).
+   `DrainMenuOpenRequests` now iterates + skips networked entities (`DrainNonNetworked`). Local stray
+   menu-open requests (M/B/K…) carry no NetworkId, so suppression still works.
+2. **The chat takeover must not steal the Enter key while a GAME text field is focused** (rename box,
+   any non-BCH `TMP_InputField`). `ChatInputActive` is already false in that branch, so any focused
+   `TMP_InputField` the EventSystem reports is a foreign/game field — guard with
+   `IsForeignUiInputActive()` before `FocusChatInput()`. Stealing Enter also (mis)armed the drain above.
+3. Crashes that "only happen with feature X on" + abort from a **Burst job in a `*System.OnUpdate`** are
+   almost always a mod destroying/mutating an entity the engine job still expects. Read Player.log for
+   `NetworkedIdToEntityMap`/`AppendDestroyedEntityRecordError` — they name the exact NetworkId.
+
+### A cached EntityQuery (or any world-bound handle) goes STALE on a server-switch → native crash (0.18.4)
+
+**Symptom:** open BCH shortly after switching servers (without fully quitting) → instant crash to desktop,
+no managed trace, no dump (the game's Backtrace/Crashpad returns 403 and never initializes). It reproduced
+in BOTH directions and on every server, always on the action that touched ECS first.
+
+**Cause:** the client **World is disposed and recreated on a server-switch** (same finding as the 0.18.1
+logout crash — `ClientBootstrapSystem.OnDestroy` is the disposal signal). Any `EntityQuery` you cached with
+`em.CreateEntityQuery(...)` is owned by the World it was created in. After a switch it's a handle into a
+**dead world**; calling `ToEntityArray` / `DestroyEntity(query)` on it is an uncatchable native crash. BCH
+cached two: `InputSuppression._drainOpenMenuQuery/_drainGoToHudQuery` (the menu-open drain, which runs on
+panel-open when `SuppressGameInputWhileUIOpen` is on, and on typing) and `PlayerRosterService._userQuery`.
+Both only rebuilt the query on a *managed* exception (`catch { _ready = false; }`) — which a native crash
+never throws — so the stale query was reused after the switch.
+
+**Rules:**
+1. **Drop every cached `EntityQuery` / world-bound handle on `ClientBootstrapSystem.OnDestroy`** (a pure
+   `_ready = false` field reset — safe in the teardown hook). It rebuilds against the new world on next use.
+   BCH does this via `InputSuppression.OnWorldTeardown()` + `PlayerRosterService.OnWorldTeardown()` wired
+   into `InitializationPatch.ClientBootstrapSystem_OnDestroy_Prefix`, next to the other session resets.
+2. Belt-and-braces: before using a cached query, bail if `!em.World.IsCreated` (and reset the ready flag).
+3. A `catch { _ready = false; }` does NOT protect you here — the fault is native, not managed.
+4. When auditing for this, grep `CreateEntityQuery` and check each cache is reset on teardown. (Re-fetching
+   the system/map each call — like ShiftCooldownService / AbilityIconResolver do via PrefabCollectionSystem
+   — sidesteps the problem entirely; prefer that for infrequent lookups.)

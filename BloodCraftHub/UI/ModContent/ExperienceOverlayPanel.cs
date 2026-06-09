@@ -629,8 +629,28 @@ public class ExperienceOverlayPanel : ResizeablePanelBase
             if (_weaponStatsLabel.GameObject.activeSelf) _weaponStatsLabel.GameObject.SetActive(false);
             return;
         }
-        _weaponStatsLabel.TextMesh.text = string.Join("\n", clean);
-        if (!_weaponStatsLabel.GameObject.activeSelf) _weaponStatsLabel.GameObject.SetActive(true);
+        ApplyBonusStatsText(_weaponStatsLabel, string.Join("\n", clean));
+    }
+
+    // B5 (0.19): set a bonus-stat sub-label's text with optional acronym shortening, and — only when
+    // the text actually changed — force a layout pass on the ContentRoot. The bonus-stat labels are
+    // ContentSizeFitter children of a childControlHeight VerticalLayoutGroup; after their wrapped
+    // height changes, the group can keep a stale height for a frame and the row visually overlaps the
+    // progress bar above / the Legacy row below (worse at Large / X-Large overlay text). Marking the
+    // layout dirty settles the new height immediately. Guarded on text-change so the per-frame
+    // BonusStatsTick re-render doesn't thrash the layout every frame.
+    private void ApplyBonusStatsText(LabelRef lbl, string text)
+    {
+        if (lbl == null) return;
+        string formatted = OverlayStatText.Format(text);
+        bool changed = lbl.TextMesh.text != formatted;
+        if (changed) lbl.TextMesh.text = formatted;
+        if (!lbl.GameObject.activeSelf) lbl.GameObject.SetActive(true);
+        if (changed)
+        {
+            var rt = ContentRoot != null ? ContentRoot.GetComponent<UnityEngine.RectTransform>() : null;
+            if (rt != null) UnityEngine.UI.LayoutRebuilder.MarkLayoutForRebuild(rt);
+        }
     }
 
     private static bool IsWepGetPreambleOrPlaceholder(string strippedLine)
@@ -756,8 +776,7 @@ public class ExperienceOverlayPanel : ResizeablePanelBase
         // BloodInfo.StatLines already has color tags stripped (set up by the
         // intercept's _stripTmpTagsRegex pass). 0.9.9: newline-join instead of
         // bullet-separated single line so it wraps cleanly inside the overlay.
-        _legacyStatsLabel.TextMesh.text = string.Join("\n", info.StatLines);
-        if (!_legacyStatsLabel.GameObject.activeSelf) _legacyStatsLabel.GameObject.SetActive(true);
+        ApplyBonusStatsText(_legacyStatsLabel, string.Join("\n", info.StatLines));
     }
 
     // 0.9.6: per-frame ticker that drives the bonus-stats refresh loop. Always

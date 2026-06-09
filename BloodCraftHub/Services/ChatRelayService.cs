@@ -36,7 +36,10 @@ internal static class ChatRelayService
         }
     }
 
-    private const int MaxLines = 500;
+    // B11 (0.19): the SERVER drops old chat after a short window, so the only durable history is what we
+    // keep here. Raised 500 → 2000 so a system-message flood (handshake probes, broadcasts) can't push
+    // real conversation out of the client window. ~2000 ChatLine structs is trivial memory.
+    private const int MaxLines = 2000;
     private static readonly List<ChatLine> _buffer = new(MaxLines + 16);
 
     internal static event Action<ChatLine> LineCaptured;
@@ -123,6 +126,9 @@ internal static class ChatRelayService
 
             var channel = MapChannel(messageType);
             var sender = userName ?? string.Empty;
+            // The game hands a bare "?" as the sender for system/lore messages — treat that as no sender
+            // so the chat shows the message without a "?:" prefix.
+            if (sender.Trim() == "?") sender = string.Empty;
 
             // Skip an immediate exact duplicate — the native formatter can re-run
             // for the same message (channel/mode re-filter). TIME-BOUNDED so a
@@ -186,6 +192,15 @@ internal static class ChatRelayService
         {
             LogUtils.LogDebug($"ChatRelayService.CaptureLocalEcho: {ex.Message}");
         }
+    }
+
+    /// <summary>0.21: true when a captured sender is the LOCAL player (used by the chat UI's "highlight my
+    /// own messages"). Compares against the resolved local character name, case-insensitively.</summary>
+    internal static bool IsOwnSender(string sender)
+    {
+        if (string.IsNullOrEmpty(sender)) return false;
+        var me = LocalPlayerName();
+        return !string.IsNullOrEmpty(me) && string.Equals(sender.Trim(), me.Trim(), StringComparison.OrdinalIgnoreCase);
     }
 
     private static string _localName;

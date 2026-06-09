@@ -32,6 +32,23 @@ internal static class ClientChatPatch
     // user in chat with no way out.
     private static bool _wasChatActiveLastFrame;
 
+    // 0.18.4: true when a NON-BCH text input field currently has focus (e.g. V Rising's "rename
+    // storage box" field). Callers use this where BCH's own chat focus (ChatInputActive) is already
+    // known to be false — so any focused TMP_InputField the EventSystem reports is a GAME field, and
+    // BCH must not steal its Enter key. Best-effort + null-guarded; never throws into the chat pump.
+    private static bool IsForeignUiInputActive()
+    {
+        try
+        {
+            var es = UnityEngine.EventSystems.EventSystem.current;
+            var go = es != null ? es.currentSelectedGameObject : null;
+            if (go == null) return false;
+            var field = go.GetComponent<TMPro.TMP_InputField>();
+            return field != null && field.isFocused;
+        }
+        catch { return false; }
+    }
+
     [HarmonyPatch(typeof(ClientChatSystem), nameof(ClientChatSystem.OnUpdate))]
     [HarmonyPrefix]
     // Run before Eclipse-main's same-target prefix (which is Priority.Normal).
@@ -45,6 +62,14 @@ internal static class ClientChatPatch
     {
         // Don't try anything until MessageService has bound the local character/user.
         if (!MessageService.IsInitialized) return;
+
+        // LOGOUT CRASH FIX (exit-to-desktop): ClientChatSystem.OnUpdate keeps ticking while the
+        // client world is torn down on logout. The ToEntityArray below on the disposing query is a
+        // NATIVE crash a managed try/catch CANNOT catch. Mirror Eclipse's ClientChatSystem guard —
+        // bail once the world is gone OR the local character/user no longer exist. World.IsCreated is
+        // checked first so .Exists() never touches the EntityManager of a dead world.
+        if (__instance.World == null || !__instance.World.IsCreated) return;
+        if (!Plugin.LocalCharacter.Exists() || !MessageService.LocalUser.Exists()) return;
 
         // 0.17: while the tabbed-chat takeover is active, keep the native chat
         // hidden each tick (an incoming message can fade it back in) and
@@ -81,7 +106,14 @@ internal static class ClientChatPatch
                 // last-frame guard is essential: pressing Enter to SEND defocuses our
                 // input the same frame while GetKeyDown stays true all frame — without
                 // it we'd instantly re-focus and never leave chat.
-                if (!chatActive && !_wasChatActiveLastFrame
+                //
+                // 0.18.4 CRASH-TRIGGER FIX: do NOT steal Enter while a GAME text field is focused
+                // (renaming a storage box, etc.). chatActive is already false here, so any focused
+                // TMP_InputField is a foreign/game field — the Enter belongs to it. Stealing it
+                // focused BCH chat, which set ChatInputActive=true and armed the menu drain; the drain
+                // then destroyed the storage UI's networked transition entity → ReceivePacketSystem
+                // crash. Leaving Enter alone lets the rename confirm normally and never arms the drain.
+                if (!chatActive && !_wasChatActiveLastFrame && !IsForeignUiInputActive()
                     && (UnityEngine.Input.GetKeyDown(UnityEngine.KeyCode.Return)
                         || UnityEngine.Input.GetKeyDown(UnityEngine.KeyCode.KeypadEnter)))
                 {
@@ -93,13 +125,21 @@ internal static class ClientChatPatch
         }
         catch (Exception ex) { LogUtils.LogDebug($"OnUpdate_Prefix takeover: {ex.Message}"); }
 
-        // Send the registration handshake once. Eclipse-main delays a couple of
-        // seconds with a coroutine; we just fire on the first tick after the
-        // entity bindings come up - the server is fine with that.
-        if (!EclipseProtocolService.UserRegistered && !EclipseProtocolService.RegistrationPending)
-        {
+        // Drive the registration handshake. SendRegistration owns ALL the gating —
+        // the one-shot send, the per-attempt retry window, give-up after the cap, and
+        // Eclipse stand-down — so it's designed to be called every frame while we're
+        // not yet registered.
+        //
+        // 0.18.3 BUG FIX (server-switch BC re-detection): the old call-site gate
+        // `&& !RegistrationPending` DEFEATED that internal retry/give-up. Once the first
+        // attempt set RegistrationPending=true, this stopped calling SendRegistration, so
+        // the in-method retry (which re-sends or gives up after REGISTRATION_MAX_ATTEMPTS)
+        // never ran. On a server WITHOUT Bloodcraft (e.g. after switching from a BC server
+        // to a Beelz-only one) registration stayed Pending forever, never gave up, never
+        // fired AvailabilityChanged — so the Bloodcraft tab + overlays stayed falsely
+        // "available" showing the previous server's stale data. Gate ONLY on UserRegistered.
+        if (!EclipseProtocolService.UserRegistered)
             EclipseProtocolService.SendRegistration();
-        }
 
         // Walk this frame's inbound chat entities. ClientChatSystem exposes a
         // ReceiveChatMessages query - Eclipse-main accesses it as
@@ -131,6 +171,36 @@ internal static class ClientChatPatch
 
                 string text = ev.MessageText.Value;
                 if (string.IsNullOrEmpty(text)) continue;
+
+                // 0.18: Beelzebub structured protocol. Every [BEELZ:*] line (api
+                // replies AND the push event stream) arrives here as a System message
+                // (Beelzebub sends via ServerChatUtils.SendSystemMessageToClient /
+                // Core.Chat.SendEvent). Route them to the Beelzebub subcomponent and
+                // destroy the entity so the machine line never surfaces in chat. This
+                // runs BEFORE the Eclipse decode/stand-down branches so it works
+                // regardless of whether Eclipse is installed/stood-down — the two
+                // integrations are independent.
+                if (text.StartsWith("[BEELZ:", StringComparison.Ordinal))
+                {
+                    try { Services.Beelzebub.BeelzProtocolService.HandleLine(text); }
+                    catch (Exception ex) { LogUtils.LogDebug($"Beelz HandleLine: {ex.Message}"); }
+                    Plugin.EntityManager.DestroyEntity(entity);
+                    continue;
+                }
+
+                // 0.26: Uriel structured protocol — same pattern as the Beelzebub branch above, and
+                // independent of it / of Eclipse. Every [URIEL:*] line (the `.uriel api …` object-spawn
+                // replies) arrives here as a System message; route it to the Uriel subcomponent and
+                // destroy the entity so the machine line never surfaces in chat. (Uriel's share/stair
+                // replies are still HUMAN text and flow through the normal MessageService pipeline — they
+                // are NOT [URIEL:*], so they fall through this branch untouched.)
+                if (text.StartsWith("[URIEL:", StringComparison.Ordinal))
+                {
+                    try { Services.Uriel.UrielProtocolService.HandleLine(text); }
+                    catch (Exception ex) { LogUtils.LogDebug($"Uriel HandleLine: {ex.Message}"); }
+                    Plugin.EntityManager.DestroyEntity(entity);
+                    continue;
+                }
 
                 // 0.17.1 EXPERIMENT: in Eclipse stand-down, do NOT decode the
                 // Eclipse protocol (that's the passive layer Eclipse owns) — leave

@@ -27,6 +27,7 @@ public partial class MainPanel
 
     private void BuildKindredAdminPlayersTab(GameObject page)
     {
+        page = BeginAdminGate(page);   // gray out + disable the admin controls below for non-admins
         RenderAdminInfoNote(page, "Kindred admin (Players)");
         AddAdminWarningIntro(page,
             "Player-targeting admin commands. Most accept a player name; leave " +

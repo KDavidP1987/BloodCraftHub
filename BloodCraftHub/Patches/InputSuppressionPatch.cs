@@ -1,8 +1,11 @@
+using BloodCraftHub.Services;
 using BloodCraftHub.Utils;
 using HarmonyLib;
 using Il2CppInterop.Runtime;
 using ProjectM;
 using ProjectM.UI;
+using Stunlock.Core;
+using Unity.Collections;
 using Unity.Entities;
 
 namespace BloodCraftHub.Patches;
@@ -42,26 +45,102 @@ internal static class InputSuppression
 {
     private static double _lastDiagAt;
 
-    // 0.17: set true by the tabbed chat window's input field while it has focus,
-    // so gameplay input (movement / abilities / menu hotkeys) is suppressed while
-    // you type — independent of the SuppressGameInputWhileUIOpen setting, since
-    // you never want to move mid-type.
+    // 0.17: true while a BCH text field has keyboard focus, so the game keyboard is
+    // LOCKED while you type — movement, abilities/ability-keybinds, menu hotkeys, and
+    // BCH's own toggle hotkeys are all suppressed. Independent of the
+    // SuppressGameInputWhileUIOpen setting (you never want to act mid-type).
+    // 0.18.2: now covers the chat window AND every BCH form field (search/name/admin
+    // boxes), so a keystroke meant for a text box can never fire a game action — e.g. an
+    // admin's destructive ability keybind. See InputFieldRef.AnyFocused for the (reliable)
+    // focus source and the lessons behind it.
     internal static bool ChatInputActive;
 
-    // 0.17.0 (fix): poll the chat-input focus EVERY frame from CoreUpdateBehavior,
-    // not from ClientChatSystem.OnUpdate. That system doesn't reliably tick every
-    // frame, so the flag went stale and menu hotkeys (M/B/I/…) leaked through
-    // mid-typing (friend-test). The Escape hatch lives here too so it fires on a
+    // 0.18.2: falling-edge grace. When focus drops we hold the lock for a few frames so a
+    // 1-frame focus blip (clicking field-A → field-B, or the chat-exit transition) can't
+    // flicker ChatInputActive — flicker on the ability path is exactly what caused the
+    // 0.17.2 "character stuck looping actions" regression. Escape clears it immediately.
+    private static int _typingReleaseGrace;
+    private const int TYPING_RELEASE_GRACE_FRAMES = 6; // ~100ms @60fps — imperceptible
+    private static double _focusDiagAt;
+
+    // 0.17.0 (fix): poll the typing-focus EVERY frame from CoreUpdateBehavior, not from
+    // ClientChatSystem.OnUpdate (which doesn't tick reliably → the flag went stale and
+    // menu hotkeys leaked mid-typing). The Escape hatch lives here too so it fires on a
     // guaranteed cadence. Registered once in Plugin.Load.
     internal static void TickChatFocus()
     {
         try
         {
-            ChatInputActive = Plugin.UIManager?.IsChatInputFocused() ?? false;
+            // Chat window focus is always honored (proven since 0.17.0). Form-field focus
+            // is gated by a default-ON kill-switch so the (newer) form coverage can be
+            // disabled instantly without losing chat suppression if it ever misbehaves.
+            // 0.18.2: (reverted) EnsureSelectedFocused() re-activated the chat field after ESC →
+            // trapped the user in chat. It also didn't help forms. The real form fix is to engage the
+            // game's native chat-open input gate while a form is focused (see ClientChatPatch), not to
+            // fiddle with field activation.
+
+            bool chatFocused = Plugin.UIManager?.IsChatInputFocused() ?? false;
+            bool formFocused = Config.Settings.LockKeyboardInFormFields
+                               && UI.Framework.UniverseLib.UI.Models.InputFieldRef.AnyFocused();
+            bool typingNow = chatFocused || formFocused;
+
+            // 0.18.2 TEMP diagnostic (LogInfo so it's visible WITHOUT enabling Diagnostic mode):
+            // once/sec while a UI field is selected or we're locking, surface the focus signals so a
+            // form that isn't locking can be pinpointed. Removed once forms lock reliably.
+            try
+            {
+                UnityEngine.GameObject selGo = null;
+                try { var es = UnityEngine.EventSystems.EventSystem.current; selGo = es != null ? es.currentSelectedGameObject : null; } catch { }
+                if ((selGo != null || typingNow) && System.Math.Abs(UnityEngine.Time.realtimeSinceStartupAsDouble - _focusDiagAt) >= 1.0)
+                {
+                    _focusDiagAt = UnityEngine.Time.realtimeSinceStartupAsDouble;
+                    bool selFocused = false;
+                    try { var f = selGo != null ? selGo.GetComponent<TMPro.TMP_InputField>() : null; if (f != null) selFocused = f.isFocused; } catch { }
+                    // LogDiagnostic (not LogInfo) so this is silent unless Diagnostic mode is on — no console spam.
+                    LogUtils.LogDiagnostic($"[FocusDiag] chat={chatFocused} form={formFocused} lockForms={Config.Settings.LockKeyboardInFormFields} typing={typingNow} selected={(selGo != null ? selGo.name : "<none>")} selFocused={selFocused}");
+                }
+            }
+            catch { }
+
+            if (typingNow) _typingReleaseGrace = TYPING_RELEASE_GRACE_FRAMES;
+            else if (_typingReleaseGrace > 0) _typingReleaseGrace--;
+
+            ChatInputActive = typingNow || _typingReleaseGrace > 0;
+
+            // Escape ALWAYS frees the keyboard immediately (overrides the grace) so the
+            // user can never be trapped suppressed — releases the chat input AND any
+            // focused form field (+ clears the EventSystem selection, the anti-freeze).
             if (ChatInputActive && UnityEngine.Input.GetKeyDown(UnityEngine.KeyCode.Escape))
+            {
+                _typingReleaseGrace = 0;
+                ChatInputActive = false;
                 Plugin.UIManager?.ReleaseChatInput();
+                UI.Framework.UniverseLib.UI.Models.InputFieldRef.ReleaseAllFocused();
+            }
+
+            // 0.25.0: CONSOLE keybindings (`keybinding create ...` — the admin-assigned
+            // hotkeys; they only execute for console-enabled/admin sessions) are read RAW
+            // by Stunlock.Console, completely OUTSIDE the IInputContext pipeline — they
+            // fire even while the NATIVE chat has focus (observed back in 0.18.2), so
+            // neither the typing-lock context nor any menu patch can ever stop them.
+            // The game's own countermeasure is the DisableConsoleKeybindingsOnFocus
+            // component: while its text field is focused it sets
+            // StunConsole.UI.EnableKeybindingUpdates = false every frame, and
+            // ResetConsoleKeybindingsSystem re-enables it every frame. We follow the
+            // exact same contract — keep writing false while BCH should block input;
+            // the game re-arms the flag the frame we stop, so admin binds can never be
+            // left permanently dead even if BCH crashes mid-block.
+            if (Config.Settings.SuppressConsoleKeybindsWhileTyping && ShouldBlockMenus())
+            {
+                try
+                {
+                    var consoleUi = Engine.Console.StunConsole.UI;
+                    if (consoleUi != null) consoleUi.EnableKeybindingUpdates = false;
+                }
+                catch { /* console not initialized yet — nothing to suppress */ }
+            }
         }
-        catch { ChatInputActive = false; } // never let a poll error pin suppression on
+        catch { ChatInputActive = false; _typingReleaseGrace = 0; } // never pin suppression on
     }
 
     internal static bool ShouldBlock()
@@ -98,31 +177,164 @@ internal static class InputSuppression
     internal static bool ShouldBlockAbilities()
     {
         if (ShouldBlock()) return true;
-        try { return Plugin.UIManager?.IsPointerOverChatWindow() ?? false; }
+        try
+        {
+            if (Plugin.UIManager?.IsPointerOverChatWindow() ?? false) return true;
+            // 0.19: ALWAYS suppress while the cursor is over the open main panel — clicking buttons/forms
+            // there must never fire a world attack/cast. Same proven ability-only path as the chat window.
+            if (Plugin.UIManager?.IsPointerOverMainPanel() ?? false) return true;
+            // B3 (0.19): optional guarded opt-in — extend the over-chat ability/primary-attack
+            // suppression to ANY BCH panel/overlay so a click on a panel can't leak into the world as
+            // a cast or a stuck attack. Default OFF (some players WANT to cast with the cursor over an
+            // overlay). Feeds ONLY this ability path — not movement, not the menu patches — so it
+            // carries none of the movement-loop / menu-patch crash risk.
+            if (Config.Settings.BlockInputWhenPointerOverUI && (Plugin.UIManager?.IsPointerOverAnyUI() ?? false))
+                return true;
+            return false;
+        }
         catch { return false; }
     }
 
-    // 0.17.3: is a BCH text field (the chat input OR a main-panel form field) the
-    // focused UI selection? Used ONLY to decide whether to drain menu-open requests —
-    // NOT to drive ChatInputActive. ChatInputActive feeds the movement/ability patches,
-    // and driving it from EventSystem focus caused a character action-loop on chat exit
-    // (reverted in 0.17.2). The drain only DestroyEntity's menu-open request entities,
-    // so reading focus here is safe even if it occasionally blips. Fixes menu hotkeys
-    // (M/B/I) opening menus while typing into a main-panel form (the 0.17.2 gap).
-    internal static bool IsBchTextFieldFocusedForMenuDrain()
+    // STUCK-ATTACK-ON-CLOSE fix. Opening the panel already cancels the in-flight attack (see
+    // AbilityInputSuppressionPatch). The mirror case is CLOSING: closing the panel (clicking its X)
+    // re-enables gameplay cursor/input, and the closing click latches a HELD primary attack that loops
+    // until you click again ("character keeps attacking after I close the UI").
+    //
+    // 0.26.5 tried gating a release-hold on the mouse button still being DOWN at the unblock frame —
+    // but a quick X-click RELEASES the button a frame or two before suppression falls off, so the gate
+    // never engaged and the attack still latched. 0.26.6: after ability suppression falls on→off we run
+    // an UNCONDITIONAL short release WINDOW (default ~0.4s) during which the ability producer stays
+    // skipped and the cast is interrupted every frame — so whatever the closing click left half-started
+    // (and any attack the cursor re-enable kicks off a frame later) is cancelled regardless of button
+    // state. If the button is still physically held we extend the window until release (1s cap). The
+    // window only opens on the close edge, so normal play is unaffected aside from a sub-half-second
+    // dead-zone for an attack issued in the instant after closing the panel.
+    // Called once per frame from AbilityInputSuppressionPatch.Prefix.
+    private static bool _abilityWasBlocking;
+    private static bool _mainPanelWasOpen;
+    private static double _abilityUnblockAt;
+    private static double _postCloseLogUntil;   // 0.29.1: stuck-attack diag window after a panel close (DiagnosticMode only)
+    private static double _lastPostCloseLogAt;
+    private static bool   _phantomGuardArmed;   // 0.29.2: post-close phantom-attack guard (latched Primary while LMB up)
+    private static double _phantomGuardArmedAt;
+    private const double  PHANTOM_GUARD_MAX_SECONDS = 120.0;   // safety: never stay armed forever
+    private const double ABILITY_RELEASE_WINDOW_SECONDS = 0.4;   // unconditional cancel window after close
+    private const double ABILITY_RELEASE_HOLD_MAX_SECONDS = 1.0; // cap if the mouse button stays held
+
+    internal static bool ShouldBlockAbilitiesWithReleaseGrace()
+    {
+        bool raw = ShouldBlockAbilities();
+        bool effective = raw;
+        try
+        {
+            double now = UnityEngine.Time.realtimeSinceStartupAsDouble;
+
+            // 0.29: ALSO open the release window on the MAIN PANEL's open→closed edge — independent of the
+            // ability-block falling edge below. The falling edge only fires when ShouldBlockAbilities() was
+            // true the prior frame, i.e. the cursor was over the panel (pointer-over rect test). That MISSES
+            // closes where the cursor wasn't over the panel — closing via the toggle HOTKEY, or any frame
+            // ordering where the panel disables before the pointer-over test sees it — and in those cases the
+            // held closing click could still latch a stuck auto-attack (the regression testers still hit).
+            // Keying off IsMainPanelOpen catches every close path. (Strictly widens WHEN we cancel; can only
+            // suppress an attack for ≤0.4s right after a close.)
+            bool panelOpen = Plugin.UIManager?.IsMainPanelOpen ?? false;
+            bool panelJustClosed = _mainPanelWasOpen && !panelOpen;
+            _mainPanelWasOpen = panelOpen;
+            if (panelJustClosed)
+            {
+                _postCloseLogUntil = now + 1.5;   // 0.29.1: arm the stuck-attack diagnostic
+                _phantomGuardArmed = true;        // 0.29.2: arm the phantom-attack guard
+                _phantomGuardArmedAt = now;
+            }
+
+            if (raw)
+            {
+                _abilityUnblockAt = 0; // (re)blocking — clear any pending release window
+            }
+            else
+            {
+                if (_abilityWasBlocking || panelJustClosed) _abilityUnblockAt = now;   // falling edge → open the window
+                if (_abilityUnblockAt > 0)
+                {
+                    double since = now - _abilityUnblockAt;
+                    bool lmbHeld = UnityEngine.Input.GetMouseButton(0);
+                    if (since < ABILITY_RELEASE_WINDOW_SECONDS ||
+                        (lmbHeld && since < ABILITY_RELEASE_HOLD_MAX_SECONDS))
+                        effective = true;     // keep cancelling the attack this frame
+                    else
+                        _abilityUnblockAt = 0; // window elapsed → resume normal attacks
+                }
+            }
+            _abilityWasBlocking = raw;
+        }
+        catch { _abilityUnblockAt = 0; }
+        return effective;
+    }
+
+    // 0.29.1: stuck-attack diagnostics. The close-time attack-cancel has been tried several ways
+    // (0.26.5 / 0.26.6 / 0.29.0) and a tester still sees the character keep auto-attacking after the
+    // panel closes until they swing once — which points to a HELD/latched attack ACTION upstream of our
+    // ability skip (the closing click's button-UP was eaten by the UI, so the game's input action never
+    // saw the release; our 0.4s cancel can't clear that). To fix it precisely we need to SEE what's
+    // latched. With global Diagnostic mode ON, for ~1.5s after every main-panel close this logs the local
+    // character's input + ability-cast state each ~0.1s to LogOutput.log (filter `[CloseAttackDiag]`).
+    // No effect when Diagnostic mode is off.
+    internal static bool WantPostCloseDiag()
+    {
+        try { return Config.Settings.DiagnosticMode && UnityEngine.Time.realtimeSinceStartupAsDouble < _postCloseLogUntil; }
+        catch { return false; }
+    }
+
+    internal static void LogPostCloseAttackDiag(EntityManager em, Entity character)
     {
         try
         {
-            var es = UnityEngine.EventSystems.EventSystem.current;
-            var go = es != null ? es.currentSelectedGameObject : null;
-            if (go == null) return false;
-            var field = go.GetComponent<TMPro.TMP_InputField>();
-            if (field == null || !field.isFocused) return false;
-            var root = BloodCraftHub.UI.Framework.UniverseLib.UI.UniversalUI.CanvasRoot;
-            if (root == null) return true; // can't verify — assume ours (BCH is the UI mod)
-            return go.transform.IsChildOf(root.transform);
+            double now = UnityEngine.Time.realtimeSinceStartupAsDouble;
+            if (now - _lastPostCloseLogAt < 0.1) return;
+            _lastPostCloseLogAt = now;
+            string s = "";
+            if (em.HasComponent<EntityInput>(character))
+            {
+                var ei = em.GetComponentData<EntityInput>(character);
+                s += $"inState={ei.State} mov={ei.Movement}";
+            }
+            if (em.HasComponent<EntityAbilityInput>(character))
+            {
+                var ai = em.GetComponentData<EntityAbilityInput>(character);
+                s += $" castInput={ai.CastInput} queued={(ai.QueuedCastGroup != Entity.Null)} prepare={(ai.PrepareCastGroup != Entity.Null)} interrupt={ai.Interrupt}";
+            }
+            LogUtils.LogInfo($"[CloseAttackDiag] {s}");
         }
-        catch { return false; }
+        catch { }
+    }
+
+    internal static bool PhantomGuardArmed => _phantomGuardArmed;
+
+    // 0.29.2: phantom-attack guard. CONFIRMED via [CloseAttackDiag]: after a panel close the game's Primary
+    // attack input ACTION stays latched (the closing UI click's button-UP was eaten by the Close button, so
+    // the game's input system never saw the release). GameplayInputSystem then re-feeds CastInput=Primary
+    // every frame even though the physical mouse button is UP, and the character auto-attacks until a real
+    // swing supplies the missing release. Our older fixed-duration cancel windows (0.26.5 / 0.26.6 / 0.29.0)
+    // couldn't beat a permanent latch. This guard does: while armed (set on panel close), a Primary cast with
+    // the LMB physically UP is the phantom → suppress it (the ability prefix interrupts + clears it). A REAL
+    // attack HOLDS the LMB, so it passes through and its button release clears the latch — at which point we
+    // disarm. Distinguishing on the physical mouse button is what separates the phantom from a wanted attack.
+    internal static bool ShouldSuppressPhantomAttack(bool castIsPrimary)
+    {
+        if (!_phantomGuardArmed) return false;
+        try
+        {
+            // Disarm the instant the user physically presses the mouse button (a real attack takes over), or
+            // after a safety cap so a stuck state can never pin the guard on indefinitely.
+            if (UnityEngine.Input.GetMouseButton(0)
+                || UnityEngine.Time.realtimeSinceStartupAsDouble - _phantomGuardArmedAt > PHANTOM_GUARD_MAX_SECONDS)
+            {
+                _phantomGuardArmed = false;
+                return false;
+            }
+        }
+        catch { _phantomGuardArmed = false; return false; }
+        return castIsPrimary;   // LMB up + Primary cast = phantom → suppress
     }
 
     // 0.17.2 CRASH FIX — safe replacement for the three menu-suppression Harmony
@@ -146,27 +358,44 @@ internal static class InputSuppression
     private static EntityQuery _drainGoToHudQuery;
     private static bool _drainQueriesReady;
 
+    // 0.18.4: called from the ClientBootstrapSystem.OnDestroy teardown hook (leave-game / server-switch).
+    // Drops the cached drain queries so DrainMenuOpenRequests rebuilds them against the NEW client world
+    // on the next use — using a query created in the now-disposed old world is a native crash (the
+    // server-switch "open BCH → crash"). PURE field reset; safe in the teardown hook.
+    internal static void OnWorldTeardown() => _drainQueriesReady = false;
+
     internal static void DrainMenuOpenRequests()
     {
         try
         {
             if (!Config.Settings.EnableInputSuppressionPatches) return; // master kill-switch
-            // Drain while menus should be blocked (chat typing / panel open) OR while a
-            // BCH form field is focused — the latter fixes menu hotkeys leaking through
-            // while typing into a main-panel form (0.17.2 gap).
-            if (!ShouldBlockMenus() && !IsBchTextFieldFocusedForMenuDrain()) return;
+            // Drain while menus should be blocked. ShouldBlockMenus() keys off ChatInputActive,
+            // which (0.18.2) is true while typing in the chat window OR any BCH form field — so
+            // this now covers form-field typing too, via the reliable per-field focus poll
+            // (replacing the 0.17.3 EventSystem-selection probe that could blip).
+            if (!ShouldBlockMenus()) return;
             if (Plugin.IsClientNull()) return;
 
             var em = Plugin.EntityManager;
+            // 0.18.4 CRASH FIX (server-switch): NEVER use a cached EntityQuery from a DISPOSED world.
+            // The client world is torn down + recreated on a server-switch; a query created in the old
+            // world NATIVE-crashes when used against the new one (ToEntityArray/DestroyEntity). The
+            // OnDestroy teardown hook calls OnWorldTeardown() to drop the cached queries so they're
+            // rebuilt against the new world; this World.IsCreated check is a belt-and-braces guard for
+            // any transient bad-world frame. (This is THE root cause of "open BCH after a server-switch
+            // → crash to desktop" — the drain runs on panel-open when SuppressGameInputWhileUIOpen is
+            // on, and on typing — and was using the stale query.)
+            var world = em.World;
+            if (world == null || !world.IsCreated) { _drainQueriesReady = false; return; }
+
             if (!_drainQueriesReady)
             {
                 _drainOpenMenuQuery = em.CreateEntityQuery(ComponentType.ReadOnly(Il2CppType.Of<OpenMenuEvent>()));
                 _drainGoToHudQuery  = em.CreateEntityQuery(ComponentType.ReadOnly(Il2CppType.Of<GoToHUDMenu>()));
                 _drainQueriesReady  = true;
             }
-            // DestroyEntity(query) is a no-op when the query is empty.
-            em.DestroyEntity(_drainOpenMenuQuery);
-            em.DestroyEntity(_drainGoToHudQuery);
+            DrainNonNetworked(em, _drainOpenMenuQuery);
+            DrainNonNetworked(em, _drainGoToHudQuery);
         }
         catch
         {
@@ -174,14 +403,57 @@ internal static class InputSuppression
         }
     }
 
+    // 0.18.4 CRITICAL CRASH FIX: destroy only NON-networked menu-open requests. A blanket
+    // em.DestroyEntity(query) here destroyed a NETWORKED entity (one with a ProjectM.Network.NetworkId)
+    // when the user interacted with a networked object — e.g. opening / RENAMING a storage box while the
+    // BCH chat window had focus (pressing Enter in the rename box stole focus into BCH chat → armed this
+    // drain). Destroying a networked entity client-side corrupts ReceivePacketSystem's
+    // NetworkedIdToEntityMap ("NetworkedIdToEntityMap contained a destroyed entity") and the Burst job in
+    // ReceivePacketSystem.OnUpdate then ABORTS THE APPLICATION (hard crash to desktop). Stray menu-open
+    // keypresses (M/B/K/…) create LOCAL request entities with no NetworkId, so skipping networked ones
+    // still suppresses the menus we mean to — and never touches a network-managed entity again.
+    private static void DrainNonNetworked(EntityManager em, EntityQuery q)
+    {
+        var arr = q.ToEntityArray(Allocator.Temp);
+        try
+        {
+            foreach (var e in arr)
+            {
+                bool networked = false;
+                try { networked = em.HasComponent<ProjectM.Network.NetworkId>(e); } catch { networked = true; } // unsure → don't destroy
+                if (networked) continue;
+                em.DestroyEntity(e);
+            }
+        }
+        finally { arr.Dispose(); }
+    }
+
+    // -------------------------------------------------------------------------
+    // 0.25.0: the menu/hotkey lock while typing now lives in Patches/TypingInputLock.cs —
+    // a BCH IInputContext registered in the game's own input-consumer stack (the exact
+    // mechanism the NATIVE chat uses), consuming every ButtonInputAction at the source
+    // while ShouldBlockMenus() is true. The 0.18.2 BlockInputState-COMPONENT attempt
+    // that used to live here was structurally wrong (BlockInputState is the by-ref
+    // accumulator struct of that consumer pipeline, not entity data — hence the
+    // "Unknown Type" failures) and has been removed along with its dead helpers.
+    // -------------------------------------------------------------------------
+
     internal static void Diag(string msg)
     {
         double now = UnityEngine.Time.realtimeSinceStartupAsDouble;
         if (now - _lastDiagAt < 1.0) return;
         _lastDiagAt = now;
-        LogUtils.LogInfo($"[InputSuppress] {msg}");
+        // 0.18: demoted to diagnostic — this routine "panel open" notice was cluttering
+        // normal logs and got mistaken for an error. Enable Diagnostic mode to see it.
+        LogUtils.LogDiagnostic($"[InputSuppress] {msg}");
     }
 }
+
+// 0.18.2 (REVERTED): a postfix on ClientChatSystem.IsChatOpen getter that forced it true while a BCH
+// field was focused. It did NOT lock forms — V Rising's input/menu/debug systems read the chat-open
+// state from an INTERNAL field, not this property, so overriding the getter's return value changed
+// nothing (the log even showed StunConsole debug keybinds firing while CHAT was focused). It also
+// appeared to cause NREs by confusing the chat system during text edits. Removed.
 
 // Movement + aim producer. Skipping its OnUpdate stops the local character from
 // moving or aiming while the BCH panel is open.
@@ -189,10 +461,17 @@ internal static class InputSuppression
 public static class GameplayInputSuppressionPatch
 {
     [HarmonyPrefix]
-    private static bool Prefix()
+    private static bool Prefix(GameplayInputSystem __instance)
     {
         try
         {
+            // 0.25.0: hand TypingInputLock the live InputActionSystem via this system's
+            // injected _InputActionSystem reference (right instance, right world). One
+            // null check per frame once captured; the registration work itself stays on
+            // the CoreUpdateBehavior tick. This replaces the 0.25.0 wrong-world
+            // GetExistingSystemManaged lookup that silently never found the system.
+            TypingInputLock.CaptureFrom(__instance);
+
             // 0.17.2: drain queued menu-open requests from HERE. GameplayInputSystem
             // runs early in the input phase — before OpenHUDMenuSystem consumes the
             // requests — so this beats the menu open, unlike the CoreUpdateBehavior
@@ -200,6 +479,8 @@ public static class GameplayInputSuppressionPatch
             // on ShouldBlockMenus, so it only acts while typing / panel-open, NEVER
             // during tracking — no crash risk (this system is proven safe to patch).
             InputSuppression.DrainMenuOpenRequests();
+            // (0.25.0: the direct-keybind lock that used to be attempted here is now
+            // TypingInputLock — a context in the game's own input stack; see that file.)
 
             if (!InputSuppression.ShouldBlock()) return true; // run normally
 
@@ -258,7 +539,42 @@ public static class AbilityInputSuppressionPatch
             // 0.17.3: ShouldBlockAbilities (not ShouldBlock) — also blocks while the
             // cursor is over the chat window, so clicking the chat never fires/sticks
             // a primary attack.
-            if (!InputSuppression.ShouldBlockAbilities()) return true; // run normally
+            // 0.26.5: ...WithReleaseGrace — also keeps releasing the attack for a moment AFTER the
+            // panel closes while the LMB is still held (the closing X-click), so the held button can't
+            // latch a stuck auto-attack. Ends the instant the button is released.
+            bool block = InputSuppression.ShouldBlockAbilitiesWithReleaseGrace();
+
+            // 0.29.1: post-close stuck-attack diagnostic (Diagnostic mode only; ~1.5s after a panel close).
+            if (InputSuppression.WantPostCloseDiag())
+            {
+                try
+                {
+                    var dch = Plugin.LocalCharacter;
+                    if (!Plugin.IsClientNull() && dch != Entity.Null)
+                        InputSuppression.LogPostCloseAttackDiag(Plugin.EntityManager, dch);
+                }
+                catch { }
+            }
+
+            // 0.29.2: phantom-attack guard — after a panel close, suppress a latched Primary cast while the
+            // physical mouse button is UP (the stuck auto-attack). Only reads ECS while the guard is armed.
+            if (!block && InputSuppression.PhantomGuardArmed)
+            {
+                try
+                {
+                    var pch = Plugin.LocalCharacter;
+                    if (!Plugin.IsClientNull() && pch != Entity.Null)
+                    {
+                        var pem = Plugin.EntityManager;
+                        bool castPrimary = pem.HasComponent<EntityAbilityInput>(pch)
+                            && pem.GetComponentData<EntityAbilityInput>(pch).CastInput.ToString() == "Primary";
+                        if (InputSuppression.ShouldSuppressPhantomAttack(castPrimary)) block = true;
+                    }
+                }
+                catch { }
+            }
+
+            if (!block) return true; // run normally
 
             try
             {

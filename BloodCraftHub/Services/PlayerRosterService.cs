@@ -34,6 +34,12 @@ internal static class PlayerRosterService
     private static EntityQuery _userQuery;
     private static bool _queryReady;
 
+    // 0.18.4: drop the cached query on leave-game / server-switch (called from the
+    // ClientBootstrapSystem.OnDestroy teardown hook). The client world is disposed + recreated on a
+    // switch; reusing a query from the old world is a native crash. Pure field reset → rebuilt against
+    // the new world on the next GetOnlinePlayers call. Mirrors InputSuppression.OnWorldTeardown.
+    internal static void OnWorldTeardown() => _queryReady = false;
+
     // Online players (excluding self), sorted by name. Prefers the full (non-culled)
     // UserInfoElement roster; falls back to the nearby-only User query. Best-effort:
     // returns empty on failure rather than throwing into the UI.
